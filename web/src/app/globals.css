@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-berry: #d6334a;
+  --color-berry-dark: #b0213a;
+  --color-leaf: #2f7d4f;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: #fdf8f6;
+  color: #1f1f1f;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+}

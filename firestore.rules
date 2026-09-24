@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Firestore セキュリティルール
+// 「誰が、どのデータを、読めるか・書けるか」を決める。書いていないものはすべて禁止。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    // 権限（role）はサーバー側でログイン情報に付けた印（カスタムクレーム）
+    function isAdmin() {
+      return signedIn() && request.auth.token.role == 'admin';
+    }
+    function isStaff() {
+      return signedIn() && request.auth.token.role in ['admin', 'staff'];
+    }
+
+    // 各機能のルールは、機能を作るときに1つずつ追加する。
+    // 例：設定は、スタッフは読むだけ・管理者だけが変更できる
+    match /settings/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+  }
+}

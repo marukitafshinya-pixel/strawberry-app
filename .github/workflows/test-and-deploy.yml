@@ -1,0 +1,76 @@
+# GitHub に保存（プッシュ）されるたびに自動で動く仕組み
+# 1. check  : 画面のビルドとセキュリティルールのテスト
+# 2. deploy : テスト用Firebase（ichigo-test-d0fa2）へ公開
+name: テストと公開
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm run test:rules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ICHIGO_TEST }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 秘密鍵の登録を確認
+        run: |
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::warning::GitHub の Secrets に FIREBASE_SERVICE_ACCOUNT_ICHIGO_TEST が未登録のため、公開をスキップしました"
+          fi
+      - uses: actions/setup-node@v4
+        if: env.SERVICE_ACCOUNT != ''
+        with:
+          node-version: 22
+          cache: npm
+      - if: env.SERVICE_ACCOUNT != ''
+        run: npm ci
+      - uses: actions/download-artifact@v4
+        if: env.SERVICE_ACCOUNT != ''
+        with:
+          name: web-out
+          path: web/out
+      - name: テスト用Firebaseへ公開
+        if: env.SERVICE_ACCOUNT != ''
+        run: |
+          echo "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase deploy --only hosting,firestore:rules,firestore:indexes --project test --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

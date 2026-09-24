@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+# 秘密鍵などは絶対に保存しない
+*service-account*.json
+*-adminsdk-*.json
+.env*
+!.env.example
