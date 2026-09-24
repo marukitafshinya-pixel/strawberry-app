@@ -52,6 +52,7 @@ const validSettings = {
   timeSlots: [{ id: "a", time: "10:00", capacity: 30 }],
   priceCategories: [{ id: "adult", name: "大人" }],
   plans: [{ id: "p", name: "30分", minutes: 30, prices: { adult: 1500 }, public: true }],
+  products: [{ id: "j", name: "いちごジャム", group: "お土産", price: 800, active: true }],
 };
 
 describe("設定 (settings/main)", () => {

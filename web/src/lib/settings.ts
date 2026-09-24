@@ -26,6 +26,18 @@ export type Plan = {
   public: boolean;
 };
 
+/** 会計で売る商品（お土産・ドリンクなど） */
+export type Product = {
+  id: string;
+  name: string;
+  /** 分類（例：お土産、ドリンク）。会計画面でまとめて表示する */
+  group: string;
+  /** 税込の単価（円） */
+  price: number;
+  /** 会計画面に表示するか（売り切れ・取扱終了なら外す） */
+  active: boolean;
+};
+
 export type Settings = {
   storeName: string;
   storePhone: string;
@@ -44,6 +56,7 @@ export type Settings = {
   timeSlots: TimeSlot[];
   priceCategories: PriceCategory[];
   plans: Plan[];
+  products: Product[];
 };
 
 export const SETTINGS_DOC = "settings/main";
@@ -74,6 +87,7 @@ export function defaultSettings(): Settings {
     ],
     priceCategories: [adult, child],
     plans: [{ id: newId(), name: "いちご狩り 30分", minutes: 30, prices: { adult: 0, child: 0 }, public: true }],
+    products: [],
   };
 }
 
@@ -126,6 +140,14 @@ export function validateSettings(s: Settings): string[] {
       if (!Number.isInteger(yen) || yen < 0 || yen > 1_000_000) errors.push(`プラン「${label}」の料金が正しくありません`);
     }
   }
+  const productNames = new Set<string>();
+  for (const p of s.products) {
+    const label = p.name.trim() || "（名前なし）";
+    if (!p.name.trim()) errors.push("商品の名前が空です");
+    if (productNames.has(p.name.trim())) errors.push(`商品「${p.name}」が重複しています`);
+    productNames.add(p.name.trim());
+    if (!Number.isInteger(p.price) || p.price < 0 || p.price > 1_000_000) errors.push(`商品「${label}」の金額が正しくありません`);
+  }
   return [...new Set(errors)];
 }
 
@@ -145,5 +167,6 @@ export function cleanSettings(s: Settings): Settings {
       name: p.name.trim(),
       prices: Object.fromEntries(Object.entries(p.prices).filter(([id]) => catIds.has(id))),
     })),
+    products: s.products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim() })),
   };
 }

@@ -33,7 +33,7 @@ service cloud.firestore {
           'storeName', 'storePhone', 'storeAddress',
           'seasonStart', 'seasonEnd', 'openTime', 'closeTime', 'closedDates',
           'bookingDaysAhead', 'bookingCutoffDays',
-          'timeSlots', 'priceCategories', 'plans', 'updatedAt'
+          'timeSlots', 'priceCategories', 'plans', 'products', 'updatedAt'
         ])
         && request.resource.data.timeSlots is list
         && request.resource.data.priceCategories is list

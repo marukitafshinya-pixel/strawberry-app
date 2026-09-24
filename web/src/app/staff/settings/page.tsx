@@ -13,6 +13,7 @@ import {
   normalizeSettings,
   validateSettings,
   type Plan,
+  type Product,
   type Settings,
 } from "@/lib/settings";
 
@@ -250,6 +251,91 @@ export default function SettingsPage() {
           className={`${smallButton} mt-2`}
         >
           ＋ プランを追加
+        </button>
+      </Section>
+
+      <Section title="商品（会計で売るもの）" note="お土産・ドリンクなど。金額は税込です。並び順は会計画面の表示順になります。">
+        {s.products.length === 0 && <p className="text-sm text-gray-500">まだありません</p>}
+        <datalist id="product-groups">
+          {[...new Set(s.products.map((p) => p.group).filter(Boolean))].map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+        <ul className="space-y-2">
+          {s.products.map((p, i) => {
+            const set = (patch: Partial<Product>) =>
+              update({ products: s.products.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+            return (
+              <li key={p.id} className={`rounded-xl border p-3 ${p.active ? "" : "bg-gray-50"}`}>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field label="商品名">
+                    <input
+                      value={p.name}
+                      maxLength={30}
+                      onChange={(e) => set({ name: e.target.value })}
+                      className="mt-1 w-48 rounded-lg border px-3 py-2 text-base"
+                    />
+                  </Field>
+                  <Field label="分類">
+                    <input
+                      value={p.group}
+                      maxLength={20}
+                      list="product-groups"
+                      placeholder="例：お土産"
+                      onChange={(e) => set({ group: e.target.value })}
+                      className="mt-1 w-32 rounded-lg border px-3 py-2 text-base"
+                    />
+                  </Field>
+                  <Field label="金額（税込）">
+                    <span className="mt-1 block">
+                      <NumberInput value={p.price} onChange={(v) => set({ price: v })} suffix="円" />
+                    </span>
+                  </Field>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="mr-auto flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={p.active} onChange={(e) => set({ active: e.target.checked })} />
+                    会計で選べるようにする
+                  </label>
+                  <button
+                    disabled={i === 0}
+                    onClick={() => update({ products: move(s.products, i, -1) })}
+                    className={`${smallButton} disabled:opacity-30`}
+                    aria-label="上へ"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    disabled={i === s.products.length - 1}
+                    onClick={() => update({ products: move(s.products, i, 1) })}
+                    className={`${smallButton} disabled:opacity-30`}
+                    aria-label="下へ"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`商品「${p.name}」を削除しますか？\n（過去の会計の記録はそのまま残ります）`))
+                        update({ products: s.products.filter((_, j) => j !== i) });
+                    }}
+                    className={`${smallButton} text-red-700`}
+                  >
+                    削除
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <button
+          onClick={() =>
+            update({
+              products: [...s.products, { id: newId(), name: "", group: s.products.at(-1)?.group ?? "", price: 0, active: true }],
+            })
+          }
+          className={`${smallButton} mt-2`}
+        >
+          ＋ 商品を追加
         </button>
       </Section>
 
