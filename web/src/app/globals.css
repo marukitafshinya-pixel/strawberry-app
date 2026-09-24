@@ -15,3 +15,11 @@ body {
   color: #1f1f1f;
   font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
 }
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-gray-300);
+  }
+}

@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             web/package-lock.json
+            functions/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,6 +33,10 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: web
+      - run: npm ci
+        working-directory: functions
+      - run: npm run build
+        working-directory: functions
       - run: npm run lint
         working-directory: web
       - run: npm run build
@@ -60,8 +65,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
       - if: env.SERVICE_ACCOUNT != ''
         run: npm ci
+      - if: env.SERVICE_ACCOUNT != ''
+        run: npm ci
+        working-directory: functions
       - uses: actions/download-artifact@v4
         if: env.SERVICE_ACCOUNT != ''
         with:
@@ -88,5 +99,5 @@ jobs:
             if (!ok) { console.log("::error::サービスアカウントの鍵ではありません"); process.exit(1); }
           ' "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx firebase deploy --only hosting,firestore:rules,firestore:indexes --project test --non-interactive
+          npx firebase deploy --only hosting,firestore:rules,firestore:indexes,functions --project test --non-interactive --force
           rm -f "$RUNNER_TEMP/sa.json"

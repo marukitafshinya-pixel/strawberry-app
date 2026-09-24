@@ -9,6 +9,7 @@ function errorMessage(e: unknown): string {
   if (e instanceof FirebaseError) {
     if (e.code === "auth/invalid-credential" || e.code === "auth/wrong-password" || e.code === "auth/user-not-found")
       return "メールアドレスかパスワードが違います。";
+    if (e.code === "auth/user-disabled") return "このアカウントは無効になっています。管理者に確認してください。";
     if (e.code === "auth/too-many-requests") return "失敗が続いたため、しばらく時間をおいてからお試しください。";
     if (e.code === "auth/network-request-failed") return "通信できませんでした。電波の状態を確認してください。";
   }

@@ -13,6 +13,8 @@ type AuthState = {
   role: Role;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** サーバー側で権限が変わったあとに、最新の権限を読み直す */
+  refreshRole: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -51,8 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   }, []);
 
+  const refreshRole = useCallback(async () => {
+    const { auth } = await getFirebase();
+    await auth.currentUser?.getIdToken(true);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ loading, user, role, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ loading, user, role, login, logout, refreshRole }}>{children}</AuthContext.Provider>
   );
 }
 

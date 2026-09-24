@@ -8,16 +8,23 @@ service cloud.firestore {
     function signedIn() {
       return request.auth != null;
     }
-    // 権限（role）はサーバー側でログイン情報に付けた印（カスタムクレーム）
-    function isAdmin() {
-      return signedIn() && request.auth.token.role == 'admin';
-    }
+    // 有効なスタッフ：ログイン情報の印（カスタムクレーム）があり、
+    // かつスタッフ名簿（staff）で「有効」になっている人。無効にされた人はすぐ読めなくなる。
     function isStaff() {
-      return signedIn() && request.auth.token.role in ['admin', 'staff'];
+      return signedIn()
+        && request.auth.token.role in ['admin', 'staff']
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active == true;
+    }
+    function isAdmin() {
+      return isStaff() && request.auth.token.role == 'admin';
     }
 
-    // 各機能のルールは、機能を作るときに1つずつ追加する。
-    // 例：設定は、スタッフは読むだけ・管理者だけが変更できる
+    // スタッフ名簿：スタッフは見るだけ。追加・変更はサーバー側（Cloud Functions）だけが行う
+    match /staff/{uid} {
+      allow read: if isStaff();
+    }
+
+    // 設定：スタッフは読むだけ・管理者だけが変更できる
     match /settings/{docId} {
       allow read: if isStaff();
       allow write: if isAdmin();

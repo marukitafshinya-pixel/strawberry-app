@@ -1,8 +1,9 @@
 import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import { connectFunctionsEmulator, getFunctions, type Functions } from "firebase/functions";
 
-export type FirebaseServices = { app: FirebaseApp; auth: Auth; db: Firestore };
+export type FirebaseServices = { app: FirebaseApp; auth: Auth; db: Firestore; functions: Functions };
 
 const useEmulator = process.env.NEXT_PUBLIC_USE_EMULATOR === "true";
 
@@ -37,11 +38,14 @@ export function getFirebase(): Promise<FirebaseServices> {
       const app = getApps()[0] ?? initializeApp(await loadConfig());
       const auth = getAuth(app);
       const db = getFirestore(app);
+      // サーバー側の処理は東京リージョンで動かす
+      const functions = getFunctions(app, "asia-northeast1");
       if (useEmulator) {
         connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
         connectFirestoreEmulator(db, "127.0.0.1", 8080);
+        connectFunctionsEmulator(functions, "127.0.0.1", 5001);
       }
-      return { app, auth, db };
+      return { app, auth, db, functions };
     })();
   }
   return servicesPromise;
