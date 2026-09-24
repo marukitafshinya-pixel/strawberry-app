@@ -38,23 +38,45 @@ const disabled = () => env.authenticatedContext("u3", { role: "staff" }).firesto
 // 名簿にないのに印だけ持っている人
 const unknown = () => env.authenticatedContext("u9", { role: "admin" }).firestore();
 
-describe("設定 (settings)", () => {
-  it("ログインしていない人は読めない", async () => {
-    await assertFails(getDoc(doc(guest(), "settings/main")));
+const validSettings = {
+  storeName: "テスト農園",
+  storePhone: "",
+  storeAddress: "",
+  seasonStart: "06-15",
+  seasonEnd: "10-15",
+  openTime: "08:00",
+  closeTime: "17:00",
+  closedDates: [],
+  bookingDaysAhead: 30,
+  bookingCutoffDays: 1,
+  timeSlots: [{ id: "a", time: "10:00", capacity: 30 }],
+  priceCategories: [{ id: "adult", name: "大人" }],
+  plans: [{ id: "p", name: "30分", minutes: 30, prices: { adult: 1500 }, public: true }],
+};
+
+describe("設定 (settings/main)", () => {
+  it("誰でも読める（予約ページで使うため）", async () => {
+    await assertSucceeds(getDoc(doc(guest(), "settings/main")));
+    await assertSucceeds(getDoc(doc(noRole(), "settings/main")));
   });
-  it("権限のないアカウントは読めない", async () => {
-    await assertFails(getDoc(doc(noRole(), "settings/main")));
-  });
-  it("スタッフは読めるが書けない", async () => {
-    await assertSucceeds(getDoc(doc(staff(), "settings/main")));
-    await assertFails(setDoc(doc(staff(), "settings/main"), { a: 1 }));
+  it("ログインしていない人・権限のない人・スタッフは書けない", async () => {
+    await assertFails(setDoc(doc(guest(), "settings/main"), validSettings));
+    await assertFails(setDoc(doc(noRole(), "settings/main"), validSettings));
+    await assertFails(setDoc(doc(staff(), "settings/main"), validSettings));
   });
   it("管理者は書ける", async () => {
-    await assertSucceeds(setDoc(doc(admin(), "settings/main"), { a: 1 }));
+    await assertSucceeds(setDoc(doc(admin(), "settings/main"), validSettings));
   });
-  it("無効にされたスタッフ・名簿にない人は読めない", async () => {
-    await assertFails(getDoc(doc(disabled(), "settings/main")));
-    await assertFails(getDoc(doc(unknown(), "settings/main")));
+  it("無効にされた管理者・名簿にない人は書けない", async () => {
+    await assertFails(setDoc(doc(disabled(), "settings/main"), validSettings));
+    await assertFails(setDoc(doc(unknown(), "settings/main"), validSettings));
+  });
+  it("決められた項目以外や、形の違うデータは保存できない", async () => {
+    await assertFails(setDoc(doc(admin(), "settings/main"), { ...validSettings, customerPhone: "090" }));
+    await assertFails(setDoc(doc(admin(), "settings/main"), { ...validSettings, timeSlots: "10:00" }));
+  });
+  it("settings/main 以外の場所には書けない", async () => {
+    await assertFails(setDoc(doc(admin(), "settings/other"), validSettings));
   });
 });
 

@@ -24,10 +24,23 @@ service cloud.firestore {
       allow read: if isStaff();
     }
 
-    // 設定：スタッフは読むだけ・管理者だけが変更できる
-    match /settings/{docId} {
-      allow read: if isStaff();
-      allow write: if isAdmin();
+    // 設定：お客様用の予約ページでも使うので誰でも読める（個人情報は入れない）。
+    // 変更は管理者だけ。決められた項目以外は保存できない。
+    match /settings/main {
+      allow read: if true;
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'storeName', 'storePhone', 'storeAddress',
+          'seasonStart', 'seasonEnd', 'openTime', 'closeTime', 'closedDates',
+          'bookingDaysAhead', 'bookingCutoffDays',
+          'timeSlots', 'priceCategories', 'plans', 'updatedAt'
+        ])
+        && request.resource.data.timeSlots is list
+        && request.resource.data.priceCategories is list
+        && request.resource.data.plans is list
+        && request.resource.data.closedDates is list
+        && request.resource.data.bookingDaysAhead is int
+        && request.resource.data.bookingCutoffDays is int;
     }
   }
 }

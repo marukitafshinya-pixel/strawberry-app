@@ -12,7 +12,7 @@ const MENU: MenuItem[] = [
   { label: "売掛管理" },
   { label: "日次締め" },
   { label: "ダッシュボード" },
-  { label: "設定", adminOnly: true },
+  { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
 ];
 
