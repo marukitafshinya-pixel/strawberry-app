@@ -1,56 +1,11 @@
 // サーバー側の処理（Cloud Functions）
-// お客様やスタッフの端末では任せられない処理（権限の付与・スタッフ追加など）をここで行う。
-import { initializeApp } from "firebase-admin/app";
+// お客様やスタッフの端末では任せられない処理（権限の付与・スタッフ追加・予約の受付など）をここで行う。
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { setGlobalOptions } from "firebase-functions/v2";
-import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
+import { FieldValue } from "firebase-admin/firestore";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { assertAdmin, db, requireEmail, requirePassword, requireRole, requireString } from "./common.js";
 
-initializeApp();
-setGlobalOptions({ region: "asia-northeast1", maxInstances: 5 });
-
-const db = getFirestore();
-
-export type Role = "admin" | "staff";
-
-// ---------- 入力チェックの小道具 ----------
-
-function requireString(v: unknown, label: string, max: number, min = 1): string {
-  if (typeof v !== "string") throw new HttpsError("invalid-argument", `${label}を入力してください`);
-  const s = v.trim();
-  if (s.length < min) throw new HttpsError("invalid-argument", `${label}を入力してください`);
-  if (s.length > max) throw new HttpsError("invalid-argument", `${label}は${max}文字以内にしてください`);
-  return s;
-}
-
-function requireEmail(v: unknown): string {
-  const s = requireString(v, "メールアドレス", 254).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) throw new HttpsError("invalid-argument", "メールアドレスの形が正しくありません");
-  return s;
-}
-
-function requirePassword(v: unknown): string {
-  if (typeof v !== "string" || v.length < 8) throw new HttpsError("invalid-argument", "パスワードは8文字以上にしてください");
-  if (v.length > 128) throw new HttpsError("invalid-argument", "パスワードが長すぎます");
-  return v;
-}
-
-function requireRole(v: unknown): Role {
-  if (v !== "admin" && v !== "staff") throw new HttpsError("invalid-argument", "権限を選んでください");
-  return v;
-}
-
-/** 呼び出した人が、有効な管理者かを確認する */
-async function assertAdmin(req: CallableRequest): Promise<string> {
-  const uid = req.auth?.uid;
-  if (!uid) throw new HttpsError("unauthenticated", "ログインしてください");
-  if (req.auth?.token.role !== "admin") throw new HttpsError("permission-denied", "管理者だけが操作できます");
-  const me = await db.doc(`staff/${uid}`).get();
-  if (!me.exists || me.get("active") !== true || me.get("role") !== "admin") {
-    throw new HttpsError("permission-denied", "管理者だけが操作できます");
-  }
-  return uid;
-}
+export { deleteReservation, saveReservation, setReservationStatus } from "./reservations.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

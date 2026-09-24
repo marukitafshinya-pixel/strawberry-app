@@ -7,7 +7,7 @@ type MenuItem = { label: string; href?: string; adminOnly?: boolean };
 
 // まだ作っていない機能は「準備中」と表示する。作るたびにリンクに変えていく
 const MENU: MenuItem[] = [
-  { label: "予約管理" },
+  { label: "予約管理", href: "/staff/reservations/" },
   { label: "会計" },
   { label: "売掛管理" },
   { label: "日次締め" },

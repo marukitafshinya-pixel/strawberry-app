@@ -95,6 +95,26 @@ describe("スタッフ名簿 (staff)", () => {
   });
 });
 
+describe("予約・連絡先・空き状況", () => {
+  it("予約と連絡先はスタッフだけが読める", async () => {
+    await assertSucceeds(getDoc(doc(staff(), "reservations/r1")));
+    await assertSucceeds(getDoc(doc(staff(), "reservationContacts/r1")));
+    for (const db of [guest(), noRole(), disabled(), unknown()]) {
+      await assertFails(getDoc(doc(db, "reservations/r1")));
+      await assertFails(getDoc(doc(db, "reservationContacts/r1")));
+    }
+  });
+  it("予約と連絡先は、管理者でも画面から直接は書けない（サーバー経由のみ）", async () => {
+    await assertFails(setDoc(doc(admin(), "reservations/r1"), { people: 1 }));
+    await assertFails(setDoc(doc(admin(), "reservationContacts/r1"), { phone: "0" }));
+  });
+  it("空き状況は誰でも読めるが、誰も直接は書けない", async () => {
+    await assertSucceeds(getDoc(doc(guest(), "availability/2026-07-01")));
+    await assertFails(setDoc(doc(guest(), "availability/2026-07-01"), { slots: {} }));
+    await assertFails(setDoc(doc(admin(), "availability/2026-07-01"), { slots: {} }));
+  });
+});
+
 describe("ルールに書いていない場所", () => {
   it("管理者でも読み書きできない", async () => {
     await assertFails(getDoc(doc(admin(), "system/bootstrap")));

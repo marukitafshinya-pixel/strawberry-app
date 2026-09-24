@@ -24,6 +24,19 @@ service cloud.firestore {
       allow read: if isStaff();
     }
 
+    // 予約：スタッフは見るだけ。追加・変更・削除はサーバー側で定員を確かめてから行う
+    match /reservations/{id} {
+      allow read: if isStaff();
+    }
+    // 予約の連絡先（電話・メール）：スタッフだけが見られる。お客様本人も含め、他の人は読めない
+    match /reservationContacts/{id} {
+      allow read: if isStaff();
+    }
+    // 空き状況（時間枠ごとの予約人数だけ）：予約ページで使うので誰でも読める。書き込みはサーバー側のみ
+    match /availability/{date} {
+      allow read: if true;
+    }
+
     // 設定：お客様用の予約ページでも使うので誰でも読める（個人情報は入れない）。
     // 変更は管理者だけ。決められた項目以外は保存できない。
     match /settings/main {

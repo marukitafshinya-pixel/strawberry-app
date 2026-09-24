@@ -295,7 +295,7 @@ export default function SettingsPage() {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label className="mr-auto flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={p.active} onChange={(e) => set({ active: e.target.checked })} />
-                    会計で選べるようにする
+                    販売中（外すと会計画面に出なくなります）
                   </label>
                   <button
                     disabled={i === 0}

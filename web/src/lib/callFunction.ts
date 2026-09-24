@@ -14,7 +14,7 @@ export function errorText(e: unknown): string {
   if (e instanceof FirebaseError) {
     // サーバー側で日本語の説明を付けているものはそのまま出す
     if (e.code.startsWith("functions/") && e.code !== "functions/internal" && /[ぁ-んァ-ン一-龥]/.test(e.message)) {
-      return e.message;
+      return cleanMessage(e.message);
     }
     if (e.code === "functions/unavailable" || e.code === "auth/network-request-failed") {
       return "通信できませんでした。電波の状態を確認してください。";
@@ -24,4 +24,9 @@ export function errorText(e: unknown): string {
     }
   }
   return "エラーが起きました。時間をおいてもう一度お試しください。";
+}
+
+/** サーバーからの説明文の末尾に付く番号（例：" [429]"）を取り除く */
+export function cleanMessage(message: string): string {
+  return message.replace(/\s*\[\d+\]$/, "");
 }
