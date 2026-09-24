@@ -73,9 +73,16 @@ jobs:
           printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           # 鍵の形式だけを確認（中身は表示しない）
           node -e '
+            const fs = require("fs");
+            // 先頭の見えない文字（BOM）や前後の空白は取り除く
+            const text = fs.readFileSync(process.argv[1], "utf8").replace(/^\uFEFF/, "").trim();
+            fs.writeFileSync(process.argv[1], text);
             let k;
-            try { k = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); }
-            catch { console.log("::error::登録された鍵がJSON形式ではありません。鍵ファイルの中身を最初の { から最後の } まで丸ごと貼り直してください"); process.exit(1); }
+            try { k = JSON.parse(text); }
+            catch {
+              console.log("文字数:", text.length, "/ 先頭が { か:", text.startsWith("{"), "/ 末尾が } か:", text.endsWith("}"));
+              console.log("::error::登録された鍵がJSON形式ではありません。鍵ファイルの中身を最初の { から最後の } まで丸ごと貼り直してください"); process.exit(1);
+            }
             const ok = k.type === "service_account" && k.private_key && k.client_email;
             console.log("type:", k.type, "/ project_id:", k.project_id, "/ 秘密鍵あり:", Boolean(k.private_key));
             if (!ok) { console.log("::error::サービスアカウントの鍵ではありません"); process.exit(1); }
