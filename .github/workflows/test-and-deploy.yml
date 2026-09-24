@@ -70,7 +70,16 @@ jobs:
       - name: テスト用Firebaseへ公開
         if: env.SERVICE_ACCOUNT != ''
         run: |
-          echo "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          # 鍵の形式だけを確認（中身は表示しない）
+          node -e '
+            let k;
+            try { k = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); }
+            catch { console.log("::error::登録された鍵がJSON形式ではありません。鍵ファイルの中身を最初の { から最後の } まで丸ごと貼り直してください"); process.exit(1); }
+            const ok = k.type === "service_account" && k.private_key && k.client_email;
+            console.log("type:", k.type, "/ project_id:", k.project_id, "/ 秘密鍵あり:", Boolean(k.private_key));
+            if (!ok) { console.log("::error::サービスアカウントの鍵ではありません"); process.exit(1); }
+          ' "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           npx firebase deploy --only hosting,firestore:rules,firestore:indexes --project test --non-interactive
           rm -f "$RUNNER_TEMP/sa.json"
