@@ -390,7 +390,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
       </div>
 
       {/* 画面下に固定の確定ボタン */}
-      <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
           <div className="text-2xl font-bold">{yen(total)}</div>
           <button

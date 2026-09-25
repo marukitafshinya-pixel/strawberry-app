@@ -282,7 +282,7 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
         <Tile label="出荷日数" value={`${days.filter((d) => dayQty(d) > 0).length}日`} />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
           <button onClick={save} disabled={saving || changed.length === 0} className="rounded-lg bg-berry px-6 py-3 font-bold text-white disabled:opacity-40">
             {saving ? "保存中…" : "保存する"}

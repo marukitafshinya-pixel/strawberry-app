@@ -341,7 +341,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* 画面下に固定の保存ボタン */}
-      <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
           <button onClick={save} disabled={saving} className="rounded-lg bg-berry px-6 py-3 font-bold text-white disabled:opacity-50">
             {saving ? "保存中…" : "保存する"}

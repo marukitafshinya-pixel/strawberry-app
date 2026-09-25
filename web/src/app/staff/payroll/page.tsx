@@ -1,17 +1,19 @@
 "use client";
 
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
+import { decodeCsv, parseCsv } from "@/lib/csv";
 import { shiftMonth, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import {
   EMPLOYER_ITEMS,
   PAY_ITEMS,
   computeRow,
+  parsePayrollCsv,
   reiwa,
   useEmployees,
   usePayroll,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/payroll";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
+import { newId } from "@/lib/settings";
 
 export default function PayrollPage() {
   return (
@@ -89,6 +92,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // 保存せずに閉じようとしたら確認する
   useEffect(() => {
@@ -155,6 +159,47 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     }
   }
 
+  /** CSVの金額を表に入れる。社員番号で従業員を探し、いない人は新しく登録する */
+  async function importCsv(file: File) {
+    setError("");
+    setMessage("");
+    try {
+      const { entries, error } = parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
+      if (error) return setError(`取り込めませんでした：${error}`);
+      const byCode = new Map(employees.map((e) => [e.code, e]));
+      const added = entries.filter((x) => !byCode.has(x.code));
+      const text = [
+        `${entries.length}人分の金額を ${month.replace("-", "年")}月度 の表に入れます。`,
+        "表に入っている同じ人の金額は上書きされます。",
+        added.length > 0 ? `\n新しく従業員として登録する人：${added.length}人\n（${added.map((x) => x.name).join("、")}）` : "",
+      ].join("\n");
+      if (!window.confirm(text)) return;
+
+      const { db } = await getFirebase();
+      const batch = writeBatch(db);
+      const rows = { ...data.rows };
+      for (const x of entries) {
+        const found = byCode.get(x.code);
+        const id = found?.id ?? newId();
+        const bank = x.bank ?? { payMethod: "transfer" as const, bankName: "", branchName: "", accountType: "普通" as const, accountNumber: "" };
+        if (!found) {
+          batch.set(doc(db, `employees/${id}`), { code: x.code, name: x.name, ...bank, active: true, updatedAt: serverTimestamp() });
+        } else if (x.bank && !found.bankName && !found.accountNumber && (x.bank.bankName || x.bank.accountNumber)) {
+          // 登録済みの人は、振込先がまだ空のときだけCSVの振込先を入れる（直した内容を消さないように）
+          batch.set(doc(db, `employees/${id}`), { ...x.bank, updatedAt: serverTimestamp() }, { merge: true });
+        }
+        rows[id] = x.row;
+      }
+      await batch.commit();
+      update({ rows });
+      setMessage(`${entries.length}人分を読み込みました。確かめてから「保存する」を押してください`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   function exportCsv() {
     const header = ["社員番号", "氏名", ...PAY_ITEMS.map((i) => i.label), "支給合計", "社会保険料計", "差引支給額", "支払方法", "銀行名", "支店名", "種別", "口座番号"];
     const body = people.map((e, i) => [
@@ -174,7 +219,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     downloadCsv(`payroll_${month}.csv`, [header, ...body, total]);
   }
 
-  const col = (label: string, cls = "") => <th className={`whitespace-nowrap px-2 py-2 text-right text-xs font-semibold ${cls}`}>{label}</th>;
+  const col = (label: string, cls = "") => <th key={label} className={`whitespace-nowrap px-2 py-2 text-right text-xs font-semibold ${cls}`}>{label}</th>;
 
   return (
     <div className="pb-24">
@@ -192,6 +237,19 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         <button onClick={exportCsv} className="rounded-lg border bg-white px-3 py-2 text-sm">
           CSVで書き出す
         </button>
+        <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          CSVから取り込む
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) importCsv(f);
+          }}
+        />
       </div>
 
       {/* 打ち込みの表（横に長いので、左右にスクロールできる） */}
@@ -200,11 +258,9 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           <thead className="bg-gray-50">
             <tr>
               <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 text-left text-xs">番号・氏名</th>
-              {PAY_ITEMS.slice(0, 4).map((i) => col(i.label))}
-              {col("支給合計", "bg-berry/10")}
-              {PAY_ITEMS.slice(4, 9).map((i) => col(i.label))}
+              {PAY_ITEMS.map((i) => col(i.label))}
+              {col("支給合計", "border-l-2 border-berry/40 bg-berry/10")}
               {col("社会保険料計", "bg-berry/10")}
-              {PAY_ITEMS.slice(9).map((i) => col(i.label))}
               {col("差引支給額", "bg-berry/20")}
               {col("支払")}
             </tr>
@@ -224,11 +280,9 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
                     <span className="mr-1 text-xs text-gray-500 tabular-nums">{e.code}</span>
                     <span className="font-semibold">{e.name}</span>
                   </td>
-                  {PAY_ITEMS.slice(0, 4).map((i) => cell(i.key))}
-                  <td className="bg-berry/5 px-2 text-right font-semibold tabular-nums">{s.pay.toLocaleString("ja-JP")}</td>
-                  {PAY_ITEMS.slice(4, 9).map((i) => cell(i.key, "signed" in i && i.signed))}
+                  {PAY_ITEMS.map((i) => cell(i.key, "signed" in i && i.signed))}
+                  <td className="border-l-2 border-berry/40 bg-berry/5 px-2 text-right font-semibold tabular-nums">{s.pay.toLocaleString("ja-JP")}</td>
                   <td className="bg-berry/5 px-2 text-right font-semibold tabular-nums">{s.social.toLocaleString("ja-JP")}</td>
-                  {PAY_ITEMS.slice(9).map((i) => cell(i.key, "signed" in i && i.signed))}
                   <td className={`bg-berry/10 px-2 text-right font-bold tabular-nums ${s.net < 0 ? "text-red-600" : ""}`}>{s.net.toLocaleString("ja-JP")}</td>
                   <td className="px-2 text-xs">{e.payMethod === "cash" ? "現金" : "振込"}</td>
                 </tr>
@@ -238,23 +292,13 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           <tfoot className="bg-gray-50 font-bold">
             <tr className="border-t-2">
               <td className="sticky left-0 z-10 bg-gray-50 px-2 py-2">合計</td>
-              {PAY_ITEMS.slice(0, 4).map((i) => (
+              {PAY_ITEMS.map((i) => (
                 <td key={i.key} className="px-2 text-right tabular-nums">
                   {totals[i.key].toLocaleString("ja-JP")}
                 </td>
               ))}
-              <td className="px-2 text-right tabular-nums">{totalPay.toLocaleString("ja-JP")}</td>
-              {PAY_ITEMS.slice(4, 9).map((i) => (
-                <td key={i.key} className="px-2 text-right tabular-nums">
-                  {totals[i.key].toLocaleString("ja-JP")}
-                </td>
-              ))}
+              <td className="border-l-2 border-berry/40 px-2 text-right tabular-nums">{totalPay.toLocaleString("ja-JP")}</td>
               <td className="px-2 text-right tabular-nums">{totalSocial.toLocaleString("ja-JP")}</td>
-              {PAY_ITEMS.slice(9).map((i) => (
-                <td key={i.key} className="px-2 text-right tabular-nums">
-                  {totals[i.key].toLocaleString("ja-JP")}
-                </td>
-              ))}
               <td className="px-2 text-right tabular-nums">{totalNet.toLocaleString("ja-JP")}</td>
               <td />
             </tr>
@@ -262,6 +306,8 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         </table>
       </div>
       <p className="mt-1 text-xs text-gray-500">
+        左側の白い欄に金額を入れると、右側の色の付いた列（支給合計・社会保険料計・差引支給額）が自動で計算されます。
+        <br />
         差引支給額 ＝ 支給合計 − 社会保険料計 − 所得税 − 住民税 ＋ 年末調整（還付はプラス、徴収はマイナスで入力）
       </p>
 
@@ -311,7 +357,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         <textarea value={data.memo} maxLength={500} rows={2} onChange={(e) => update({ memo: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
       </label>
 
-      <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
           <button onClick={save} disabled={saving} className="rounded-lg bg-berry px-6 py-3 font-bold text-white disabled:opacity-50">
             {saving ? "保存中…" : "保存する"}

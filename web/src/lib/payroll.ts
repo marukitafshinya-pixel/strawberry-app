@@ -3,6 +3,7 @@
 // 給与（管理者だけが使う）
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { parseAmount } from "./csv";
 import { getFirebase } from "./firebase";
 
 export type Employee = {
@@ -125,4 +126,61 @@ export function usePayroll(month: string) {
     };
   }, [month]);
   return { value: state && state.month === month ? state.payroll : null, error };
+}
+
+/** CSVから読み取った1人分 */
+export type PayrollCsvEntry = {
+  code: string;
+  name: string;
+  row: PayRow;
+  /** 支払方法・振込先（CSVに列があるときだけ） */
+  bank?: Pick<Employee, "payMethod" | "bankName" | "branchName" | "accountType" | "accountNumber">;
+};
+
+/**
+ * 給与のCSV（この画面の「CSVで書き出す」と同じ形）を読み取る。
+ * 見出しの名前で列を探すので、列の順番が違っても、無い列があっても読める。
+ */
+export function parsePayrollCsv(rows: string[][]): { entries: PayrollCsvEntry[]; error?: string } {
+  const header = (rows[0] ?? []).map((h) => h.trim());
+  const col = (label: string) => header.indexOf(label);
+  const codeCol = col("社員番号");
+  const nameCol = col("氏名");
+  if (codeCol < 0 || nameCol < 0) return { entries: [], error: "1行目に「社員番号」と「氏名」の見出しがありません" };
+  const items = PAY_ITEMS.map((it) => ({ key: it.key, i: col(it.label) })).filter((x) => x.i >= 0);
+  if (items.length === 0) return { entries: [], error: "金額の列（基本給（月給）など）が見つかりません" };
+  const bankCols = { method: col("支払方法"), bank: col("銀行名"), branch: col("支店名"), type: col("種別"), account: col("口座番号") };
+
+  const entries: PayrollCsvEntry[] = [];
+  for (const [n, r] of rows.slice(1).entries()) {
+    const get = (i: number) => (i >= 0 ? (r[i] ?? "").trim() : "");
+    const code = get(codeCol);
+    const name = get(nameCol).replace(/\s+/g, " ");
+    if (name === "合計" || (!code && !name)) continue;
+    if (!code) return { entries: [], error: `${n + 2}行目：社員番号がありません` };
+    const row: PayRow = {};
+    for (const { key, i } of items) {
+      const text = get(i);
+      if (text === "") continue;
+      const v = parseAmount(text);
+      if (v === null) return { entries: [], error: `${n + 2}行目（${name}）：「${text}」を金額として読めません` };
+      if (v !== 0) row[key] = v;
+    }
+    const entry: PayrollCsvEntry = { code, name, row };
+    if (bankCols.method >= 0) {
+      entry.bank = {
+        payMethod: get(bankCols.method) === "現金" ? "cash" : "transfer",
+        bankName: get(bankCols.bank),
+        branchName: get(bankCols.branch),
+        accountType: get(bankCols.type) === "当座" ? "当座" : "普通",
+        accountNumber: get(bankCols.account).replace(/[^0-9-]/g, ""),
+      };
+    }
+    entries.push(entry);
+  }
+  if (entries.length === 0) return { entries: [], error: "取り込める行がありません" };
+  const codes = entries.map((e) => e.code);
+  const dup = codes.find((c, i) => codes.indexOf(c) !== i);
+  if (dup) return { entries: [], error: `社員番号 ${dup} が2回出てきます` };
+  return { entries };
 }
