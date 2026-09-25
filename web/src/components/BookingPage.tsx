@@ -86,6 +86,7 @@ function Booking({ settings: s }: { settings: Settings }) {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [code, setCode] = useState("");
+  const [resultStatus, setResultStatus] = useState<"confirmed" | "request">("confirmed");
 
   const plan = plans.find((p) => p.id === planId);
   const categories = s.priceCategories.filter((c) => plan?.prices[c.id] !== undefined);
@@ -100,18 +101,19 @@ function Booking({ settings: s }: { settings: Settings }) {
   const bookable = (d: string) => d >= first && d <= last && isOpenDay(d, s);
   const need = Math.max(1, people);
 
-  // 人数を変えて、選んでいた時間が入らなくなったら選び直してもらう
-  const slotOk = !!date && !!slotId && remaining(date, slotId) >= need;
+  const slotOk = !!date && !!slotId;
+  /** 定員を超えるので「リクエスト」になる */
+  const isRequest = slotOk && remaining(date, slotId) < need;
 
   if (plans.length === 0 || s.timeSlots.length === 0) {
     return <Shell title={s.storeName}>ただいまWeb予約を受け付けていません。お電話でお問い合わせください。{s.storePhone && ` （${s.storePhone}）`}</Shell>;
   }
 
-  async function submit() {
+  async function submit(request = isRequest): Promise<void> {
     setError("");
     setSending(true);
     try {
-      const res = await callFunction<Record<string, unknown>, { code: string }>("createWebReservation", {
+      const res = await callFunction<Record<string, unknown>, { code: string; status: "confirmed" | "request" }>("createWebReservation", {
         date,
         slotId,
         planId,
@@ -121,11 +123,20 @@ function Booking({ settings: s }: { settings: Settings }) {
         email,
         memo,
         website,
+        request,
       });
       setCode(res.code);
+      setResultStatus(res.status);
       setStep("done");
       window.scrollTo(0, 0);
     } catch (e) {
+      // 画面を見ている間に満員になった場合は、リクエストとして送るか確認する
+      const details = e instanceof FirebaseError ? (e as FirebaseError & { details?: { canRequest?: boolean } }).details : undefined;
+      if (!request && details?.canRequest) {
+        setSending(false);
+        if (window.confirm(`${cleanMessage((e as FirebaseError).message)}\n\n「予約リクエスト」として送りますか？\n（お店が確認のうえ、ご連絡します）`)) return submit(true);
+        return;
+      }
       setError(
         e instanceof FirebaseError && e.code.startsWith("functions/") && e.code !== "functions/internal"
           ? cleanMessage(e.message)
@@ -174,13 +185,24 @@ function Booking({ settings: s }: { settings: Settings }) {
   if (step === "done") {
     return (
       <Shell title={s.storeName}>
-        <div className="rounded-2xl bg-green-50 p-4 text-green-900">
-          <p className="text-lg font-bold">ご予約を受け付けました</p>
-          <p className="mt-2">
-            予約番号：<span className="font-mono text-xl font-bold tracking-widest">{code}</span>
-          </p>
-          <p className="mt-2 text-sm">当日、受付でお名前か予約番号をお伝えください。この画面を保存しておくと便利です（スクリーンショットなど）。</p>
-        </div>
+        {resultStatus === "request" ? (
+          <div className="rounded-2xl bg-purple-50 p-4 text-purple-900">
+            <p className="text-lg font-bold">予約リクエストを受け付けました</p>
+            <p className="mt-1 font-bold">まだご予約は確定していません。</p>
+            <p className="mt-2">
+              受付番号：<span className="font-mono text-xl font-bold tracking-widest">{code}</span>
+            </p>
+            <p className="mt-2 text-sm">お店で確認のうえ、お電話またはメールでご連絡します。しばらくお待ちください。</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-green-50 p-4 text-green-900">
+            <p className="text-lg font-bold">ご予約が確定しました</p>
+            <p className="mt-2">
+              予約番号：<span className="font-mono text-xl font-bold tracking-widest">{code}</span>
+            </p>
+            <p className="mt-2 text-sm">当日、受付でお名前か予約番号をお伝えください。この画面を保存しておくと便利です（スクリーンショットなど）。</p>
+          </div>
+        )}
         <div className="mt-4">{summary}</div>
         <p className="mt-4 text-sm text-gray-600">
           変更・キャンセルは、お手数ですがお電話でご連絡ください。
@@ -197,15 +219,20 @@ function Booking({ settings: s }: { settings: Settings }) {
   if (step === "confirm") {
     return (
       <Shell title={s.storeName}>
-        <h2 className="text-lg font-bold">ご予約内容の確認</h2>
+        <h2 className="text-lg font-bold">{isRequest ? "予約リクエストの確認" : "ご予約内容の確認"}</h2>
+        {isRequest && <RequestNotice />}
         <div className="mt-3">{summary}</div>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button onClick={() => setStep("form")} disabled={sending} className="rounded-lg border px-4 py-3">
             戻る
           </button>
-          <button onClick={submit} disabled={sending} className="flex-1 rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
-            {sending ? "送信中…" : "この内容で予約する"}
+          <button
+            onClick={() => submit()}
+            disabled={sending}
+            className={`flex-1 rounded-lg py-3 font-bold text-white disabled:opacity-50 ${isRequest ? "bg-purple-700" : "bg-berry"}`}
+          >
+            {sending ? "送信中…" : isRequest ? "この内容でリクエストする" : "この内容で予約する"}
           </button>
         </div>
       </Shell>
@@ -289,24 +316,27 @@ function Booking({ settings: s }: { settings: Settings }) {
                 }}
               />
             )}
-            <p className="mt-1 text-xs text-gray-500">○ 空きあり　△ 残りわずか　× 満員　（空欄は受付していない日）</p>
+            <p className="mt-1 text-xs text-gray-500">○ 空きあり　△ 残りわずか　× 満員（リクエストのみ）　空欄は受付していない日</p>
             {date && (
               <div className="mt-3">
                 <p className="font-bold">{formatJa(date)} の時間</p>
+                {isRequest && <RequestNotice />}
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {s.timeSlots.map((t) => {
                     const rem = remaining(date, t.id);
                     const ok = rem >= need;
+                    const selected = slotId === t.id;
                     return (
                       <button
                         key={t.id}
                         type="button"
-                        disabled={!ok}
                         onClick={() => setSlotId(t.id)}
-                        className={`rounded-xl border bg-white p-3 text-center disabled:bg-gray-100 disabled:text-gray-400 ${slotId === t.id ? "border-berry ring-2 ring-berry/30" : ""}`}
+                        className={`rounded-xl border p-3 text-center ${ok ? "bg-white" : "bg-purple-50 text-purple-900"} ${
+                          selected ? (ok ? "border-berry ring-2 ring-berry/30" : "border-purple-600 ring-2 ring-purple-300") : ""
+                        }`}
                       >
                         <span className="block text-lg font-bold">{t.time}</span>
-                        <span className="text-xs">{rem <= 0 ? "満員" : ok ? `残り${rem}人` : `残り${rem}人（人数が多すぎます）`}</span>
+                        <span className="text-xs">{ok ? `残り${rem}人` : `${rem <= 0 ? "満員" : `残り${Math.max(0, rem)}人`}・リクエスト可`}</span>
                       </button>
                     );
                   })}
@@ -345,12 +375,21 @@ function Booking({ settings: s }: { settings: Settings }) {
 
         {error && <p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}
         {slotOk && (
-          <button type="submit" className="w-full rounded-lg bg-berry py-4 text-lg font-bold text-white">
-            確認へ進む
+          <button type="submit" className={`w-full rounded-lg py-4 text-lg font-bold text-white ${isRequest ? "bg-purple-700" : "bg-berry"}`}>
+            {isRequest ? "リクエストの確認へ進む" : "確認へ進む"}
           </button>
         )}
       </form>
     </Shell>
+  );
+}
+
+function RequestNotice() {
+  return (
+    <p className="mt-2 rounded-lg bg-purple-50 p-3 text-sm text-purple-900">
+      この時間は定員を超えるため、<b>「予約リクエスト」</b>になります。お店が確認のうえ、お電話かメールで可否をご連絡します。
+      <b>ご連絡までは予約は確定していません。</b>
+    </p>
   );
 }
 
@@ -471,7 +510,7 @@ function Calendar({
         {Array.from({ length: days }, (_, i) => {
           const d = addDays(startDate, i);
           const m = mark(d);
-          const can = m === "○" || m === "△";
+          const can = m !== null;
           return (
             <button
               key={d}

@@ -8,7 +8,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { buildReservation, countsTowardCapacity, parseReservationInput, type ReservationDoc } from "./reservations.js";
+import { buildReservation, parseReservationInput, type ReservationDoc } from "./reservations.js";
 
 type WebSettings = {
   seasonStart: string;
@@ -93,10 +93,12 @@ export const createWebReservation = onCall(
     // ロボットがよく埋める、画面には見えない入力欄（入っていたら受け付けたふりをして何もしない）
     if (typeof req.data?.website === "string" && req.data.website !== "") {
       logger.warn("honeypot hit");
-      return { code: "------" };
+      return { code: "------", status: "confirmed" };
     }
 
     const input = parseReservationInput({ ...req.data, memo: req.data?.memo ?? "", status: "confirmed" });
+    /** 満員のときはリクエストとして送ってよいか（お客様が画面で同意したときだけ true） */
+    const wantsRequest = req.data?.request === true;
     if (!input.phone) throw new HttpsError("invalid-argument", "電話番号を入力してください");
     if (input.phone.replace(/[^0-9]/g, "").length < 10) throw new HttpsError("invalid-argument", "電話番号が正しくありません");
     if (!input.email) throw new HttpsError("invalid-argument", "メールアドレスを入力してください");
@@ -105,7 +107,7 @@ export const createWebReservation = onCall(
     await hitRateLimit(hashKey("ip", clientIp(req)), LIMITS.perIpPerHour, 60 * 60 * 1000);
     const phoneRef = db.doc(`rateLimits/${hashKey("tel", input.phone.replace(/[^0-9]/g, ""))}`);
 
-    const id = await db.runTransaction(async (tx) => {
+    const result = await db.runTransaction(async (tx) => {
       const sSnap = await tx.get(db.doc("settings/main"));
       if (!sSnap.exists) throw new HttpsError("unavailable", "ただいま予約を受け付けていません");
       const s = sSnap.data() as WebSettings;
@@ -139,28 +141,36 @@ export const createWebReservation = onCall(
       const slots = { ...((aSnap.get("slots") as Record<string, number> | undefined) ?? {}) };
       const capacity = s.timeSlots.find((t) => t.id === next.slotId)!.capacity;
       const booked = slots[next.slotId] ?? 0;
-      if (countsTowardCapacity(next.status) && booked + next.people > capacity) {
+      if (booked + next.people <= capacity) {
+        // 定員以内：その場で確定
+        next.status = "confirmed";
+        slots[next.slotId] = booked + next.people;
+      } else if (wantsRequest) {
+        // 定員を超える：お店の承認待ちのリクエストとして受け付ける（定員には数えない）
+        next.status = "request";
+      } else {
+        // 画面を見ている間に埋まった：リクエストとして送るかをお客様に確認してもらう
         const rest = Math.max(0, capacity - booked);
         throw new HttpsError(
           "resource-exhausted",
-          rest === 0 ? "申し訳ありません。この時間はちょうど満員になりました。別の時間をお選びください" : `申し訳ありません。この時間の残りは${rest}人です`,
+          rest === 0 ? "申し訳ありません。この時間はちょうど満員になりました。" : `申し訳ありません。この時間の残りは${rest}人になりました。`,
+          { canRequest: true },
         );
       }
-      slots[next.slotId] = booked + next.people;
 
       const ref = db.collection("reservations").doc();
       const now = FieldValue.serverTimestamp();
       tx.set(ref, { ...next, code: reservationCode(ref.id), createdAt: now, updatedAt: now, createdBy: "web" });
       tx.set(db.doc(`reservationContacts/${ref.id}`), { date: next.date, phone: input.phone, email: input.email });
-      tx.set(aRef, { slots, updatedAt: now });
+      if (next.status === "confirmed") tx.set(aRef, { slots, updatedAt: now });
       tx.set(phoneRef, {
         count: pCount + 1,
         windowStart: Timestamp.fromMillis(pInWindow ? pStart : nowMs),
         expireAt: Timestamp.fromMillis(nowMs + DAY_MS * 2),
       });
-      return ref.id;
+      return { id: ref.id, status: next.status };
     });
 
-    return { code: reservationCode(id) };
+    return { code: reservationCode(result.id), status: result.status };
   },
 );

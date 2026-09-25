@@ -5,9 +5,11 @@ import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import { SETTINGS_DOC, normalizeSettings, type Settings } from "./settings";
 
-export type ReservationStatus = "tentative" | "confirmed" | "visited" | "cancelled";
+/** request = 定員を超えたためのリクエスト（お店の承認待ち。定員には数えない） */
+export type ReservationStatus = "request" | "tentative" | "confirmed" | "visited" | "cancelled";
 
 export const STATUS_LABEL: Record<ReservationStatus, string> = {
+  request: "リクエスト",
   tentative: "予定",
   confirmed: "確定",
   visited: "来店済",
@@ -15,6 +17,7 @@ export const STATUS_LABEL: Record<ReservationStatus, string> = {
 };
 
 export const STATUS_STYLE: Record<ReservationStatus, string> = {
+  request: "bg-purple-100 text-purple-800",
   tentative: "bg-amber-100 text-amber-800",
   confirmed: "bg-blue-100 text-blue-800",
   visited: "bg-green-100 text-green-800",
@@ -42,8 +45,8 @@ export type Reservation = {
 
 export type Contact = { phone: string; email: string };
 
-/** キャンセルは定員に数えない */
-export const countsTowardCapacity = (s: ReservationStatus) => s !== "cancelled";
+/** キャンセルと、承認前のリクエストは定員に数えない */
+export const countsTowardCapacity = (s: ReservationStatus) => s !== "cancelled" && s !== "request";
 
 /** Firestore の変更を即時に受け取るための共通の小道具 */
 function useLive<T>(subscribe: ((set: (v: T) => void, fail: (e: unknown) => void) => Promise<() => void>) | null, deps: unknown[]) {
@@ -90,6 +93,24 @@ export function useContacts(date: string) {
       fail,
     );
   }, [date]);
+}
+
+/** 承認待ちのリクエスト（今日以降） */
+export function usePendingRequests(fromDate: string) {
+  return useLive<Reservation[]>(async (set, fail) => {
+    const { db } = await getFirebase();
+    return onSnapshot(
+      query(collection(db, "reservations"), where("status", "==", "request")),
+      (snap) =>
+        set(
+          snap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))
+            .filter((r) => r.date >= fromDate)
+            .sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)),
+        ),
+      fail,
+    );
+  }, [fromDate]);
 }
 
 /** 時間枠ごとの予約人数（空き状況） */

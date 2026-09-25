@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { todayJST } from "@/lib/date";
+import { usePendingRequests } from "@/lib/reservations";
 
 type MenuItem = { label: string; href?: string; adminOnly?: boolean };
 
@@ -19,6 +21,7 @@ const MENU: MenuItem[] = [
 export default function StaffHome() {
   const { role } = useAuth();
   const items = MENU.filter((m) => !m.adminOnly || role === "admin");
+  const { value: requests } = usePendingRequests(todayJST());
 
   return (
     <>
@@ -32,6 +35,11 @@ export default function StaffHome() {
                 className="block rounded-xl border border-berry/30 bg-white p-5 text-center shadow-sm active:bg-berry/5"
               >
                 <div className="text-lg font-semibold">{m.label}</div>
+                {m.href === "/staff/reservations/" && requests && requests.length > 0 && (
+                  <div className="mt-1 inline-block rounded-full bg-purple-700 px-2 py-0.5 text-xs text-white">
+                    リクエスト {requests.length}件
+                  </div>
+                )}
               </Link>
             </li>
           ) : (

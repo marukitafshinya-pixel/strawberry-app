@@ -200,7 +200,7 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
 
         <fieldset className="mt-3">
           <legend className={label}>ステータス</legend>
-          <div className="mt-1 grid grid-cols-4 gap-1">
+          <div className="mt-1 grid grid-cols-3 gap-1 sm:grid-cols-5">
             {(Object.keys(STATUS_LABEL) as ReservationStatus[]).map((st) => (
               <button
                 key={st}

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { callFunction, errorText } from "@/lib/callFunction";
+import { FirebaseError } from "firebase/app";
+import { callFunction, cleanMessage, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import {
   STATUS_LABEL,
@@ -11,6 +12,7 @@ import {
   countsTowardCapacity,
   peopleText,
   useContacts,
+  usePendingRequests,
   useReservations,
   useSettings,
   type Reservation,
@@ -97,6 +99,7 @@ function ReservationsView() {
         </div>
       </div>
       <DayNotice date={date} settings={settings} />
+      <PendingRequests current={date} onOpen={setDate} />
 
       {error ? <p className="mt-4 text-red-600">{errorText(error)}</p> : null}
       {!reservations && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
@@ -104,11 +107,18 @@ function ReservationsView() {
       {/* 時間枠ごとの埋まり具合と予約一覧 */}
       <div className="mt-4 space-y-4">
         {slotRows.map((slot) => {
-          const list = (bySlot.get(slot.id) ?? []).sort((a, b) => Number(a.status === "cancelled") - Number(b.status === "cancelled"));
+          const rank = (r: Reservation) => (r.status === "request" ? 0 : r.status === "cancelled" ? 2 : 1);
+          const list = (bySlot.get(slot.id) ?? []).sort((a, b) => rank(a) - rank(b));
           const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
+          const requests = list.filter((r) => r.status === "request");
           return (
             <section key={slot.id} className="rounded-2xl bg-white p-3 shadow-sm">
               <SlotHeader time={slot.time} booked={booked} capacity={slot.capacity} />
+              {requests.length > 0 && (
+                <p className="mt-1 text-sm text-purple-800">
+                  リクエスト {requests.length}件（{requests.reduce((n, r) => n + r.people, 0)}人）…承認すると定員に数えます
+                </p>
+              )}
               {list.length === 0 ? (
                 <p className="mt-2 text-sm text-gray-400">予約なし</p>
               ) : (
@@ -137,6 +147,30 @@ function ReservationsView() {
         />
       )}
     </>
+  );
+}
+
+/** 承認待ちのリクエスト一覧（ほかの日付の分も含めて表示） */
+function PendingRequests({ current, onOpen }: { current: string; onOpen: (d: string) => void }) {
+  const { value } = usePendingRequests(todayJST());
+  if (!value || value.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm">
+      <p className="font-bold text-purple-900">承認待ちのリクエスト {value.length}件</p>
+      <p className="text-xs text-purple-800">お客様にお電話かメールで可否を連絡し、「承認」または「キャンセル」にしてください。</p>
+      <ul className="mt-1 flex flex-wrap gap-2">
+        {value.map((r) => (
+          <li key={r.id}>
+            <button
+              onClick={() => onOpen(r.date)}
+              className={`rounded-full border border-purple-300 bg-white px-3 py-1 ${r.date === current ? "font-bold" : ""}`}
+            >
+              {formatJa(r.date)} {r.slotTime} {r.customerName}様 {r.people}人
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -189,13 +223,17 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function markVisited() {
+  async function changeStatus(status: "visited" | "confirmed", force = false): Promise<void> {
     setBusy(true);
     setError("");
     try {
-      await callFunction("setReservationStatus", { id: r.id, status: "visited" });
+      await callFunction("setReservationStatus", { id: r.id, status, force });
     } catch (e) {
-      setError(errorText(e));
+      if (e instanceof FirebaseError && e.code === "functions/resource-exhausted" && !force) {
+        if (window.confirm(`${cleanMessage(e.message)}\nそれでも承認しますか？`)) return changeStatus(status, true);
+      } else {
+        setError(errorText(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -210,10 +248,25 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
         <span className="text-sm">{r.people}人</span>
         {r.source === "web" && <span className="rounded bg-berry/10 px-1.5 text-xs text-berry-dark">Web {r.code}</span>}
         <div className="ml-auto flex gap-2">
-          {!cancelled && r.status !== "visited" && (
-            <button onClick={markVisited} disabled={busy} className="rounded-lg bg-leaf px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50">
-              {busy ? "…" : "来店"}
+          {r.status === "request" ? (
+            <button
+              onClick={() => changeStatus("confirmed")}
+              disabled={busy}
+              className="rounded-lg bg-purple-700 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {busy ? "…" : "承認"}
             </button>
+          ) : (
+            !cancelled &&
+            r.status !== "visited" && (
+              <button
+                onClick={() => changeStatus("visited")}
+                disabled={busy}
+                className="rounded-lg bg-leaf px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "…" : "来店"}
+              </button>
+            )
           )}
           <button onClick={onEdit} className="rounded-lg border px-3 py-1.5 text-sm">
             編集

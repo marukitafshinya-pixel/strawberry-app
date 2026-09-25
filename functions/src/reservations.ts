@@ -5,8 +5,9 @@ import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertStaff, db, requireString } from "./common.js";
 
-export type ReservationStatus = "tentative" | "confirmed" | "visited" | "cancelled";
-const STATUSES: ReservationStatus[] = ["tentative", "confirmed", "visited", "cancelled"];
+/** request = 定員を超えたためのリクエスト（お店の承認待ち） */
+export type ReservationStatus = "request" | "tentative" | "confirmed" | "visited" | "cancelled";
+const STATUSES: ReservationStatus[] = ["request", "tentative", "confirmed", "visited", "cancelled"];
 
 type SettingsLite = {
   timeSlots: { id: string; time: string; capacity: number }[];
@@ -32,9 +33,9 @@ export type ReservationDoc = {
   source: "staff" | "web";
 };
 
-/** 定員に数える予約か（キャンセルは数えない） */
+/** 定員に数える予約か（キャンセルと、承認前のリクエストは数えない） */
 export function countsTowardCapacity(status: ReservationStatus): boolean {
-  return status !== "cancelled";
+  return status !== "cancelled" && status !== "request";
 }
 
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
