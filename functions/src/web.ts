@@ -34,7 +34,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * ロボット対策（App Check）の確認に通らない送信を断るか。
  * 最初は false（記録だけ）にして、本物の予約ページから確認が通っていることを確かめてから true にする。
  */
-const REQUIRE_APP_CHECK = false;
+const REQUIRE_APP_CHECK = true;
 
 /** 日本時間の今日 "YYYY-MM-DD" */
 function todayJST(): string {
