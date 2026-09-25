@@ -15,6 +15,8 @@ import {
   cleanSettings,
   newId,
   normalizeSettings,
+  settingsFromFile,
+  settingsToFile,
   validateSettings,
   type Plan,
   type Product,
@@ -59,6 +61,32 @@ export default function SettingsPage() {
     setDirty(true);
   };
 
+  function exportFile() {
+    if (!s) return;
+    const blob = new Blob([settingsToFile(s)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `settings_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function importFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      const next = settingsFromFile(await file.text());
+      if (!window.confirm("ファイルの設定で、この画面の内容をすべて置き換えます。よろしいですか？\n（確かめてから「保存する」を押すまでは保存されません）")) return;
+      setS(next);
+      setErrors([]);
+      setSaved(false);
+      setDirty(true);
+    } catch (e) {
+      setErrors([e instanceof Error ? e.message : String(e)]);
+    }
+  }
+
   async function save() {
     if (!s) return;
     const cleaned = cleanSettings(s);
@@ -88,6 +116,16 @@ export default function SettingsPage() {
       </p>
       <h1 className="mt-2 text-xl font-bold">設定</h1>
       <p className="mt-1 text-sm text-gray-600">変更したら、画面下の「保存する」を押してください。</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button onClick={exportFile} className={smallButton}>
+          設定をファイルに書き出す
+        </button>
+        <label className={`${smallButton} cursor-pointer`}>
+          ファイルから読み込む
+          <input type="file" accept=".json,application/json" className="hidden" onChange={(e) => importFile(e.target)} />
+        </label>
+        <span className="text-xs text-gray-500">テスト用の設定を本番に写すときなどに使います</span>
+      </div>
 
       <Section title="お店の情報" note="レシートなどに表示します。">
         <Field label="店名">

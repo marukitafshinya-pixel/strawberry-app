@@ -109,6 +109,31 @@ export function defaultSettings(): Settings {
   };
 }
 
+/** 設定ファイル（書き出し・読み込み用）の目印 */
+const SETTINGS_FILE_MARK = "ichigo-settings";
+
+/** 設定をファイルに書き出す形にする（テスト用から本番へ写すときなどに使う。個人情報は入っていない） */
+export function settingsToFile(s: Settings): string {
+  return JSON.stringify({ app: SETTINGS_FILE_MARK, version: 1, settings: cleanSettings(s) }, null, 2);
+}
+
+/** 書き出した設定ファイルを読み込む。形が違えば日本語の説明を投げる */
+export function settingsFromFile(text: string): Settings {
+  let data: unknown;
+  try {
+    data = JSON.parse(text.replace(/^\uFEFF/, ""));
+  } catch {
+    throw new Error("設定ファイルとして読めません");
+  }
+  const d = data as { app?: unknown; settings?: Partial<Settings> };
+  if (d?.app !== SETTINGS_FILE_MARK || typeof d.settings !== "object" || !d.settings) throw new Error("この画面で書き出した設定ファイルを選んでください");
+  // 決められた項目だけを取り出す（余計な項目があると保存できないため）
+  const base = defaultSettings();
+  const keys = [...Object.keys(base), "invoiceNumber"] as (keyof Settings)[];
+  const picked = Object.fromEntries(keys.filter((k) => k in d.settings!).map((k) => [k, d.settings![k]]));
+  return normalizeSettings(picked as Partial<Settings>);
+}
+
 /** 保存されたデータを、足りない項目を初期値で補って読み込む */
 export function normalizeSettings(data: Partial<Settings> | undefined): Settings {
   return { ...defaultSettings(), ...(data ?? {}) };
