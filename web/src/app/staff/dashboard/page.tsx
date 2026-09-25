@@ -25,7 +25,7 @@ function shiftMonth(ym: string, n: number): string {
 }
 const lastDay = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
 
-/** 日ごとのグラフにする最長の日数（これより長い期間は月ごとにまとめる） */
+/** はじめに日ごとのグラフにする最長の日数（これより長い期間は、はじめは月ごと。切り替えもできる） */
 const DAILY_MAX = 62;
 
 export default function DashboardPage() {
@@ -56,6 +56,8 @@ function Dashboard() {
   const { value: todayCapacity } = useDailyCapacity(today);
   const { value: requests } = usePendingRequests(today);
   const [showTable, setShowTable] = useState(false);
+  /** グラフを日ごと・月ごとのどちらで見るか（null なら期間の長さで自動） */
+  const [unit, setUnit] = useState<"day" | "month" | null>(null);
   /** グラフから外している分類 */
   const [hidden, setHidden] = useState<string[]>([]);
 
@@ -76,7 +78,7 @@ function Dashboard() {
     values: data?.byDay.get(d) ?? {},
   }));
   // 長い期間は月ごとにまとめて1本ずつ
-  const daily = days.length <= DAILY_MAX;
+  const daily = unit ? unit === "day" : days.length <= DAILY_MAX;
   const rangeMonths = [...new Set(days.map((d) => d.slice(0, 7)))];
   const rangeMonthRows = rangeMonths.map((m) => {
     const values: Record<string, number> = {};
@@ -158,7 +160,23 @@ function Dashboard() {
       {/* 期間の選択 */}
       <RangePicker settings={settings} from={range.from} to={range.to} days={range.days} onChange={range.setRange} />
       {range.tooLong && <p className="mt-2 text-sm text-amber-700">期間が長すぎるので、始めの{MAX_DAYS}日分を表示しています。</p>}
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex overflow-hidden rounded-lg border bg-white text-sm">
+          {(
+            [
+              ["day", "日ごと"],
+              ["month", "月ごと"],
+            ] as const
+          ).map(([u, label]) => (
+            <button
+              key={u}
+              onClick={() => setUnit(u)}
+              className={`px-4 py-2 ${(u === "day") === daily ? "bg-gray-800 font-bold text-white" : ""}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showTable} onChange={(e) => setShowTable(e.target.checked)} />
           表で見る
