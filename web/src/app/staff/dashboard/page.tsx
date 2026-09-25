@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { MAX_DAYS, RangePicker, useRangeParams } from "@/components/RangePicker";
 import { HBars, Meter, SeriesToggle, StackedColumns, type Series } from "@/components/charts";
 import { buildDailySales } from "@/lib/report";
 import { addDays, todayJST, weekday } from "@/lib/date";
@@ -24,11 +25,28 @@ function shiftMonth(ym: string, n: number): string {
 }
 const lastDay = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
 
+/** 日ごとのグラフにする最長の日数（これより長い期間は月ごとにまとめる） */
+const DAILY_MAX = 62;
+
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
+      <Dashboard />
+    </Suspense>
+  );
+}
+
+function Dashboard() {
   const today = todayJST();
-  const [month, setMonth] = useState(today.slice(0, 7));
-  const from = `${shiftMonth(month, -5)}-01`;
-  const to = lastDay(month);
+  // 期間（画面のアドレスに持たせる。はじめは今月の1日〜今日）
+  const range = useRangeParams("/staff/dashboard/");
+  const rangeFrom = range.from;
+  const rangeTo = range.tooLong ? addDays(range.from, MAX_DAYS - 1) : range.to;
+  const endMonth = rangeTo.slice(0, 7);
+  // 月ごとのグラフ（期間の終わりまでの直近6か月）の分も合わせて読み込む
+  const sixFrom = `${shiftMonth(endMonth, -5)}-01`;
+  const from = sixFrom < rangeFrom ? sixFrom : rangeFrom;
+  const to = lastDay(endMonth);
 
   const { value: settings } = useSettings();
   const { value: sales } = useSales(from, to);
@@ -48,15 +66,30 @@ export default function DashboardPage() {
 
   if (!settings) return <p className="text-gray-500">読み込み中…</p>;
 
-  // 選んだ月の日ごと
+  // 選んだ期間の日ごと
   const days: string[] = [];
-  for (let d = `${month}-01`; d <= to; d = addDays(d, 1)) days.push(d);
+  for (let d = rangeFrom; d <= rangeTo; d = addDays(d, 1)) days.push(d);
   const dayRows = days.map((d) => ({
     key: d,
-    label: String(Number(d.slice(8))),
+    label: days.length > 31 ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))}` : String(Number(d.slice(8))),
     sub: `${Number(d.slice(5, 7))}月${Number(d.slice(8))}日（${weekday(d)}）`,
     values: data?.byDay.get(d) ?? {},
   }));
+  // 長い期間は月ごとにまとめて1本ずつ
+  const daily = days.length <= DAILY_MAX;
+  const rangeMonths = [...new Set(days.map((d) => d.slice(0, 7)))];
+  const rangeMonthRows = rangeMonths.map((m) => {
+    const values: Record<string, number> = {};
+    for (const r of dayRows) if (r.key.startsWith(m)) for (const [k, n] of Object.entries(r.values)) values[k] = (values[k] ?? 0) + n;
+    return { key: m, label: `${Number(m.slice(5))}月`, sub: `${m.slice(0, 4)}年${Number(m.slice(5))}月`, values };
+  });
+  const mainRows = daily ? dayRows : rangeMonthRows;
+  const yearPrefix = rangeFrom.slice(0, 4) === today.slice(0, 4) && rangeTo.slice(0, 4) === today.slice(0, 4) ? "" : `${rangeFrom.slice(0, 4)}年 `;
+  const periodLabel =
+    yearPrefix +
+    (rangeFrom.slice(0, 7) === rangeTo.slice(0, 7) && rangeFrom.endsWith("-01") && rangeTo === lastDay(endMonth)
+      ? `${Number(endMonth.slice(5))}月`
+      : `${Number(rangeFrom.slice(5, 7))}/${Number(rangeFrom.slice(8))}〜${Number(rangeTo.slice(5, 7))}/${Number(rangeTo.slice(8))}`);
   const sum = (v: Record<string, number>) => Object.values(v).reduce((n, x) => n + x, 0);
   const monthTotal = dayRows.reduce((n, r) => n + sum(r.values), 0);
   // 凡例はこの月に出てくる分類だけ（色は月をまたいでも同じ）
@@ -70,8 +103,8 @@ export default function DashboardPage() {
     .filter((c) => c.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  // 月ごと（直近6か月）
-  const months = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
+  // 月ごと（期間の終わりまでの直近6か月）
+  const months = Array.from({ length: 6 }, (_, i) => shiftMonth(endMonth, i - 5));
   const monthRows = months.map((m) => {
     const values: Record<string, number> = {};
     for (const [d, v] of data?.byDay ?? []) if (d.startsWith(m)) for (const [k, n] of Object.entries(v)) values[k] = (values[k] ?? 0) + n;
@@ -97,7 +130,7 @@ export default function DashboardPage() {
       {/* 今日と全体の数字 */}
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="今日の予約" value={`${activeToday.length}件`} sub={`${activeToday.reduce((n, r) => n + r.people, 0)}人`} href={`/staff/reservations/?date=${today}`} />
-        <Tile label={`${Number(month.slice(5))}月の売上`} value={yen(monthTotal)} href={`/staff/sales/?date=${today}`} />
+        <Tile label={`売上（${periodLabel}）`} value={yen(monthTotal)} href={`/staff/report/?from=${rangeFrom}&to=${rangeTo}`} />
         <Tile label="未回収の売掛" value={yen(openTotal)} sub={`${openReceivables?.length ?? 0}件`} href="/staff/receivables/" />
         <Tile label="承認待ちのリクエスト" value={`${requests?.length ?? 0}件`} href={`/staff/reservations/?date=${today}`} />
       </div>
@@ -122,23 +155,11 @@ export default function DashboardPage() {
         </ul>
       </section>
 
-      {/* 月の切り替え（グラフの上に1列で） */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
-          ‹ 前月
-        </button>
-        <span className="min-w-28 text-center font-bold">
-          {month.slice(0, 4)}年{Number(month.slice(5))}月
-        </span>
-        <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg border bg-white px-3 py-2">
-          翌月 ›
-        </button>
-        {month !== today.slice(0, 7) && (
-          <button onClick={() => setMonth(today.slice(0, 7))} className="rounded-lg border bg-white px-3 py-2">
-            今月
-          </button>
-        )}
-        <label className="ml-auto flex items-center gap-2 text-sm">
+      {/* 期間の選択 */}
+      <RangePicker settings={settings} from={range.from} to={range.to} days={range.days} onChange={range.setRange} />
+      {range.tooLong && <p className="mt-2 text-sm text-amber-700">期間が長すぎるので、始めの{MAX_DAYS}日分を表示しています。</p>}
+      <div className="mt-3 flex justify-end">
+        <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showTable} onChange={(e) => setShowTable(e.target.checked)} />
           表で見る
         </label>
@@ -150,7 +171,7 @@ export default function DashboardPage() {
         <>
           <section className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-bold">日ごとの売上</h2>
+              <h2 className="font-bold">{daily ? "日ごとの売上" : "月ごとの売上（期間内）"}</h2>
               <span className="text-sm text-gray-600">
                 合計 {yen(monthTotal)}
                 {hidden.length > 0 && <b className="ml-2 text-gray-900">表示中 {yen(shownTotal)}</b>}
@@ -160,18 +181,18 @@ export default function DashboardPage() {
               <SeriesToggle series={[...new Map([...monthSeries, ...monthlySeries].map((s) => [s.key, s])).values()]} hidden={hidden} onChange={setHidden} />
             </div>
             {monthTotal === 0 ? (
-              <p className="py-10 text-center text-sm text-gray-400">この月の売上はまだありません</p>
+              <p className="py-10 text-center text-sm text-gray-400">この期間の売上はまだありません</p>
             ) : (
               <div className="mt-2">
-                <StackedColumns rows={dayRows} series={shownDay} ariaLabel={`${month}の日ごとの売上`} />
+                <StackedColumns rows={mainRows} series={shownDay} ariaLabel={daily ? "日ごとの売上" : "月ごとの売上"} />
               </div>
             )}
-            {showTable && <DayTable rows={dayRows} series={shownDay} />}
+            {showTable && <DayTable rows={mainRows} series={shownDay} />}
           </section>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl bg-white p-4 shadow-sm">
-              <h2 className="font-bold">分類ごとの売上（{Number(month.slice(5))}月）</h2>
+              <h2 className="font-bold">分類ごとの売上（{periodLabel}）</h2>
               <div className="mt-3">
                 {catTotals.length === 0 ? (
                   <p className="text-sm text-gray-400">売上はまだありません</p>
