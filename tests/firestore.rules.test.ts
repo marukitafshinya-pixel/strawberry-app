@@ -154,6 +154,37 @@ describe("会計・売掛・過去売上", () => {
   });
 });
 
+describe("給与（管理者のみ）", () => {
+  it("従業員と給与は管理者だけが読み書きできる", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "employees/e1"), { name: "山田", accountNumber: "1234567" }));
+    await assertSucceeds(getDoc(doc(admin(), "employees/e1")));
+    await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-07"), { paymentDate: "2026-08-15", rows: {}, employer: {} }));
+    for (const db of [staff(), guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "employees/e1")));
+      await assertFails(getDoc(doc(db, "payrolls/2026-07")));
+      await assertFails(setDoc(doc(db, "payrolls/2026-07"), { paymentDate: "2026-08-15", rows: {}, employer: {} }));
+    }
+  });
+  it("月の形や項目が違うものは保存できない", async () => {
+    await assertFails(setDoc(doc(admin(), "payrolls/2026-7"), { paymentDate: "", rows: {}, employer: {} }));
+    await assertFails(setDoc(doc(admin(), "payrolls/2026-07"), { rows: {}, employer: {}, secret: 1 }));
+  });
+});
+
+describe("出荷実績", () => {
+  it("スタッフは出荷を入力でき、規格の設定は読むだけ", async () => {
+    await assertSucceeds(setDoc(doc(staff(), "shipments/2026-07-01"), { items: { g1: { qty: 10, price: 500 } } }));
+    await assertSucceeds(getDoc(doc(staff(), "shipping/config")));
+    await assertFails(setDoc(doc(staff(), "shipping/config"), { destination: "x", grades: [] }));
+    await assertSucceeds(setDoc(doc(admin(), "shipping/config"), { destination: "JA", grades: [] }));
+  });
+  it("ログインしていない人は出荷を読めない・書けない", async () => {
+    await assertFails(getDoc(doc(guest(), "shipments/2026-07-01")));
+    await assertFails(setDoc(doc(guest(), "shipments/2026-07-01"), { items: {} }));
+    await assertFails(setDoc(doc(staff(), "shipments/abc"), { items: {} }));
+  });
+});
+
 describe("連続送信の記録 (rateLimits)", () => {
   it("誰も読み書きできない", async () => {
     for (const db of [guest(), staff(), admin()]) {
