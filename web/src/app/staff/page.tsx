@@ -10,9 +10,9 @@ type MenuItem = { label: string; href?: string; adminOnly?: boolean };
 // まだ作っていない機能は「準備中」と表示する。作るたびにリンクに変えていく
 const MENU: MenuItem[] = [
   { label: "予約管理", href: "/staff/reservations/" },
-  { label: "会計" },
-  { label: "売掛管理" },
-  { label: "日次締め" },
+  { label: "会計", href: "/staff/checkout/" },
+  { label: "売掛管理", href: "/staff/receivables/" },
+  { label: "日次締め", href: "/staff/sales/" },
   { label: "ダッシュボード" },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },

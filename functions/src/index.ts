@@ -7,6 +7,7 @@ import { assertAdmin, db, requireEmail, requirePassword, requireRole, requireStr
 
 export { deleteReservation, saveReservation, setReservationStatus } from "./reservations.js";
 export { createWebReservation } from "./web.js";
+export { checkout, deleteReceivable, saveReceivable, voidSale } from "./sales.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

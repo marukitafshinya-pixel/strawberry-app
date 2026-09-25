@@ -32,6 +32,23 @@ service cloud.firestore {
     match /reservationContacts/{id} {
       allow read: if isStaff();
     }
+    // 会計・売掛：スタッフは見るだけ。確定・取消・変更はサーバー側でまとめて行う
+    match /sales/{id} {
+      allow read: if isStaff();
+    }
+    match /receivables/{id} {
+      allow read: if isStaff();
+    }
+    // 過去売上の取り込み（日ごとの合計）：スタッフは見るだけ、管理者が取り込む
+    match /importedSales/{date} {
+      allow read: if isStaff();
+      allow write: if isAdmin()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['amount', 'source', 'importedAt'])
+        && request.resource.data.amount is int;
+      allow delete: if isAdmin();
+    }
+
     // 空き状況（時間枠ごとの予約人数だけ）：予約ページで使うので誰でも読める。書き込みはサーバー側のみ
     match /availability/{date} {
       allow read: if true;

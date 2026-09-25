@@ -500,6 +500,15 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
               </button>
             )
           )}
+          {r.saleId ? (
+            <span className="rounded-lg bg-gray-100 px-2 py-1.5 text-xs text-gray-600">会計済</span>
+          ) : (
+            r.status === "visited" && (
+              <Link href={`/staff/checkout/?reservation=${r.id}`} className="rounded-lg bg-berry px-3 py-1.5 text-sm font-bold text-white">
+                会計
+              </Link>
+            )
+          )}
           <button onClick={onEdit} className="rounded-lg border px-3 py-1.5 text-sm">
             編集
           </button>

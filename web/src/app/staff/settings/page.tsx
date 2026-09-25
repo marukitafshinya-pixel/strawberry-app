@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
 import {
+  DEFAULT_PLAN_CATEGORY,
   SETTINGS_DOC,
   cleanSettings,
   newId,
@@ -513,6 +514,20 @@ function PlanEditor({
           <span className="mt-1 block">
             <NumberInput value={plan.minutes} onChange={(v) => onChange({ ...plan, minutes: v })} suffix="分" />
           </span>
+        </Field>
+        <Field label="売上の分類">
+          <input
+            value={plan.category ?? DEFAULT_PLAN_CATEGORY}
+            maxLength={20}
+            list="plan-categories"
+            onChange={(e) => onChange({ ...plan, category: e.target.value })}
+            className="mt-1 w-32 rounded-lg border px-3 py-2 text-base"
+          />
+          <datalist id="plan-categories">
+            {[...new Set(settings.plans.map((p) => p.category ?? DEFAULT_PLAN_CATEGORY))].map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
         </Field>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">

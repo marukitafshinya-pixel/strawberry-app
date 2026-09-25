@@ -41,6 +41,8 @@ export type Reservation = {
   source: "staff" | "web";
   /** Web予約の予約番号 */
   code?: string;
+  /** 会計済みなら、その会計のID */
+  saleId?: string;
 };
 
 export type Contact = { phone: string; email: string };

@@ -24,7 +24,11 @@ export type Plan = {
   prices: Record<string, number>;
   /** お客様用の予約ページに表示するか */
   public: boolean;
+  /** 売上の分類（例：いちご狩り）。未設定なら「いちご狩り」 */
+  category?: string;
 };
+
+export const DEFAULT_PLAN_CATEGORY = "いちご狩り";
 
 /** 会計で売る商品（お土産・ドリンクなど） */
 export type Product = {
@@ -165,6 +169,7 @@ export function cleanSettings(s: Settings): Settings {
     plans: s.plans.map((p) => ({
       ...p,
       name: p.name.trim(),
+      category: (p.category ?? DEFAULT_PLAN_CATEGORY).trim() || DEFAULT_PLAN_CATEGORY,
       prices: Object.fromEntries(Object.entries(p.prices).filter(([id]) => catIds.has(id))),
     })),
     products: s.products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim() })),

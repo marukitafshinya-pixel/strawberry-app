@@ -134,6 +134,26 @@ describe("この日だけの定員 (dailyCapacity)", () => {
   });
 });
 
+describe("会計・売掛・過去売上", () => {
+  it("会計・売掛はスタッフだけが読め、誰も直接は書けない", async () => {
+    await assertSucceeds(getDoc(doc(staff(), "sales/s1")));
+    await assertSucceeds(getDoc(doc(staff(), "receivables/r1")));
+    for (const db of [guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "sales/s1")));
+      await assertFails(getDoc(doc(db, "receivables/r1")));
+    }
+    await assertFails(setDoc(doc(admin(), "sales/s1"), { total: 1 }));
+    await assertFails(setDoc(doc(admin(), "receivables/r1"), { amount: 1 }));
+  });
+  it("過去売上の取り込みは管理者だけ", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "importedSales/2025-07-01"), { amount: 12000, source: "airregi" }));
+    await assertFails(setDoc(doc(staff(), "importedSales/2025-07-01"), { amount: 12000, source: "airregi" }));
+    await assertFails(setDoc(doc(admin(), "importedSales/2025-07-01"), { amount: "12000", source: "airregi" }));
+    await assertSucceeds(getDoc(doc(staff(), "importedSales/2025-07-01")));
+    await assertFails(getDoc(doc(guest(), "importedSales/2025-07-01")));
+  });
+});
+
 describe("連続送信の記録 (rateLimits)", () => {
   it("誰も読み書きできない", async () => {
     for (const db of [guest(), staff(), admin()]) {

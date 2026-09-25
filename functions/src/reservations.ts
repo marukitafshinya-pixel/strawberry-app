@@ -208,6 +208,7 @@ export const deleteReservation = onCall(async (req) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return;
     const r = snap.data() as ReservationDoc;
+    if (snap.get("saleId")) throw new HttpsError("failed-precondition", "会計済みの予約は削除できません。先に会計を取り消してください");
     const aRef = availabilityRef(r.date);
     const a = await tx.get(aRef);
     if (countsTowardCapacity(r.status)) {
