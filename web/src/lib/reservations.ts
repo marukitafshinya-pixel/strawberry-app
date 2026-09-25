@@ -86,6 +86,18 @@ export function useReservations(date: string) {
   }, [date]);
 }
 
+/** 期間内の予約（集計用） */
+export function useReservationsRange(from: string, to: string) {
+  return useLive<Reservation[]>(async (set, fail) => {
+    const { db } = await getFirebase();
+    return onSnapshot(
+      query(collection(db, "reservations"), where("date", ">=", from), where("date", "<=", to)),
+      (snap) => set(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))),
+      fail,
+    );
+  }, [from, to]);
+}
+
 export function useContacts(date: string) {
   return useLive<Record<string, Contact>>(async (set, fail) => {
     const { db } = await getFirebase();

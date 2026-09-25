@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { HBars, Legend, Meter, NEUTRAL, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
+import { HBars, Legend, Meter, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
+import { buildDailySales } from "@/lib/report";
 import { addDays, todayJST, weekday } from "@/lib/date";
 import {
   capacityOf,
@@ -13,11 +14,7 @@ import {
   useSettings,
   yen,
 } from "@/lib/reservations";
-import { useImportedSales, useReceivables, useSales, type Sale } from "@/lib/sales";
-import { DEFAULT_PLAN_CATEGORY, type Settings } from "@/lib/settings";
-
-const IMPORTED = "__imported";
-const OTHER = "その他";
+import { useImportedSales, useReceivables, useSales } from "@/lib/sales";
 
 /** "YYYY-MM" を n か月ずらす */
 function shiftMonth(ym: string, n: number): string {
@@ -26,19 +23,6 @@ function shiftMonth(ym: string, n: number): string {
   return d.toISOString().slice(0, 7);
 }
 const lastDay = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
-
-/**
- * 分類ごとの色を決める。月を切り替えても同じ分類は同じ色になるよう、
- * 設定画面の並び（プラン → 商品）で順番を固定する。8つ目以降は「その他」にまとめる。
- */
-function categoryOrder(settings: Settings, seen: string[]): string[] {
-  const fromSettings = [
-    ...settings.plans.map((p) => p.category ?? DEFAULT_PLAN_CATEGORY),
-    ...settings.products.map((p) => p.group || OTHER),
-  ];
-  const all = [...new Set([...fromSettings, ...seen.sort()])].filter((c) => c !== OTHER);
-  return [...all.slice(0, SERIES_COLORS.length - 1), OTHER];
-}
 
 export default function DashboardPage() {
   const today = todayJST();
@@ -55,29 +39,10 @@ export default function DashboardPage() {
   const { value: requests } = usePendingRequests(today);
   const [showTable, setShowTable] = useState(false);
 
-  const data = useMemo(() => {
-    if (!settings || !sales || !imported) return null;
-    // 日付 → 分類 → 金額（アプリで会計した日はアプリの合計、ない日は取り込んだ合計）
-    const byDay = new Map<string, Record<string, number>>();
-    const done: Sale[] = sales.filter((s) => s.status === "completed");
-    const seen = [...new Set(done.flatMap((s) => s.lines.map((l) => l.category)))];
-    const order = categoryOrder(settings, seen);
-    const fold = (c: string) => (order.includes(c) ? c : OTHER);
-    for (const s of done) {
-      const m = byDay.get(s.date) ?? {};
-      for (const l of s.lines) m[fold(l.category)] = (m[fold(l.category)] ?? 0) + l.amount;
-      byDay.set(s.date, m);
-    }
-    for (const im of imported) {
-      if (!byDay.has(im.id)) byDay.set(im.id, { [IMPORTED]: im.amount });
-    }
-    const usedKeys = new Set([...byDay.values()].flatMap((m) => Object.keys(m)));
-    const series: Series[] = [
-      ...order.map((c, i) => ({ key: c, label: c, color: SERIES_COLORS[i] })).filter((s) => usedKeys.has(s.key)),
-      ...(usedKeys.has(IMPORTED) ? [{ key: IMPORTED, label: "取り込み（内訳なし）", color: NEUTRAL }] : []),
-    ];
-    return { byDay, series };
-  }, [settings, sales, imported]);
+  const data = useMemo(
+    () => (settings && sales && imported ? buildDailySales(settings, sales, imported) : null),
+    [settings, sales, imported],
+  );
 
   if (!settings) return <p className="text-gray-500">読み込み中…</p>;
 
