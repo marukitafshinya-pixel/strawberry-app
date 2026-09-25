@@ -5,10 +5,11 @@ import { getFirebase } from "./firebase";
 /**
  * reCAPTCHA の「サイトキー」（プロジェクトごと）。
  * これは秘密の値ではなく、予約ページの中で誰でも見られる前提の公開用の値。
- * 登録したドメイン（ichigo-test-d0fa2.web.app など）以外では使えない。
+ * 登録したドメイン（ichigo-test-d0fa2.web.app・ichigo-prod.web.app など）以外では使えない。
  */
 const SITE_KEYS: Record<string, string> = {
   "ichigo-test-d0fa2": "6LdHls0tAAAAAJSSMlh4X5gW1v7Z-0kucgPainBT",
+  "ichigo-prod": "6Lcab84tAAAAABLtdzrp_0F9Jtu5piG21FKQp4Nr",
 };
 
 let ready: Promise<void> | null = null;
