@@ -139,6 +139,19 @@ export function useDailyCapacity(date: string | null) {
   );
 }
 
+/** Web予約の受付を止めている時間枠（時間枠ID → true） */
+export function useWebStopped(date: string | null) {
+  return useLive<Record<string, boolean>>(
+    date
+      ? async (set, fail) => {
+          const { db } = await getFirebase();
+          return onSnapshot(doc(db, `dailyCapacity/${date}`), (s) => set((s.get("stopped") as Record<string, boolean>) ?? {}), fail);
+        }
+      : null,
+    [date],
+  );
+}
+
 /** その日の定員：この日だけの定員があればそれ、なければ設定画面の定員 */
 export function capacityOf(settings: Settings, daily: Record<string, number> | null | undefined, slotId: string): number | undefined {
   return daily?.[slotId] ?? settings.timeSlots.find((t) => t.id === slotId)?.capacity;

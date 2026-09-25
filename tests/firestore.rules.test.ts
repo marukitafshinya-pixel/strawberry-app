@@ -125,6 +125,9 @@ describe("この日だけの定員 (dailyCapacity)", () => {
     await assertFails(setDoc(doc(guest(), "dailyCapacity/2026-07-01"), { slots: { a: 10 } }));
   });
   it("形の違うデータや日付でない場所には書けない", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "dailyCapacity/2026-07-02"), { stopped: { a: true } }));
+    await assertFails(setDoc(doc(staff(), "dailyCapacity/2026-07-02"), { stopped: { a: true } }));
+    await assertFails(setDoc(doc(admin(), "dailyCapacity/2026-07-01"), { stopped: true }));
     await assertFails(setDoc(doc(admin(), "dailyCapacity/2026-07-01"), { slots: 10 }));
     await assertFails(setDoc(doc(admin(), "dailyCapacity/2026-07-01"), { slots: {}, extra: 1 }));
     await assertFails(setDoc(doc(admin(), "dailyCapacity/abc"), { slots: {} }));

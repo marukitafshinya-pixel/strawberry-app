@@ -4,6 +4,7 @@ import { FirebaseError } from "firebase/app";
 import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { ensureAppCheck } from "@/lib/appCheck";
 import { callFunction, cleanMessage } from "@/lib/callFunction";
 import { addDays, formatJa, todayJST, weekday } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
@@ -29,8 +30,13 @@ function isOpenDay(date: string, s: Settings): boolean {
  * - availability：予約人数
  * - dailyCapacity：この日だけの定員
  */
-function useRange(name: "availability" | "dailyCapacity", first: string | null, last: string | null) {
-  const [data, setData] = useState<Record<string, Record<string, number>> | null>(null);
+function useRange<T = number>(
+  name: "availability" | "dailyCapacity",
+  field: "slots" | "stopped",
+  first: string | null,
+  last: string | null,
+) {
+  const [data, setData] = useState<Record<string, Record<string, T>> | null>(null);
   useEffect(() => {
     if (!first || !last) return;
     let unsubscribe = () => {};
@@ -39,7 +45,7 @@ function useRange(name: "availability" | "dailyCapacity", first: string | null, 
       if (cancelled) return;
       unsubscribe = onSnapshot(
         query(collection(db, name), where(documentId(), ">=", first), where(documentId(), "<=", last)),
-        (snap) => setData(Object.fromEntries(snap.docs.map((d) => [d.id, (d.get("slots") as Record<string, number>) ?? {}]))),
+        (snap) => setData(Object.fromEntries(snap.docs.map((d) => [d.id, (d.get(field) as Record<string, T>) ?? {}]))),
         () => setData({}),
       );
     });
@@ -47,12 +53,16 @@ function useRange(name: "availability" | "dailyCapacity", first: string | null, 
       cancelled = true;
       unsubscribe();
     };
-  }, [name, first, last]);
+  }, [name, field, first, last]);
   return data;
 }
 
 export function BookingPage() {
   const { value: settings, error } = useSettings();
+  // ロボット対策を先に準備しておく
+  useEffect(() => {
+    ensureAppCheck();
+  }, []);
   if (error) return <Shell>読み込めませんでした。時間をおいてもう一度お試しください。</Shell>;
   if (!settings) return <Shell>読み込み中…</Shell>;
   return <Booking settings={settings} />;
@@ -75,8 +85,11 @@ function Shell({ children, title }: { children: ReactNode; title?: string }) {
 function Booking({ settings: s }: { settings: Settings }) {
   const plans = s.plans.filter((p) => p.public);
   const { first, last } = bookingRange(s);
-  const booked = useRange("availability", first, last);
-  const daily = useRange("dailyCapacity", first, last);
+  const booked = useRange("availability", "slots", first, last);
+  const daily = useRange("dailyCapacity", "slots", first, last);
+  const stopped = useRange<boolean>("dailyCapacity", "stopped", first, last);
+  /** Web予約の受付を止めている時間 */
+  const isStopped = (d: string, sid: string) => stopped?.[d]?.[sid] === true;
 
   const [step, setStep] = useState<Step>("form");
   const [planId, setPlanId] = useState(plans.length === 1 ? plans[0].id : "");
@@ -106,7 +119,7 @@ function Booking({ settings: s }: { settings: Settings }) {
   const bookable = (d: string) => d >= first && d <= last && isOpenDay(d, s);
   const need = Math.max(1, people);
 
-  const slotOk = !!date && !!slotId;
+  const slotOk = !!date && !!slotId && !isStopped(date, slotId);
   /** 定員を超えるので「リクエスト」になる */
   const isRequest = slotOk && remaining(date, slotId) < need;
 
@@ -118,6 +131,7 @@ function Booking({ settings: s }: { settings: Settings }) {
     setError("");
     setSending(true);
     try {
+      await ensureAppCheck();
       const res = await callFunction<Record<string, unknown>, { code: string; status: "confirmed" | "request" }>("createWebReservation", {
         date,
         slotId,
@@ -303,7 +317,7 @@ function Booking({ settings: s }: { settings: Settings }) {
         {/* 3. 日付と時間 */}
         {plan && people > 0 && (
           <Section n={plans.length > 1 ? 3 : 2} title="日付と時間">
-            {!booked || !daily ? (
+            {!booked || !daily || !stopped ? (
               <p className="text-gray-500">空き状況を読み込み中…</p>
             ) : (
               <Calendar
@@ -312,7 +326,10 @@ function Booking({ settings: s }: { settings: Settings }) {
                 selected={date}
                 mark={(d) => {
                   if (!bookable(d)) return null;
-                  const best = Math.max(...s.timeSlots.map((t) => remaining(d, t.id)));
+                  const open = s.timeSlots.filter((t) => !isStopped(d, t.id));
+                  // 全部の時間の受付を止めている日は、受付していない日として扱う
+                  if (open.length === 0) return null;
+                  const best = Math.max(...open.map((t) => remaining(d, t.id)));
                   return best < need ? "×" : best - need < 5 ? "△" : "○";
                 }}
                 onSelect={(d) => {
@@ -331,6 +348,14 @@ function Booking({ settings: s }: { settings: Settings }) {
                     const rem = remaining(date, t.id);
                     const ok = rem >= need;
                     const selected = slotId === t.id;
+                    if (isStopped(date, t.id)) {
+                      return (
+                        <button key={t.id} type="button" disabled className="rounded-xl border bg-gray-100 p-3 text-center text-gray-400">
+                          <span className="block text-lg font-bold">{t.time}</span>
+                          <span className="text-xs">受付終了</span>
+                        </button>
+                      );
+                    }
                     return (
                       <button
                         key={t.id}

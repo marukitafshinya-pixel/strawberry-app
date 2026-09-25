@@ -127,6 +127,12 @@ const availabilityRef = (date: string) => db.doc(`availability/${date}`);
  * 「この日だけの定員」（dailyCapacity/{日付}）があればそれを、なければ設定画面の定員を使う。
  * トランザクションの中で読むので、定員の変更と予約が同時に起きてもずれない。
  */
+/** Web予約の受付を止めている時間枠か（dailyCapacity/{日付} の stopped） */
+export async function isWebStopped(tx: Transaction, date: string, slotId: string): Promise<boolean> {
+  const snap = await tx.get(db.doc(`dailyCapacity/${date}`));
+  return (snap.get("stopped") as Record<string, boolean> | undefined)?.[slotId] === true;
+}
+
 export async function capacityFor(tx: Transaction, date: string, slotId: string, s: SettingsLite): Promise<number> {
   const snap = await tx.get(db.doc(`dailyCapacity/${date}`));
   const override = (snap.get("slots") as Record<string, number> | undefined)?.[slotId];

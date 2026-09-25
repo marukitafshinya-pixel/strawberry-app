@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { FirebaseError } from "firebase/app";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useAuth } from "@/lib/auth";
 import { getFirebase } from "@/lib/firebase";
 import { callFunction, cleanMessage, errorText } from "@/lib/callFunction";
@@ -16,6 +16,7 @@ import {
   countsTowardCapacity,
   peopleText,
   useDailyCapacity,
+  useWebStopped,
   useContacts,
   usePendingRequests,
   useReservations,
@@ -43,7 +44,9 @@ function ReservationsView() {
   const { value: reservations, error } = useReservations(date);
   const { value: contacts } = useContacts(date);
   const { value: daily } = useDailyCapacity(date);
+  const { value: stopped } = useWebStopped(date);
   const { role } = useAuth();
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   /** この日だけの定員を保存する（null なら標準に戻す） */
   async function saveDailyCapacity(slotId: string, value: number | null) {
@@ -51,7 +54,14 @@ function ReservationsView() {
     const slots = { ...(daily ?? {}) };
     if (value === null) delete slots[slotId];
     else slots[slotId] = value;
-    await setDoc(doc(db, `dailyCapacity/${date}`), { slots, updatedAt: serverTimestamp() });
+    // slots だけを置き換える（受付停止の設定は残す）
+    await setDoc(doc(db, `dailyCapacity/${date}`), { slots, updatedAt: serverTimestamp() }, { mergeFields: ["slots", "updatedAt"] });
+  }
+
+  /** この日のこの時間のWeb受付を止める／再開する */
+  async function setWebStopped(slotId: string, value: boolean) {
+    const { db } = await getFirebase();
+    await setDoc(doc(db, `dailyCapacity/${date}`), { stopped: { [slotId]: value }, updatedAt: serverTimestamp() }, { merge: true });
   }
   const [editing, setEditing] = useState<Reservation | "new" | null>(null);
 
@@ -88,9 +98,16 @@ function ReservationsView() {
       </p>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">予約管理</h1>
-        <button onClick={() => setEditing("new")} className="rounded-lg bg-berry px-4 py-2 font-bold text-white">
-          ＋ 予約を追加
-        </button>
+        <div className="flex gap-2">
+          {role === "admin" && (
+            <button onClick={() => setBulkOpen(true)} className="rounded-lg border bg-white px-3 py-2 text-sm">
+              まとめて受付停止・再開
+            </button>
+          )}
+          <button onClick={() => setEditing("new")} className="rounded-lg bg-berry px-4 py-2 font-bold text-white">
+            ＋ 予約を追加
+          </button>
+        </div>
       </div>
 
       {/* 日付の切り替え */}
@@ -141,6 +158,8 @@ function ReservationsView() {
                 standard={slot.standard}
                 canEdit={role === "admin"}
                 onChangeCapacity={(v) => saveDailyCapacity(slot.id, v)}
+                webStopped={stopped?.[slot.id] === true}
+                onToggleWeb={(v) => setWebStopped(slot.id, v)}
               />
               {requests.length > 0 && (
                 <p className="mt-1 text-sm text-purple-800">
@@ -161,6 +180,7 @@ function ReservationsView() {
         })}
       </div>
 
+      {bulkOpen && <BulkStopDialog settings={settings} initialDate={date} onClose={() => setBulkOpen(false)} />}
       {editing && (
         <ReservationForm
           settings={settings}
@@ -175,6 +195,91 @@ function ReservationsView() {
         />
       )}
     </>
+  );
+}
+
+/** 期間と時間枠を選んで、Web予約の受付をまとめて止める／再開する */
+function BulkStopDialog({ settings, initialDate, onClose }: { settings: Settings; initialDate: string; onClose: () => void }) {
+  const [from, setFrom] = useState(initialDate);
+  const [to, setTo] = useState(initialDate);
+  const [slotIds, setSlotIds] = useState<string[]>(settings.timeSlots.map((t) => t.id));
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const days = isValidYmd(from) && isValidYmd(to) && from <= to ? Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 : 0;
+
+  async function apply(stop: boolean) {
+    setError("");
+    setDone("");
+    if (days < 1) return setError("期間を正しく選んでください");
+    if (days > 120) return setError("一度に選べるのは120日までです");
+    if (slotIds.length === 0) return setError("時間枠を1つ以上選んでください");
+    setSaving(true);
+    try {
+      const { db } = await getFirebase();
+      const batch = writeBatch(db);
+      const stopped = Object.fromEntries(slotIds.map((id) => [id, stop]));
+      for (let i = 0; i < days; i++) {
+        batch.set(doc(db, `dailyCapacity/${addDays(from, i)}`), { stopped, updatedAt: serverTimestamp() }, { merge: true });
+      }
+      await batch.commit();
+      setDone(`${formatJa(from)}〜${formatJa(to)}（${days}日間）のWeb受付を${stop ? "止めました" : "再開しました"}。`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-2xl"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">まとめて受付停止・再開</h2>
+          <button onClick={onClose} className="px-3 text-2xl text-gray-500" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          お客様のWeb予約（リクエストも含む）を止めます。スタッフ画面からの予約はこれまでどおり入れられます。すでに入っている予約はそのままです。
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border px-3 py-2 text-base" />
+          〜
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border px-3 py-2 text-base" />
+          {days > 0 && <span className="text-sm text-gray-600">{days}日間</span>}
+        </div>
+        <fieldset className="mt-3">
+          <legend className="text-sm text-gray-600">時間枠</legend>
+          <div className="mt-1 flex flex-wrap gap-3">
+            {settings.timeSlots.map((t) => (
+              <label key={t.id} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={slotIds.includes(t.id)}
+                  onChange={(e) => setSlotIds(e.target.checked ? [...slotIds, t.id] : slotIds.filter((x) => x !== t.id))}
+                />
+                {t.time}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        {done && <p className="mt-3 rounded-lg bg-green-50 p-2 text-sm text-green-800">{done}</p>}
+        <div className="mt-4 flex gap-2">
+          <button disabled={saving} onClick={() => apply(true)} className="flex-1 rounded-lg bg-gray-800 py-3 font-bold text-white disabled:opacity-50">
+            受付を止める
+          </button>
+          <button disabled={saving} onClick={() => apply(false)} className="flex-1 rounded-lg border py-3 font-bold disabled:opacity-50">
+            受付を再開する
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -225,6 +330,8 @@ function SlotHeader({
   standard,
   canEdit,
   onChangeCapacity,
+  webStopped,
+  onToggleWeb,
 }: {
   time: string;
   booked: number;
@@ -232,6 +339,8 @@ function SlotHeader({
   standard: number;
   canEdit: boolean;
   onChangeCapacity: (v: number | null) => Promise<void>;
+  webStopped: boolean;
+  onToggleWeb: (v: boolean) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -268,6 +377,7 @@ function SlotHeader({
         <h2 className="text-lg font-bold">{time}</h2>
         <span className="text-sm">
           {booked} / {capacity}人
+          {webStopped && <span className="ml-1 rounded bg-gray-700 px-1 text-xs text-white">Web受付停止中</span>}
           {changed && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800">{capacity === 0 ? "この日は受付停止" : `この日だけ（標準${standard}人）`}</span>}
           <span className={`ml-2 font-bold ${remaining < 0 ? "text-red-600" : remaining === 0 ? "text-gray-500" : "text-leaf"}`}>
             {remaining < 0 ? `${-remaining}人 定員超過` : remaining === 0 ? "満員" : `残り${remaining}人`}
@@ -278,15 +388,35 @@ function SlotHeader({
         <div className={`h-full ${remaining < 0 ? "bg-red-500" : "bg-berry"}`} style={{ width: `${ratio * 100}%` }} />
       </div>
       {canEdit && !editing && (
-        <button
-          onClick={() => {
-            setText(String(capacity));
-            setEditing(true);
-          }}
-          className="mt-1 text-xs text-gray-500 underline"
-        >
-          この日の定員を変える
-        </button>
+        <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500">
+          <button
+            onClick={() => {
+              setText(String(capacity));
+              setEditing(true);
+            }}
+            className="underline"
+          >
+            この日の定員を変える
+          </button>
+          <button
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              setError("");
+              try {
+                await onToggleWeb(!webStopped);
+              } catch (e) {
+                setError(errorText(e));
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="underline"
+          >
+            {webStopped ? "Web受付を再開する" : "Web受付を止める"}
+          </button>
+          {error && <span className="text-red-600">{error}</span>}
+        </div>
       )}
       {editing && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 text-sm">

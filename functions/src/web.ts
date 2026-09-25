@@ -8,7 +8,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { buildReservation, capacityFor, parseReservationInput, type ReservationDoc } from "./reservations.js";
+import { buildReservation, capacityFor, isWebStopped, parseReservationInput, type ReservationDoc } from "./reservations.js";
 
 type WebSettings = {
   seasonStart: string;
@@ -29,6 +29,12 @@ const LIMITS = {
   perPhonePerDay: 3,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * ロボット対策（App Check）の確認に通らない送信を断るか。
+ * 最初は false（記録だけ）にして、本物の予約ページから確認が通っていることを確かめてから true にする。
+ */
+const REQUIRE_APP_CHECK = false;
 
 /** 日本時間の今日 "YYYY-MM-DD" */
 function todayJST(): string {
@@ -96,6 +102,13 @@ export const createWebReservation = onCall(
       return { code: "------", status: "confirmed" };
     }
 
+    if (!req.app) {
+      logger.warn("App Check の確認なしの予約送信", { enforced: REQUIRE_APP_CHECK });
+      if (REQUIRE_APP_CHECK) {
+        throw new HttpsError("failed-precondition", "確認に失敗しました。ページを再読み込みしてから、もう一度お試しください。");
+      }
+    }
+
     const input = parseReservationInput({ ...req.data, memo: req.data?.memo ?? "", status: "confirmed" });
     /** 満員のときはリクエストとして送ってよいか（お客様が画面で同意したときだけ true） */
     const wantsRequest = req.data?.request === true;
@@ -139,6 +152,9 @@ export const createWebReservation = onCall(
       const aRef = db.doc(`availability/${input.date}`);
       const aSnap = await tx.get(aRef);
       const slots = { ...((aSnap.get("slots") as Record<string, number> | undefined) ?? {}) };
+      if (await isWebStopped(tx, input.date, next.slotId)) {
+        throw new HttpsError("failed-precondition", "申し訳ありません。この時間はWeb予約の受付を終了しました。お電話でお問い合わせください");
+      }
       const capacity = await capacityFor(tx, input.date, next.slotId, s);
       const booked = slots[next.slotId] ?? 0;
       if (booked + next.people <= capacity) {
