@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { HBars, Legend, Meter, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
+import { HBars, Meter, SeriesToggle, StackedColumns, type Series } from "@/components/charts";
 import { buildDailySales } from "@/lib/report";
 import { addDays, todayJST, weekday } from "@/lib/date";
 import {
@@ -38,6 +38,8 @@ export default function DashboardPage() {
   const { value: todayCapacity } = useDailyCapacity(today);
   const { value: requests } = usePendingRequests(today);
   const [showTable, setShowTable] = useState(false);
+  /** グラフから外している分類 */
+  const [hidden, setHidden] = useState<string[]>([]);
 
   const data = useMemo(
     () => (settings && sales && imported ? buildDailySales(settings, sales, imported) : null),
@@ -59,6 +61,8 @@ export default function DashboardPage() {
   const monthTotal = dayRows.reduce((n, r) => n + sum(r.values), 0);
   // 凡例はこの月に出てくる分類だけ（色は月をまたいでも同じ）
   const monthSeries = (data?.series ?? []).filter((s) => dayRows.some((r) => (r.values[s.key] ?? 0) > 0));
+  const shownDay = monthSeries.filter((s) => !hidden.includes(s.key));
+  const shownTotal = dayRows.reduce((n, r) => n + shownDay.reduce((m, s) => m + (r.values[s.key] ?? 0), 0), 0);
 
   // 分類ごと（選んだ月）
   const catTotals = (data?.series ?? [])
@@ -69,10 +73,13 @@ export default function DashboardPage() {
   // 月ごと（直近6か月）
   const months = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
   const monthRows = months.map((m) => {
-    let total = 0;
-    for (const [d, v] of data?.byDay ?? []) if (d.startsWith(m)) total += sum(v);
-    return { key: m, label: `${Number(m.slice(5))}月`, sub: `${m.slice(0, 4)}年${Number(m.slice(5))}月`, values: { total } };
+    const values: Record<string, number> = {};
+    for (const [d, v] of data?.byDay ?? []) if (d.startsWith(m)) for (const [k, n] of Object.entries(v)) values[k] = (values[k] ?? 0) + n;
+    return { key: m, label: `${Number(m.slice(5))}月`, sub: `${m.slice(0, 4)}年${Number(m.slice(5))}月`, values };
   });
+  const monthlySeries = (data?.series ?? []).filter((s) => monthRows.some((r) => (r.values[s.key] ?? 0) > 0));
+  const shownMonthly = monthlySeries.filter((s) => !hidden.includes(s.key));
+  const shownSum = (v: Record<string, number>, list: Series[]) => list.reduce((n, s) => n + (v[s.key] ?? 0), 0);
 
   // 今日の予約
   const activeToday = (todayReservations ?? []).filter((r) => countsTowardCapacity(r.status));
@@ -144,19 +151,22 @@ export default function DashboardPage() {
           <section className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-bold">日ごとの売上</h2>
-              <span className="text-sm text-gray-600">合計 {yen(monthTotal)}</span>
+              <span className="text-sm text-gray-600">
+                合計 {yen(monthTotal)}
+                {hidden.length > 0 && <b className="ml-2 text-gray-900">表示中 {yen(shownTotal)}</b>}
+              </span>
             </div>
             <div className="mt-2">
-              <Legend series={monthSeries} />
+              <SeriesToggle series={[...new Map([...monthSeries, ...monthlySeries].map((s) => [s.key, s])).values()]} hidden={hidden} onChange={setHidden} />
             </div>
             {monthTotal === 0 ? (
               <p className="py-10 text-center text-sm text-gray-400">この月の売上はまだありません</p>
             ) : (
               <div className="mt-2">
-                <StackedColumns rows={dayRows} series={monthSeries} ariaLabel={`${month}の日ごとの売上`} />
+                <StackedColumns rows={dayRows} series={shownDay} ariaLabel={`${month}の日ごとの売上`} />
               </div>
             )}
-            {showTable && <DayTable rows={dayRows} series={monthSeries} />}
+            {showTable && <DayTable rows={dayRows} series={shownDay} />}
           </section>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -177,10 +187,11 @@ export default function DashboardPage() {
             </section>
             <section className="rounded-2xl bg-white p-4 shadow-sm">
               <h2 className="font-bold">月ごとの売上（直近6か月）</h2>
+              {hidden.length > 0 && <p className="text-xs text-gray-500">上で選んだ分類だけを表示しています</p>}
               <div className="mt-2">
                 <StackedColumns
                   rows={monthRows}
-                  series={[{ key: "total", label: "売上", color: SERIES_COLORS[0] }]}
+                  series={shownMonthly}
                   height={200}
                   width={360}
                   ariaLabel="月ごとの売上"
@@ -192,7 +203,7 @@ export default function DashboardPage() {
                     {monthRows.map((m) => (
                       <tr key={m.key} className="border-t">
                         <td className="py-1">{m.sub}</td>
-                        <td className="py-1 text-right tabular-nums">{yen(m.values.total)}</td>
+                        <td className="py-1 text-right tabular-nums">{yen(shownSum(m.values, shownMonthly))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -217,7 +228,7 @@ function Tile({ label, value, sub, href }: { label: string; value: string; sub?:
 }
 
 function DayTable({ rows, series }: { rows: { key: string; sub?: string; values: Record<string, number> }[]; series: Series[] }) {
-  const withSales = rows.filter((r) => Object.values(r.values).some((v) => v > 0));
+  const withSales = rows.filter((r) => series.some((x) => (r.values[x.key] ?? 0) > 0));
   if (withSales.length === 0) return null;
   return (
     <div className="mt-3 overflow-x-auto">
@@ -243,9 +254,7 @@ function DayTable({ rows, series }: { rows: { key: string; sub?: string; values:
                 </td>
               ))}
               <td className="py-1 text-right font-semibold tabular-nums">
-                {Object.values(r.values)
-                  .reduce((n, v) => n + v, 0)
-                  .toLocaleString("ja-JP")}
+                {series.reduce((n, x) => n + (r.values[x.key] ?? 0), 0).toLocaleString("ja-JP")}
               </td>
             </tr>
           ))}

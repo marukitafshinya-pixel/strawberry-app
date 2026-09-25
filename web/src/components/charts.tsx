@@ -218,3 +218,54 @@ export function Meter({ value, max, color = SERIES_COLORS[0] }: { value: number;
     </span>
   );
 }
+
+/**
+ * 凡例を兼ねた切り替えボタン。押すとその系列（分類）をグラフに出す／出さないを切り替える。
+ * 色は系列ごとに固定なので、切り替えても他の系列の色は変わらない。
+ */
+export function SeriesToggle({
+  series,
+  hidden,
+  onChange,
+}: {
+  series: Series[];
+  hidden: string[];
+  onChange: (hidden: string[]) => void;
+}) {
+  if (series.length === 0) return null;
+  const allShown = hidden.length === 0;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <button
+        onClick={() => onChange([])}
+        className={`rounded-full border px-3 py-1 ${allShown ? "border-gray-800 bg-gray-800 text-white" : "bg-white"}`}
+        aria-pressed={allShown}
+      >
+        すべて
+      </button>
+      {series.map((s) => {
+        const on = !hidden.includes(s.key);
+        return (
+          <span key={s.key} className="inline-flex overflow-hidden rounded-full border bg-white">
+            <button
+              onClick={() => onChange(on ? [...hidden, s.key] : hidden.filter((k) => k !== s.key))}
+              className={`flex items-center gap-1.5 px-3 py-1 ${on ? "" : "text-gray-400 line-through"}`}
+              aria-pressed={on}
+              title={on ? "押すとグラフから外します" : "押すとグラフに出します"}
+            >
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: on ? s.color : "#d4d2cc" }} />
+              {s.label}
+            </button>
+            <button
+              onClick={() => onChange(series.filter((x) => x.key !== s.key).map((x) => x.key))}
+              className="border-l px-2 py-1 text-xs text-gray-500"
+              title={`${s.label}だけを表示`}
+            >
+              だけ
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}

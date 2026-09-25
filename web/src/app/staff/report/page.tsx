@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useMemo, useState, type ReactNode } from "react";
-import { HBars, Legend, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
+import { HBars, SERIES_COLORS, SeriesToggle, StackedColumns, type Series } from "@/components/charts";
 import { MAX_DAYS, RangePicker, daysBetween, useRangeParams } from "@/components/RangePicker";
 import { addDays, formatJa, weekday } from "@/lib/date";
 import { buildDailySales, downloadCsv, sumValues } from "@/lib/report";
@@ -73,6 +73,8 @@ function Report({
   imported: { id: string; amount: number }[];
 }) {
   const [showTable, setShowTable] = useState(false);
+  /** グラフから外している分類 */
+  const [hidden, setHidden] = useState<string[]>([]);
   const days = daysBetween(from, to);
   const monthly = days > 62;
 
@@ -134,6 +136,9 @@ function Report({
       })
     : dates.map((d) => ({ key: d, label: String(Number(d.slice(8))), sub: formatJa(d), values: s.byDay.get(d) ?? {} }));
   const rowSeries: Series[] = s.series.filter((x) => rows.some((row) => (row.values[x.key] ?? 0) > 0));
+  const shown = rowSeries.filter((x) => !hidden.includes(x.key));
+  const shownSum = (v: Record<string, number>) => shown.reduce((n, x) => n + (v[x.key] ?? 0), 0);
+  const shownTotal = rows.reduce((n, row) => n + shownSum(row.values), 0);
   const catTotals = rowSeries
     .map((x) => ({ key: x.key, label: x.label, color: x.color, value: rows.reduce((n, row) => n + (row.values[x.key] ?? 0), 0) }))
     .sort((a, b) => b.value - a.value);
@@ -198,12 +203,13 @@ function Report({
       </p>
 
       <Card title={monthly ? "月ごとの売上" : "日ごとの売上"} className="mt-3">
-        <Legend series={rowSeries} />
+        <SeriesToggle series={rowSeries} hidden={hidden} onChange={setHidden} />
+        {hidden.length > 0 && <p className="mt-2 text-sm font-bold">表示中の合計 {yen(shownTotal)}</p>}
         {s.total === 0 ? (
           <p className="py-10 text-center text-sm text-gray-400">この期間の売上はありません</p>
         ) : (
           <div className="mt-2">
-            <StackedColumns rows={rows} series={rowSeries} ariaLabel={`${from}〜${to}の売上`} />
+            <StackedColumns rows={rows} series={shown} ariaLabel={`${from}〜${to}の売上`} />
           </div>
         )}
         {showTable && (
@@ -212,7 +218,7 @@ function Report({
               <thead>
                 <tr className="text-left text-xs text-gray-500">
                   <th className="py-1 pr-3">{monthly ? "月" : "日付"}</th>
-                  {rowSeries.map((x) => (
+                  {shown.map((x) => (
                     <th key={x.key} className="py-1 pr-3 text-right">
                       {x.label}
                     </th>
@@ -222,16 +228,16 @@ function Report({
               </thead>
               <tbody>
                 {rows
-                  .filter((row) => sumValues(row.values) > 0)
+                  .filter((row) => shownSum(row.values) > 0)
                   .map((row) => (
                     <tr key={row.key} className="border-t">
                       <td className="py-1 pr-3">{row.sub}</td>
-                      {rowSeries.map((x) => (
+                      {shown.map((x) => (
                         <td key={x.key} className="py-1 pr-3 text-right tabular-nums">
                           {(row.values[x.key] ?? 0).toLocaleString("ja-JP")}
                         </td>
                       ))}
-                      <td className="py-1 text-right font-semibold tabular-nums">{sumValues(row.values).toLocaleString("ja-JP")}</td>
+                      <td className="py-1 text-right font-semibold tabular-nums">{shownSum(row.values).toLocaleString("ja-JP")}</td>
                     </tr>
                   ))}
               </tbody>
