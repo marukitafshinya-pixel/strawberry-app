@@ -74,10 +74,6 @@ function PayrollView() {
       {error ? <p className="mt-3 text-red-600">{errorText(error)}</p> : null}
       {!saved || !employees ? (
         <p className="mt-3 text-gray-500">読み込み中…</p>
-      ) : employees.length === 0 ? (
-        <p className="mt-4 rounded-lg bg-amber-50 p-3 text-amber-800">
-          先に <Link href="/staff/payroll/employees/" className="underline">従業員を登録</Link> してください。
-        </p>
       ) : (
         // 月を切り替えたときに入力中の内容が混ざらないよう、月ごとに作り直す
         <Editor key={month} month={month} saved={saved} employees={employees} />
@@ -251,6 +247,13 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           }}
         />
       </div>
+
+      {people.length === 0 && (
+        <p className="mt-3 rounded-lg bg-amber-50 p-3 text-amber-800">
+          まだ従業員が登録されていません。「CSVから取り込む」でまとめて登録するか、
+          <Link href="/staff/payroll/employees/" className="underline">従業員の登録</Link> から1人ずつ追加してください。
+        </p>
+      )}
 
       {/* 打ち込みの表（横に長いので、左右にスクロールできる） */}
       <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
