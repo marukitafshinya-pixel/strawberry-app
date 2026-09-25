@@ -1,16 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState, type ReactNode } from "react";
 import { HBars, Legend, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
-import { addDays, formatJa, isValidYmd, todayJST, weekday } from "@/lib/date";
+import { MAX_DAYS, RangePicker, daysBetween, useRangeParams } from "@/components/RangePicker";
+import { addDays, formatJa, weekday } from "@/lib/date";
 import { buildDailySales, downloadCsv, sumValues } from "@/lib/report";
 import { STATUS_LABEL, countsTowardCapacity, useReservationsRange, useSettings, yen, type ReservationStatus } from "@/lib/reservations";
 import { PAYMENT_LABEL, useImportedSales, useSales } from "@/lib/sales";
 import type { Settings } from "@/lib/settings";
 
-const MAX_DAYS = 366;
 
 export default function ReportPage() {
   return (
@@ -20,43 +19,8 @@ export default function ReportPage() {
   );
 }
 
-const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
-
-/** よく使う期間 */
-function presets(settings: Settings, today: string): { label: string; from: string; to: string }[] {
-  const y = Number(today.slice(0, 4));
-  const ym = today.slice(0, 7);
-  const firstOfMonth = `${ym}-01`;
-  const lastOfMonth = addDays(`${new Date(Date.UTC(y, Number(ym.slice(5)), 1)).toISOString().slice(0, 7)}-01`, -1);
-  const prevFirst = new Date(Date.UTC(y, Number(ym.slice(5)) - 2, 1)).toISOString().slice(0, 10);
-  const monday = addDays(today, -((new Date(Date.parse(today)).getUTCDay() + 6) % 7));
-  // 今シーズン（営業期間）：年をまたがない前提。またぐ設定なら今年の開始日から翌年の終了日まで
-  const seasonFrom = `${y}-${settings.seasonStart}`;
-  const seasonTo = settings.seasonStart <= settings.seasonEnd ? `${y}-${settings.seasonEnd}` : `${y + 1}-${settings.seasonEnd}`;
-  return [
-    { label: "今日", from: today, to: today },
-    { label: "今週", from: monday, to: addDays(monday, 6) },
-    { label: "今月", from: firstOfMonth, to: lastOfMonth },
-    { label: "先月", from: prevFirst, to: addDays(firstOfMonth, -1) },
-    { label: "今シーズン", from: seasonFrom, to: seasonTo },
-    { label: "今年", from: `${y}-01-01`, to: `${y}-12-31` },
-    { label: "去年", from: `${y - 1}-01-01`, to: `${y - 1}-12-31` },
-  ];
-}
-
 function ReportView() {
-  const params = useSearchParams();
-  const router = useRouter();
-  const today = todayJST();
-  const defFrom = `${today.slice(0, 7)}-01`;
-  const qFrom = params.get("from");
-  const qTo = params.get("to");
-  const from = isValidYmd(qFrom) ? qFrom : defFrom;
-  const to = isValidYmd(qTo) && qTo >= from ? qTo : today < from ? from : today;
-  const days = daysBetween(from, to);
-  const tooLong = days > MAX_DAYS;
-  const setRange = (f: string, t: string) => router.replace(`/staff/report/?from=${f}&to=${t}`);
-
+  const { from, to, days, tooLong, setRange } = useRangeParams("/staff/report/");
   const { value: settings } = useSettings();
   // 期間が長すぎるときは読み込まない（表示が重くなるため）
   const qf = tooLong ? "9999-12-31" : from;
@@ -73,28 +37,14 @@ function ReportView() {
           ← メニュー
         </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">集計（期間を指定）</h1>
+      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-xl font-bold">集計（期間を指定）</h1>
+        <Link href={`/staff/report/reservations/?from=${from}&to=${to}`} className="text-sm text-gray-600 underline">
+          予約だけの集計・予約一覧へ
+        </Link>
+      </div>
 
-      {/* 期間の指定（グラフの上に1列で） */}
-      <section className="mt-4 space-y-2 rounded-2xl bg-white p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={from} onChange={(e) => isValidYmd(e.target.value) && setRange(e.target.value, to < e.target.value ? e.target.value : to)} className="rounded-lg border px-3 py-2 text-base" />
-          〜
-          <input type="date" value={to} onChange={(e) => isValidYmd(e.target.value) && setRange(from > e.target.value ? e.target.value : from, e.target.value)} className="rounded-lg border px-3 py-2 text-base" />
-          <span className="text-sm text-gray-600">{days}日間</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {presets(settings, today).map((p) => (
-            <button
-              key={p.label}
-              onClick={() => setRange(p.from, p.to)}
-              className={`rounded-full border px-3 py-1 text-sm ${p.from === from && p.to === to ? "border-berry bg-berry text-white" : ""}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <RangePicker settings={settings} from={from} to={to} days={days} onChange={setRange} />
 
       {tooLong ? (
         <p className="mt-4 rounded-lg bg-amber-50 p-3 text-amber-800">期間は{MAX_DAYS}日以内で選んでください。</p>

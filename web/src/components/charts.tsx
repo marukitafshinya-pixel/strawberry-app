@@ -79,6 +79,7 @@ export function StackedColumns({
   height = 220,
   width = 640,
   ariaLabel,
+  unit = "円",
 }: {
   rows: { key: string; label: string; sub?: string; values: Record<string, number> }[];
   series: Series[];
@@ -86,13 +87,18 @@ export function StackedColumns({
   /** 描画の基準の幅。狭い場所に置くときは小さくすると文字が読みやすい */
   width?: number;
   ariaLabel: string;
+  /** 値の単位（"円" なら金額として表示） */
+  unit?: "円" | "人";
 }) {
+  const fmt = (n: number) => (unit === "円" ? yen(n) : `${n.toLocaleString("ja-JP")}${unit}`);
+  const axis = (n: number) => (unit === "円" ? yenShort(n) : n.toLocaleString("ja-JP"));
   const [hover, setHover] = useState<number | null>(null);
   const [box, W] = useWidth<HTMLDivElement>(width);
   const H = height;
   const pad = { l: 44, r: 8, t: 12, b: 24 };
   const totals = rows.map((r) => series.reduce((n, s) => n + (r.values[s.key] ?? 0), 0));
-  const max = niceMax(Math.max(0, ...totals));
+  // 人数のときは、目盛りが整数になるよう偶数にそろえる
+  const max = unit === "円" ? niceMax(Math.max(0, ...totals)) : Math.max(4, Math.ceil(niceMax(Math.max(0, ...totals)) / 2) * 2);
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
   const slot = plotW / Math.max(1, rows.length);
@@ -109,7 +115,7 @@ export function StackedColumns({
           <g key={t}>
             <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
             <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
-              {yenShort(t)}
+              {axis(t)}
             </text>
           </g>
         ))}
@@ -151,7 +157,7 @@ export function StackedColumns({
                 onPointerDown={() => setHover(i)}
                 onFocus={() => setHover(i)}
                 onBlur={() => setHover(null)}
-                aria-label={`${r.sub ?? r.label} ${yen(totals[i])}`}
+                aria-label={`${r.sub ?? r.label} ${fmt(totals[i])}`}
               />
             </g>
           );
@@ -160,7 +166,7 @@ export function StackedColumns({
       </svg>
       {hover !== null && (
         <Tooltip x={((pad.l + slot * hover + slot / 2) / W) * 100}>
-          <div className="text-base font-bold">{yen(totals[hover])}</div>
+          <div className="text-base font-bold">{fmt(totals[hover])}</div>
           <div className="text-xs text-gray-500">{rows[hover].sub ?? rows[hover].label}</div>
           <ul className="mt-1 space-y-0.5">
             {series
@@ -168,7 +174,7 @@ export function StackedColumns({
               .map((s) => (
                 <li key={s.key} className="flex items-center gap-2 text-xs">
                   <span className="inline-block h-0.5 w-3" style={{ background: s.color }} />
-                  <span className="font-semibold">{yen(rows[hover].values[s.key])}</span>
+                  <span className="font-semibold">{fmt(rows[hover].values[s.key])}</span>
                   <span className="text-gray-500">{s.label}</span>
                 </li>
               ))}
