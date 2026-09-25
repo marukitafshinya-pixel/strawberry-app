@@ -13,7 +13,7 @@ const MENU: MenuItem[] = [
   { label: "会計", href: "/staff/checkout/" },
   { label: "売掛管理", href: "/staff/receivables/" },
   { label: "日次締め", href: "/staff/sales/" },
-  { label: "ダッシュボード" },
+  { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
 ];
