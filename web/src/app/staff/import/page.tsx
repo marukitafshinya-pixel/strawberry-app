@@ -1,13 +1,14 @@
 "use client";
 
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { deleteDoc, doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv, guessColumns, parseAmount, parseCsv, parseDate, type Encoding } from "@/lib/csv";
-import { formatJa } from "@/lib/date";
+import { formatJa, isValidYmd } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
+import { parseItemCsv, periodFromFileName, useItemRefs, type ItemRef } from "@/lib/itemRefs";
 import { yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
@@ -215,6 +216,134 @@ export default function ImportPage() {
         </>
       )}
       {decoded && rows.length === 0 && <p className="mt-4 text-red-600">ファイルの中身が読めませんでした。</p>}
+
+      <ItemImport />
     </>
+  );
+}
+
+/** Airレジの「商品別売上」CSVを、去年の実績として取り込む */
+function ItemImport() {
+  const { value: refs } = useItemRefs();
+  const [items, setItems] = useState<ItemRef[] | null>(null);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function onFile(f: File | undefined) {
+    setError("");
+    setDone("");
+    setItems(null);
+    if (!f) return;
+    const r = parseItemCsv(parseCsv(decodeCsv(await f.arrayBuffer()).text));
+    if (r.error) return setError(r.error);
+    setItems(r.items);
+    const p = periodFromFileName(f.name);
+    setFrom(p?.from ?? "");
+    setTo(p?.to ?? "");
+  }
+
+  async function save() {
+    if (!items) return;
+    setError("");
+    if (!isValidYmd(from) || !isValidYmd(to) || from > to) return setError("期間を正しく入れてください");
+    const id = `${from}_${to}`;
+    if (refs?.some((r) => r.id === id) && !window.confirm("同じ期間の実績がすでにあります。上書きしますか？")) return;
+    setSaving(true);
+    try {
+      const { db } = await getFirebase();
+      await setDoc(doc(db, `itemReferences/${id}`), { from, to, items, importedAt: serverTimestamp() });
+      setDone(`${items.length}品目を取り込みました。設定画面の「去年の実績から商品を追加」や、「商品別の実績」で使えます。`);
+      setItems(null);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm("この実績を削除しますか？")) return;
+    try {
+      const { db } = await getFirebase();
+      await deleteDoc(doc(db, `itemReferences/${id}`));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  const total = (items ?? []).reduce((n, i) => n + i.amount, 0);
+  return (
+    <section className="mt-8 space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="font-bold">商品別の売上（去年の実績）</h2>
+      <p className="text-sm text-gray-600">
+        Airレジの「売上集計」→「商品別」でダウンロードしたCSVを選びます。商品の登録や、今年の売れ行きと比べる目安に使います。
+      </p>
+      <input type="file" accept=".csv,text/csv" onChange={(e) => onFile(e.target.files?.[0])} className="block text-sm" />
+      {items && (
+        <>
+          <div className="flex flex-wrap items-end gap-2 text-sm">
+            <label className="block">
+              <span className="text-gray-600">期間</span>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 block rounded-lg border px-2 py-2 text-base" />
+            </label>
+            <span className="pb-2">〜</span>
+            <label className="block">
+              <span className="sr-only">終わり</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 block rounded-lg border px-2 py-2 text-base" />
+            </label>
+          </div>
+          <p className="text-sm">
+            {items.length}品目・合計 <b>{yen(total)}</b>
+          </p>
+          <div className="max-h-60 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white text-left text-xs text-gray-500">
+                <tr>
+                  <th className="py-1">商品名</th>
+                  <th className="py-1">カテゴリー</th>
+                  <th className="py-1 text-right">販売数</th>
+                  <th className="py-1 text-right">売上</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.name} className="border-t">
+                    <td className="py-1">{i.name}</td>
+                    <td className="py-1 text-gray-500">{i.category}</td>
+                    <td className="py-1 text-right tabular-nums">{i.qty.toLocaleString("ja-JP")}</td>
+                    <td className="py-1 text-right tabular-nums">{yen(i.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={save} disabled={saving} className="w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-40">
+            {saving ? "取り込み中…" : `${items.length}品目を取り込む`}
+          </button>
+        </>
+      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {done && <p className="rounded-lg bg-green-50 p-2 text-sm text-green-800">{done}</p>}
+      {refs && refs.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-600">取り込み済み</h3>
+          <ul className="mt-1 divide-y text-sm">
+            {refs.map((r) => (
+              <li key={r.id} className="flex items-center justify-between py-1.5">
+                <span>
+                  {formatJa(r.from)} 〜 {formatJa(r.to)}（{r.items.length}品目・{yen(r.items.reduce((n, i) => n + i.amount, 0))}）
+                </span>
+                <button onClick={() => remove(r.id)} className="rounded border px-2 py-0.5 text-xs text-red-700">
+                  削除
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   );
 }

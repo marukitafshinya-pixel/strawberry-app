@@ -152,6 +152,15 @@ describe("会計・売掛・過去売上", () => {
     await assertSucceeds(getDoc(doc(staff(), "importedSales/2025-07-01")));
     await assertFails(getDoc(doc(guest(), "importedSales/2025-07-01")));
   });
+  it("去年の商品別の実績は管理者だけが取り込み、スタッフは見るだけ", async () => {
+    const data = { from: "2025-06-01", to: "2025-11-30", items: [{ name: "いちごジャム", category: "直売", amount: 104550, qty: 141 }] };
+    await assertSucceeds(setDoc(doc(admin(), "itemReferences/2025-06-01_2025-11-30"), data));
+    await assertFails(setDoc(doc(admin(), "itemReferences/abc"), data));
+    await assertFails(setDoc(doc(admin(), "itemReferences/2025-06-01_2025-11-30"), { ...data, extra: 1 }));
+    await assertFails(setDoc(doc(staff(), "itemReferences/2025-06-01_2025-11-30"), data));
+    await assertSucceeds(getDoc(doc(staff(), "itemReferences/2025-06-01_2025-11-30")));
+    await assertFails(getDoc(doc(guest(), "itemReferences/2025-06-01_2025-11-30")));
+  });
 });
 
 describe("給与（管理者のみ）", () => {

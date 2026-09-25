@@ -42,6 +42,9 @@ function ReportView() {
         <Link href={`/staff/report/reservations/?from=${from}&to=${to}`} className="text-sm text-gray-600 underline">
           予約だけの集計・予約一覧へ
         </Link>
+        <Link href="/staff/report/items/" className="text-sm text-gray-600 underline">
+          商品別の実績（去年と今年）へ
+        </Link>
       </div>
 
       <RangePicker settings={settings} from={from} to={to} days={days} onChange={setRange} />

@@ -49,6 +49,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // 去年の商品別の実績（Airレジの商品別CSV）：スタッフは見るだけ、管理者が取り込む
+    match /itemReferences/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin()
+        && id.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['from', 'to', 'items', 'importedAt'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 500;
+      allow delete: if isAdmin();
+    }
+
     // 空き状況（時間枠ごとの予約人数だけ）：予約ページで使うので誰でも読める。書き込みはサーバー側のみ
     match /availability/{date} {
       allow read: if true;

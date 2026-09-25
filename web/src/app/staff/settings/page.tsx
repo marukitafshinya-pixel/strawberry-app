@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
+import { PLAN_CATEGORY_NAMES, suggestPrice, suggestTax, useItemRefs } from "@/lib/itemRefs";
 import {
   DEFAULT_PLAN_CATEGORY,
   DEFAULT_PLAN_TAX,
@@ -399,6 +400,7 @@ export default function SettingsPage() {
         >
           ＋ 商品を追加
         </button>
+        <ProductsFromRefs settings={s} onAdd={(added) => update({ products: [...s.products, ...added] })} />
       </Section>
 
       {/* 画面下に固定の保存ボタン */}
@@ -661,5 +663,83 @@ function TaxSelect({ value, onChange }: { value: TaxRate; onChange: (v: TaxRate)
         </option>
       ))}
     </select>
+  );
+}
+
+/** 去年の商品別の実績（Airレジ）から、まだ登録していない商品をまとめて追加する */
+function ProductsFromRefs({ settings, onAdd }: { settings: Settings; onAdd: (p: Product[]) => void }) {
+  const { value: refs } = useItemRefs();
+  const [open, setOpen] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const ref = refs?.[0];
+  if (!ref) return null;
+  const have = new Set(settings.products.map((p) => p.name.trim()));
+  const candidates = ref.items
+    .filter((i) => !PLAN_CATEGORY_NAMES.includes(i.category) && !have.has(i.name) && i.qty > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  if (!open)
+    return (
+      <button onClick={() => { setChecked(new Set(candidates.map((c) => c.name))); setOpen(true); }} className={`${smallButton} ml-2 mt-2`}>
+        去年の実績から商品を追加
+      </button>
+    );
+  return (
+    <div className="mt-3 rounded-xl border border-berry/40 bg-berry/5 p-3">
+      <p className="text-sm font-semibold">
+        去年の実績（{ref.from.replaceAll("-", "/")}〜{ref.to.replaceAll("-", "/")}）から追加
+      </p>
+      <p className="mt-1 text-xs text-gray-600">
+        値段は「売上 ÷ 販売数」の目安です（割引の分、実際より少し安く出ることがあります）。追加したあと、上の一覧で直してください。いちご狩りの料金はプランで設定します。
+      </p>
+      {candidates.length === 0 ? (
+        <p className="mt-2 text-sm text-gray-500">追加できる商品はありません（すべて登録済みです）</p>
+      ) : (
+        <ul className="mt-2 max-h-72 divide-y overflow-y-auto rounded-lg bg-white text-sm">
+          {candidates.map((c) => (
+            <li key={c.name}>
+              <label className="flex items-center gap-2 px-2 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={checked.has(c.name)}
+                  onChange={(e) => {
+                    const next = new Set(checked);
+                    if (e.target.checked) next.add(c.name);
+                    else next.delete(c.name);
+                    setChecked(next);
+                  }}
+                />
+                <span className="flex-1">
+                  {c.name}
+                  <span className="ml-1 text-xs text-gray-500">{c.category || "いちご"}</span>
+                </span>
+                <span className="text-xs text-gray-500 tabular-nums">{c.qty.toLocaleString("ja-JP")}個</span>
+                <span className="w-20 text-right tabular-nums">{suggestPrice(c).toLocaleString("ja-JP")}円</span>
+                <span className="w-10 text-right text-xs">{suggestTax(c.name)}%</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-2 flex gap-2">
+        <button
+          disabled={checked.size === 0}
+          onClick={() => {
+            onAdd(
+              candidates
+                .filter((c) => checked.has(c.name))
+                .map((c) => ({ id: newId(), name: c.name.slice(0, 30), group: c.category || "いちご", price: suggestPrice(c), active: true, taxRate: suggestTax(c.name) })),
+            );
+            setOpen(false);
+          }}
+          className="rounded-lg bg-berry px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+        >
+          {checked.size}件を追加
+        </button>
+        <button onClick={() => setOpen(false)} className={smallButton}>
+          やめる
+        </button>
+      </div>
+    </div>
   );
 }
