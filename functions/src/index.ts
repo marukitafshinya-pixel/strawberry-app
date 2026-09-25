@@ -6,6 +6,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertAdmin, db, requireEmail, requirePassword, requireRole, requireString } from "./common.js";
 
 export { deleteReservation, saveReservation, setReservationStatus } from "./reservations.js";
+export { createWebReservation } from "./web.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

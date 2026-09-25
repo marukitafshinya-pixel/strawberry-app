@@ -36,6 +36,8 @@ export type Reservation = {
   memo: string;
   status: ReservationStatus;
   source: "staff" | "web";
+  /** Web予約の予約番号 */
+  code?: string;
 };
 
 export type Contact = { phone: string; email: string };

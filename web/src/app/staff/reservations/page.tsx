@@ -208,7 +208,7 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
         <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
         <span className={`font-semibold ${cancelled ? "line-through" : ""}`}>{r.customerName} 様</span>
         <span className="text-sm">{r.people}人</span>
-        {r.source === "web" && <span className="rounded bg-berry/10 px-1.5 text-xs text-berry-dark">Web</span>}
+        {r.source === "web" && <span className="rounded bg-berry/10 px-1.5 text-xs text-berry-dark">Web {r.code}</span>}
         <div className="ml-auto flex gap-2">
           {!cancelled && r.status !== "visited" && (
             <button onClick={markVisited} disabled={busy} className="rounded-lg bg-leaf px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50">

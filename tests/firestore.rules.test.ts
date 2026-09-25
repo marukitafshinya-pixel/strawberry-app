@@ -115,6 +115,15 @@ describe("予約・連絡先・空き状況", () => {
   });
 });
 
+describe("連続送信の記録 (rateLimits)", () => {
+  it("誰も読み書きできない", async () => {
+    for (const db of [guest(), staff(), admin()]) {
+      await assertFails(getDoc(doc(db, "rateLimits/ip_x")));
+      await assertFails(setDoc(doc(db, "rateLimits/ip_x"), { count: 0 }));
+    }
+  });
+});
+
 describe("ルールに書いていない場所", () => {
   it("管理者でも読み書きできない", async () => {
     await assertFails(getDoc(doc(admin(), "system/bootstrap")));
