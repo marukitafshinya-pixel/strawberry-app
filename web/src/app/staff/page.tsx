@@ -16,6 +16,7 @@ const MENU: MenuItem[] = [
   { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
+  { label: "過去売上の取り込み", href: "/staff/import/", adminOnly: true },
 ];
 
 export default function StaffHome() {
