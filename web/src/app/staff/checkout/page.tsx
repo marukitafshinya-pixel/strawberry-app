@@ -133,6 +133,9 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
           {payment === "credit" && <p className="mt-2 text-sm">売掛一覧に「{customerName}」様の分を追加しました。</p>}
         </div>
         <div className="mt-4 grid gap-2">
+          <Link href={`/staff/receipt/?sale=${done.id}`} className="rounded-lg bg-gray-800 py-3 text-center font-bold text-white">
+            レシート・領収書を出す
+          </Link>
           <Link href={`/staff/sales/?date=${todayJST()}`} className="rounded-lg border bg-white py-3 text-center">
             今日の会計履歴を見る
           </Link>

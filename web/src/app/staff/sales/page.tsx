@@ -180,6 +180,9 @@ function SaleRow({ sale: s }: { sale: Sale }) {
           </ul>
           {s.memo && <p className="mt-1 text-gray-600">メモ：{s.memo}</p>}
           {voided && s.voidReason && <p className="mt-1 text-gray-600">取消の理由：{s.voidReason}</p>}
+          <Link href={`/staff/receipt/?sale=${s.id}`} className="mr-2 mt-2 inline-block rounded-lg border px-3 py-1.5">
+            レシート・領収書
+          </Link>
           {!voided && (
             <button onClick={voidIt} disabled={busy} className="mt-2 rounded-lg border border-red-300 px-3 py-1.5 text-red-700 disabled:opacity-50">
               {busy ? "取消中…" : "この会計を取り消す"}
