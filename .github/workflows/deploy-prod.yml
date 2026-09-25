@@ -1,0 +1,107 @@
+# 本番（ichigo-prod）へ公開する仕組み。自動では動かない。
+# GitHub の「Actions」→「本番へ公開」→「Run workflow」で、確認欄に「本番」と入れたときだけ公開する。
+# テスト用（ichigo-test-d0fa2）で動作を確かめてから使うこと。
+name: 本番へ公開
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "本番へ公開するときは「本番」と入力してください"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: functions
+      - run: npm run build
+        working-directory: functions
+      - run: npm run lint
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm run test:rules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-out
+          path: web/out
+
+  deploy:
+    needs: check
+    if: inputs.confirm == '本番'
+    runs-on: ubuntu-latest
+    env:
+      SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ICHIGO_PROD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 秘密鍵の登録を確認
+        run: |
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::error::GitHub の Secrets に FIREBASE_SERVICE_ACCOUNT_ICHIGO_PROD が登録されていません"
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        if: env.SERVICE_ACCOUNT != ''
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - if: env.SERVICE_ACCOUNT != ''
+        run: npm ci
+      - if: env.SERVICE_ACCOUNT != ''
+        run: npm ci
+        working-directory: functions
+      - uses: actions/download-artifact@v4
+        if: env.SERVICE_ACCOUNT != ''
+        with:
+          name: web-out
+          path: web/out
+      - name: 本番のFirebaseへ公開
+        if: env.SERVICE_ACCOUNT != ''
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          # 鍵の形式だけを確認（中身は表示しない）
+          node -e '
+            const fs = require("fs");
+            // 先頭の見えない文字（BOM）や前後の空白は取り除く
+            const text = fs.readFileSync(process.argv[1], "utf8").replace(/^\uFEFF/, "").trim();
+            fs.writeFileSync(process.argv[1], text);
+            let k;
+            try { k = JSON.parse(text); }
+            catch {
+              console.log("文字数:", text.length, "/ 先頭が { か:", text.startsWith("{"), "/ 末尾が } か:", text.endsWith("}"));
+              console.log("::error::登録された鍵がJSON形式ではありません。鍵ファイルの中身を最初の { から最後の } まで丸ごと貼り直してください"); process.exit(1);
+            }
+            const ok = k.type === "service_account" && k.private_key && k.client_email;
+            if (k.project_id !== "ichigo-prod") { console.log("::error::本番（ichigo-prod）の鍵ではありません"); process.exit(1); }
+            console.log("type:", k.type, "/ project_id:", k.project_id, "/ 秘密鍵あり:", Boolean(k.private_key));
+            if (!ok) { console.log("::error::サービスアカウントの鍵ではありません"); process.exit(1); }
+          ' "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase deploy --only hosting,firestore:rules,firestore:indexes,functions --project prod --non-interactive --force
+          rm -f "$RUNNER_TEMP/sa.json"

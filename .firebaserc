@@ -1,6 +1,7 @@
 {
   "projects": {
     "default": "ichigo-test-d0fa2",
-    "test": "ichigo-test-d0fa2"
+    "test": "ichigo-test-d0fa2",
+    "prod": "ichigo-prod"
   }
 }
