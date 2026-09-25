@@ -1,21 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Meter } from "@/components/charts";
 import { useAuth } from "@/lib/auth";
 import { formatJa, todayJST } from "@/lib/date";
-import {
-  STATUS_LABEL,
-  STATUS_STYLE,
-  capacityOf,
-  countsTowardCapacity,
-  useDailyCapacity,
-  usePendingRequests,
-  useReservations,
-  useSettings,
-  useWebStopped,
-  yen,
-} from "@/lib/reservations";
+import { countsTowardCapacity, usePendingRequests, useReservations, yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
 type MenuItem = { label: string; href: string; adminOnly?: boolean };
@@ -62,10 +50,7 @@ export default function StaffHome() {
 /** 今日の予約・来店・売上がひと目で分かる部分 */
 function Today({ requestCount }: { requestCount: number }) {
   const today = todayJST();
-  const { value: settings } = useSettings();
   const { value: reservations } = useReservations(today);
-  const { value: daily } = useDailyCapacity(today);
-  const { value: stopped } = useWebStopped(today);
   const { value: sales } = useSales(today, today);
   const link = `/staff/reservations/?date=${today}`;
 
@@ -91,49 +76,6 @@ function Today({ requestCount }: { requestCount: number }) {
         <Tile href={link} label="承認待ちのリクエスト" value={`${requestCount}件`} alert={requestCount > 0} />
       </div>
 
-      {settings && reservations && (
-        <div className="mt-3 space-y-3">
-          {settings.timeSlots.length === 0 && <p className="text-sm text-gray-500">時間枠がまだ設定されていません。</p>}
-          {settings.timeSlots.map((t) => {
-            const cap = capacityOf(settings, daily, t.id) ?? t.capacity;
-            const list = (reservations ?? [])
-              .filter((r) => r.slotId === t.id && r.status !== "cancelled")
-              .sort((a, b) => Number(a.status === "visited") - Number(b.status === "visited"));
-            const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
-            return (
-              <div key={t.id} className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-3">
-                  <span className="text-lg font-bold">{t.time}</span>
-                  <Meter value={booked} max={cap} />
-                  <span className="text-sm tabular-nums">
-                    {booked} / {cap}人
-                    {booked > cap && <span className="ml-1 font-bold text-red-700">超過</span>}
-                    {stopped?.[t.id] && <span className="ml-1 rounded bg-gray-700 px-1 text-xs text-white">Web停止</span>}
-                  </span>
-                </div>
-                {list.length === 0 ? (
-                  <p className="mt-1 text-sm text-gray-400">予約なし</p>
-                ) : (
-                  <ul className="mt-2 flex flex-wrap gap-2">
-                    {list.map((r) => (
-                      <li key={r.id}>
-                        <Link
-                          href={link}
-                          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${r.status === "visited" ? "bg-gray-50 text-gray-500" : "bg-white"}`}
-                        >
-                          <span className={`rounded-full px-1.5 text-xs ${STATUS_STYLE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
-                          {r.customerName}様 <b>{r.people}人</b>
-                          {r.memo && <span title={r.memo}>📝</span>}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
     </section>
   );
 }
