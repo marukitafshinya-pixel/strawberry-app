@@ -24,8 +24,12 @@ function isOpenDay(date: string, s: Settings): boolean {
   return inSeason && !s.closedDates.includes(date);
 }
 
-/** 日付ごと・時間枠ごとの予約人数（誰でも読める空き状況だけを使う。個人情報は含まない） */
-function useAvailabilityRange(first: string | null, last: string | null) {
+/**
+ * 日付ごと・時間枠ごとの数字（誰でも読める情報だけ。個人情報は含まない）
+ * - availability：予約人数
+ * - dailyCapacity：この日だけの定員
+ */
+function useRange(name: "availability" | "dailyCapacity", first: string | null, last: string | null) {
   const [data, setData] = useState<Record<string, Record<string, number>> | null>(null);
   useEffect(() => {
     if (!first || !last) return;
@@ -34,7 +38,7 @@ function useAvailabilityRange(first: string | null, last: string | null) {
     getFirebase().then(({ db }) => {
       if (cancelled) return;
       unsubscribe = onSnapshot(
-        query(collection(db, "availability"), where(documentId(), ">=", first), where(documentId(), "<=", last)),
+        query(collection(db, name), where(documentId(), ">=", first), where(documentId(), "<=", last)),
         (snap) => setData(Object.fromEntries(snap.docs.map((d) => [d.id, (d.get("slots") as Record<string, number>) ?? {}]))),
         () => setData({}),
       );
@@ -43,7 +47,7 @@ function useAvailabilityRange(first: string | null, last: string | null) {
       cancelled = true;
       unsubscribe();
     };
-  }, [first, last]);
+  }, [name, first, last]);
   return data;
 }
 
@@ -71,7 +75,8 @@ function Shell({ children, title }: { children: ReactNode; title?: string }) {
 function Booking({ settings: s }: { settings: Settings }) {
   const plans = s.plans.filter((p) => p.public);
   const { first, last } = bookingRange(s);
-  const booked = useAvailabilityRange(first, last);
+  const booked = useRange("availability", first, last);
+  const daily = useRange("dailyCapacity", first, last);
 
   const [step, setStep] = useState<Step>("form");
   const [planId, setPlanId] = useState(plans.length === 1 ? plans[0].id : "");
@@ -95,7 +100,7 @@ function Booking({ settings: s }: { settings: Settings }) {
   const slot = s.timeSlots.find((t) => t.id === slotId);
 
   const remaining = (d: string, sid: string) => {
-    const cap = s.timeSlots.find((t) => t.id === sid)?.capacity ?? 0;
+    const cap = daily?.[d]?.[sid] ?? s.timeSlots.find((t) => t.id === sid)?.capacity ?? 0;
     return cap - (booked?.[d]?.[sid] ?? 0);
   };
   const bookable = (d: string) => d >= first && d <= last && isOpenDay(d, s);
@@ -298,7 +303,7 @@ function Booking({ settings: s }: { settings: Settings }) {
         {/* 3. 日付と時間 */}
         {plan && people > 0 && (
           <Section n={plans.length > 1 ? 3 : 2} title="日付と時間">
-            {!booked ? (
+            {!booked || !daily ? (
               <p className="text-gray-500">空き状況を読み込み中…</p>
             ) : (
               <Calendar

@@ -4,13 +4,18 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { FirebaseError } from "firebase/app";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useAuth } from "@/lib/auth";
+import { getFirebase } from "@/lib/firebase";
 import { callFunction, cleanMessage, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import {
   STATUS_LABEL,
   STATUS_STYLE,
+  capacityOf,
   countsTowardCapacity,
   peopleText,
+  useDailyCapacity,
   useContacts,
   usePendingRequests,
   useReservations,
@@ -37,6 +42,17 @@ function ReservationsView() {
   const { value: settings } = useSettings();
   const { value: reservations, error } = useReservations(date);
   const { value: contacts } = useContacts(date);
+  const { value: daily } = useDailyCapacity(date);
+  const { role } = useAuth();
+
+  /** この日だけの定員を保存する（null なら標準に戻す） */
+  async function saveDailyCapacity(slotId: string, value: number | null) {
+    const { db } = await getFirebase();
+    const slots = { ...(daily ?? {}) };
+    if (value === null) delete slots[slotId];
+    else slots[slotId] = value;
+    await setDoc(doc(db, `dailyCapacity/${date}`), { slots, updatedAt: serverTimestamp() });
+  }
   const [editing, setEditing] = useState<Reservation | "new" | null>(null);
 
   const bySlot = useMemo(() => {
@@ -49,10 +65,15 @@ function ReservationsView() {
 
   // 設定にない（削除された）時間枠の予約も表示できるようにする
   const slotRows = [
-    ...settings.timeSlots.map((t) => ({ id: t.id, time: t.time, capacity: t.capacity as number | null })),
+    ...settings.timeSlots.map((t) => ({
+      id: t.id,
+      time: t.time,
+      capacity: (capacityOf(settings, daily, t.id) ?? t.capacity) as number | null,
+      standard: t.capacity,
+    })),
     ...[...bySlot.keys()]
       .filter((id) => !settings.timeSlots.some((t) => t.id === id))
-      .map((id) => ({ id, time: bySlot.get(id)![0].slotTime, capacity: null })),
+      .map((id) => ({ id, time: bySlot.get(id)![0].slotTime, capacity: null, standard: 0 })),
   ].sort((a, b) => a.time.localeCompare(b.time));
 
   const active = (reservations ?? []).filter((r) => countsTowardCapacity(r.status));
@@ -113,7 +134,14 @@ function ReservationsView() {
           const requests = list.filter((r) => r.status === "request");
           return (
             <section key={slot.id} className="rounded-2xl bg-white p-3 shadow-sm">
-              <SlotHeader time={slot.time} booked={booked} capacity={slot.capacity} />
+              <SlotHeader
+                time={slot.time}
+                booked={booked}
+                capacity={slot.capacity}
+                standard={slot.standard}
+                canEdit={role === "admin"}
+                onChangeCapacity={(v) => saveDailyCapacity(slot.id, v)}
+              />
               {requests.length > 0 && (
                 <p className="mt-1 text-sm text-purple-800">
                   リクエスト {requests.length}件（{requests.reduce((n, r) => n + r.people, 0)}人）…承認すると定員に数えます
@@ -190,7 +218,39 @@ function DayNotice({ date, settings }: { date: string; settings: Settings }) {
   );
 }
 
-function SlotHeader({ time, booked, capacity }: { time: string; booked: number; capacity: number | null }) {
+function SlotHeader({
+  time,
+  booked,
+  capacity,
+  standard,
+  canEdit,
+  onChangeCapacity,
+}: {
+  time: string;
+  booked: number;
+  capacity: number | null;
+  standard: number;
+  canEdit: boolean;
+  onChangeCapacity: (v: number | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save(v: number | null) {
+    setError("");
+    setSaving(true);
+    try {
+      await onChangeCapacity(v);
+      setEditing(false);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (capacity === null) {
     return (
       <div className="flex items-baseline justify-between">
@@ -200,13 +260,15 @@ function SlotHeader({ time, booked, capacity }: { time: string; booked: number; 
     );
   }
   const remaining = capacity - booked;
-  const ratio = Math.min(1, booked / capacity);
+  const ratio = capacity > 0 ? Math.min(1, booked / capacity) : booked > 0 ? 1 : 0;
+  const changed = capacity !== standard;
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">{time}</h2>
         <span className="text-sm">
           {booked} / {capacity}人
+          {changed && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800">{capacity === 0 ? "この日は受付停止" : `この日だけ（標準${standard}人）`}</span>}
           <span className={`ml-2 font-bold ${remaining < 0 ? "text-red-600" : remaining === 0 ? "text-gray-500" : "text-leaf"}`}>
             {remaining < 0 ? `${-remaining}人 定員超過` : remaining === 0 ? "満員" : `残り${remaining}人`}
           </span>
@@ -215,6 +277,46 @@ function SlotHeader({ time, booked, capacity }: { time: string; booked: number; 
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-100">
         <div className={`h-full ${remaining < 0 ? "bg-red-500" : "bg-berry"}`} style={{ width: `${ratio * 100}%` }} />
       </div>
+      {canEdit && !editing && (
+        <button
+          onClick={() => {
+            setText(String(capacity));
+            setEditing(true);
+          }}
+          className="mt-1 text-xs text-gray-500 underline"
+        >
+          この日の定員を変える
+        </button>
+      )}
+      {editing && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 text-sm">
+          <span>この日の定員</span>
+          <input
+            inputMode="numeric"
+            value={text}
+            onChange={(e) => setText(e.target.value.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, ""))}
+            className="w-20 rounded-lg border px-2 py-1 text-right text-base"
+          />
+          <span>人</span>
+          <button
+            disabled={saving || text === "" || Number(text) > 1000}
+            onClick={() => save(Number(text))}
+            className="rounded-lg bg-berry px-3 py-1 font-bold text-white disabled:opacity-50"
+          >
+            保存
+          </button>
+          {changed && (
+            <button disabled={saving} onClick={() => save(null)} className="rounded-lg border px-3 py-1">
+              標準（{standard}人）に戻す
+            </button>
+          )}
+          <button disabled={saving} onClick={() => setEditing(false)} className="rounded-lg border px-3 py-1">
+            やめる
+          </button>
+          <span className="w-full text-xs text-gray-500">0人にすると、この日のこの時間はWeb予約を受け付けません（リクエストのみ）。</span>
+          {error && <span className="w-full text-red-600">{error}</span>}
+        </div>
+      )}
     </div>
   );
 }

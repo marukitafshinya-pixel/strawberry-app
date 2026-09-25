@@ -126,6 +126,24 @@ export function useAvailability(date: string | null) {
   );
 }
 
+/** この日だけの定員（時間枠ID → 人数）。設定されていない枠は含まない */
+export function useDailyCapacity(date: string | null) {
+  return useLive<Record<string, number>>(
+    date
+      ? async (set, fail) => {
+          const { db } = await getFirebase();
+          return onSnapshot(doc(db, `dailyCapacity/${date}`), (s) => set((s.get("slots") as Record<string, number>) ?? {}), fail);
+        }
+      : null,
+    [date],
+  );
+}
+
+/** その日の定員：この日だけの定員があればそれ、なければ設定画面の定員 */
+export function capacityOf(settings: Settings, daily: Record<string, number> | null | undefined, slotId: string): number | undefined {
+  return daily?.[slotId] ?? settings.timeSlots.find((t) => t.id === slotId)?.capacity;
+}
+
 export function peopleText(r: Pick<Reservation, "lines">): string {
   return r.lines.map((l) => `${l.name}${l.qty}`).join("・");
 }

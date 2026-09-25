@@ -6,8 +6,10 @@ import { callFunction, cleanMessage, errorText } from "@/lib/callFunction";
 import { formatJa, isValidYmd } from "@/lib/date";
 import {
   STATUS_LABEL,
+  capacityOf,
   countsTowardCapacity,
   useAvailability,
+  useDailyCapacity,
   yen,
   type Contact,
   type Reservation,
@@ -45,6 +47,7 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
   const [saving, setSaving] = useState(false);
 
   const { value: booked } = useAvailability(isValidYmd(date) ? date : null);
+  const { value: daily } = useDailyCapacity(isValidYmd(date) ? date : null);
 
   const plan = settings.plans.find((p) => p.id === planId);
   const categories = settings.priceCategories.filter((c) => plan?.prices[c.id] !== undefined);
@@ -53,7 +56,7 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
 
   /** その枠の残り人数（編集中の予約自身の分は除いて数える） */
   function remainingFor(sid: string): number | null {
-    const cap = settings.timeSlots.find((t) => t.id === sid)?.capacity;
+    const cap = capacityOf(settings, daily, sid);
     if (cap === undefined || !booked) return null;
     const own = r && r.date === date && r.slotId === sid && countsTowardCapacity(r.status) ? r.people : 0;
     return cap - ((booked[sid] ?? 0) - own);

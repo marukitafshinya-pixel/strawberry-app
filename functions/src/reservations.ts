@@ -122,6 +122,18 @@ export function buildReservation(input: ReservationInput, s: SettingsLite, sourc
 /** 空き状況のドキュメント（availability/{日付}）: 時間枠ごとの予約人数だけを持つ。誰でも読める */
 const availabilityRef = (date: string) => db.doc(`availability/${date}`);
 
+/**
+ * その日・その時間枠の定員。
+ * 「この日だけの定員」（dailyCapacity/{日付}）があればそれを、なければ設定画面の定員を使う。
+ * トランザクションの中で読むので、定員の変更と予約が同時に起きてもずれない。
+ */
+export async function capacityFor(tx: Transaction, date: string, slotId: string, s: SettingsLite): Promise<number> {
+  const snap = await tx.get(db.doc(`dailyCapacity/${date}`));
+  const override = (snap.get("slots") as Record<string, number> | undefined)?.[slotId];
+  if (typeof override === "number") return override;
+  return s.timeSlots.find((t) => t.id === slotId)?.capacity ?? Infinity;
+}
+
 // ---------- スタッフ用：予約の追加・変更 ----------
 
 export const saveReservation = onCall(async (req) => {
@@ -146,6 +158,7 @@ export const saveReservation = onCall(async (req) => {
       const snap = await tx.get(availabilityRef(d));
       avail.set(d, { ...((snap.get("slots") as Record<string, number> | undefined) ?? {}) });
     }
+    const capacity = await capacityFor(tx, next.date, next.slotId, settings);
 
     // 古い予約の分を引いて、新しい予約の分を足す
     if (before && countsTowardCapacity(before.status)) {
@@ -155,7 +168,6 @@ export const saveReservation = onCall(async (req) => {
     if (countsTowardCapacity(next.status)) {
       const m = avail.get(next.date)!;
       const booked = m[next.slotId] ?? 0;
-      const capacity = settings.timeSlots.find((t) => t.id === next.slotId)!.capacity;
       if (booked + next.people > capacity && !force) {
         // 画面で「それでも登録しますか？」と確認するための情報を返す
         throw new HttpsError("resource-exhausted", `定員を超えます（${next.slotTime}の枠：残り${Math.max(0, capacity - booked)}人）`, {
@@ -221,13 +233,13 @@ export const setReservationStatus = onCall(async (req) => {
     const willCount = countsTowardCapacity(status);
     if (wasCounted !== willCount) {
       const settings = await loadSettings(tx);
+      const capacity = await capacityFor(tx, r.date, r.slotId, settings);
       const aRef = availabilityRef(r.date);
       const a = await tx.get(aRef);
       const slots = { ...((a.get("slots") as Record<string, number> | undefined) ?? {}) };
       const booked = slots[r.slotId] ?? 0;
       if (willCount) {
         // キャンセルを取り消すときは、また定員に数えるので空きを確認する
-        const capacity = settings.timeSlots.find((t) => t.id === r.slotId)?.capacity ?? Infinity;
         if (booked + r.people > capacity && !force) {
           throw new HttpsError("resource-exhausted", `定員を超えます（${r.slotTime}の枠：残り${Math.max(0, capacity - booked)}人）`);
         }

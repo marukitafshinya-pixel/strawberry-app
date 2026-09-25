@@ -37,6 +37,15 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    // この日だけの定員（時間枠ごと）：予約ページで使うので誰でも読める。変更は管理者だけ
+    match /dailyCapacity/{date} {
+      allow read: if true;
+      allow write: if isAdmin()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['slots', 'updatedAt'])
+        && request.resource.data.slots is map;
+    }
+
     // 設定：お客様用の予約ページでも使うので誰でも読める（個人情報は入れない）。
     // 変更は管理者だけ。決められた項目以外は保存できない。
     match /settings/main {

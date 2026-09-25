@@ -8,7 +8,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { buildReservation, parseReservationInput, type ReservationDoc } from "./reservations.js";
+import { buildReservation, capacityFor, parseReservationInput, type ReservationDoc } from "./reservations.js";
 
 type WebSettings = {
   seasonStart: string;
@@ -139,7 +139,7 @@ export const createWebReservation = onCall(
       const aRef = db.doc(`availability/${input.date}`);
       const aSnap = await tx.get(aRef);
       const slots = { ...((aSnap.get("slots") as Record<string, number> | undefined) ?? {}) };
-      const capacity = s.timeSlots.find((t) => t.id === next.slotId)!.capacity;
+      const capacity = await capacityFor(tx, input.date, next.slotId, s);
       const booked = slots[next.slotId] ?? 0;
       if (booked + next.people <= capacity) {
         // 定員以内：その場で確定
