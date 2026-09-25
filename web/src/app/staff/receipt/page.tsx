@@ -8,13 +8,13 @@ import { errorText } from "@/lib/callFunction";
 import { formatJa } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { useSettings, yen } from "@/lib/reservations";
-import { PAYMENT_LABEL, type Sale } from "@/lib/sales";
+import { PAYMENT_LABEL, lineTaxRate, taxBreakdown, type Sale } from "@/lib/sales";
 import type { Settings } from "@/lib/settings";
 
 type Kind = "receipt" | "invoice";
 type Paper = "narrow" | "a4";
 
-/** 収入印紙が必要になる金額（税込の受取金額）。実際の要否は税理士に確認する */
+/** 収入印紙が必要になる金額。消費税額を書いてあるので、税抜の金額で判定する。実際の要否は税理士に確認する */
 const STAMP_THRESHOLD = 50000;
 
 export default function ReceiptPage() {
@@ -145,12 +145,27 @@ function StoreInfo({ s, center = true }: { s: Settings; center?: boolean }) {
       <div className="text-[1.2em] font-bold">{s.storeName || "（店名を設定してください）"}</div>
       {s.storeAddress && <div className="text-[0.85em]">{s.storeAddress}</div>}
       {s.storePhone && <div className="text-[0.85em]">TEL {s.storePhone}</div>}
-      {/*
-        インボイス（適格請求書）対応で追加する項目：
-        - 登録番号（T+13桁）
-        - 税率ごとの対象金額と消費税額
-        税理士に確認のうえ、設定画面に項目を足してここに表示する
-      */}
+      {s.invoiceNumber && <div className="text-[0.85em]">登録番号 {s.invoiceNumber}</div>}
+    </div>
+  );
+}
+
+/** 税率ごとの合計と消費税額（インボイスの記載事項） */
+function TaxTable({ s, sale }: { s: Settings; sale: Sale }) {
+  const rows = taxBreakdown(sale.lines, s);
+  return (
+    <div className="mt-1 space-y-0.5 text-[0.85em]">
+      {rows.map((r) => (
+        <div key={r.rate} className="flex justify-between">
+          <span>
+            {r.rate}%対象{r.rate === 8 && "※"}
+          </span>
+          <span>
+            {yen(r.total)}（内消費税 {yen(r.tax)}）
+          </span>
+        </div>
+      ))}
+      {rows.some((r) => r.rate === 8) && <div>※は軽減税率対象</div>}
     </div>
   );
 }
@@ -168,7 +183,10 @@ function ReceiptBody({ s, sale, time }: { s: Settings; sale: Sale; time?: string
       <ul className="mt-2 space-y-1">
         {sale.lines.map((l, i) => (
           <li key={i}>
-            <div>{l.name}</div>
+            <div>
+              {l.name}
+              {lineTaxRate(l, s) === 8 && " ※"}
+            </div>
             <div className="flex justify-between pl-3 text-[0.9em]">
               <span>
                 {yen(l.unitPrice)} × {l.qty}
@@ -184,6 +202,7 @@ function ReceiptBody({ s, sale, time }: { s: Settings; sale: Sale; time?: string
         {sale.discountTotal > 0 && <Row label="値引き" value={`−${yen(sale.discountTotal)}`} />}
         <Row label="合計" value={yen(sale.total)} big />
         <div className="text-right text-[0.8em]">（税込）</div>
+        <TaxTable s={s} sale={sale} />
         <Row label="お支払い" value={sale.payment === "credit" ? "後日のお支払い（売掛）" : PAYMENT_LABEL.cash} />
       </div>
       <p className="mt-3 text-center text-[0.85em]">ご来園ありがとうございました</p>
@@ -215,10 +234,11 @@ function InvoiceBody({
       <div className="mt-3 border-b border-black pb-1 text-[1.2em]">{addressee.trim() || "上"} 様</div>
       <div className="mt-4 border-2 border-black py-2 text-center text-[1.8em] font-bold">¥{sale.total.toLocaleString("ja-JP")}-</div>
       <div className="mt-1 text-right text-[0.85em]">（税込）</div>
+      <TaxTable s={s} sale={sale} />
       <div className="mt-3">但し　{note}</div>
       <div className="mt-1">上記正に領収いたしました</div>
       <div className={`mt-6 flex items-end ${wide ? "justify-between" : "flex-col gap-3"}`}>
-        {sale.total >= STAMP_THRESHOLD && (
+        {sale.total - taxBreakdown(sale.lines, s).reduce((n, r) => n + r.tax, 0) >= STAMP_THRESHOLD && (
           <div className="flex h-[22mm] w-[22mm] items-center justify-center border border-dashed border-black text-[0.75em]">収入印紙</div>
         )}
         <StoreInfo s={s} center={!wide} />

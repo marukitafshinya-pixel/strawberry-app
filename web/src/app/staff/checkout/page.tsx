@@ -9,9 +9,9 @@ import { formatJa, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, type PaymentMethod, type SaleLine } from "@/lib/sales";
-import { DEFAULT_PLAN_CATEGORY, newId, type Settings } from "@/lib/settings";
+import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, newId, type Settings, type TaxRate } from "@/lib/settings";
 
-type Line = Omit<SaleLine, "amount"> & { key: string };
+type Line = Omit<SaleLine, "amount" | "taxRate"> & { key: string; taxRate: TaxRate };
 
 export default function CheckoutPage() {
   return (
@@ -60,6 +60,7 @@ function initialLines(settings: Settings, r: Reservation | null): Line[] {
     unitPrice: l.unitPrice,
     qty: l.qty,
     discountRate: 0,
+    taxRate: plan?.taxRate ?? DEFAULT_PLAN_TAX,
   }));
 }
 
@@ -103,7 +104,8 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
         payment,
         dueDate: payment === "credit" ? dueDate || null : null,
         memo,
-        lines: lines.map(({ kind, refId, name, category, unitPrice, qty, discountRate }) => ({
+        lines: lines.map(({ kind, refId, name, category, unitPrice, qty, discountRate, taxRate }) => ({
+          taxRate,
           kind,
           refId,
           name,
@@ -189,7 +191,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                   .map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => addLine({ kind: "product", refId: p.id, name: p.name, category: p.group || "その他", unitPrice: p.price })}
+                      onClick={() => addLine({ kind: "product", refId: p.id, name: p.name, category: p.group || "その他", unitPrice: p.price, taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX })}
                       className="rounded-xl border p-3 text-left active:bg-berry/10"
                     >
                       <span className="block font-semibold">{p.name}</span>
@@ -216,6 +218,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                           name: `${p.name}（${c.name}）`,
                           category: p.category ?? DEFAULT_PLAN_CATEGORY,
                           unitPrice: p.prices[c.id],
+                          taxRate: p.taxRate ?? DEFAULT_PLAN_TAX,
                         })
                       }
                       className="rounded-xl border p-3 text-left active:bg-berry/10"
@@ -250,7 +253,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
               <button
                 disabled={!custom.name.trim() || custom.price === ""}
                 onClick={() => {
-                  addLine({ kind: "custom", refId: "", name: custom.name.trim(), category: "その他", unitPrice: Number(custom.price) });
+                  addLine({ kind: "custom", refId: "", name: custom.name.trim(), category: "その他", unitPrice: Number(custom.price), taxRate: 10 });
                   setCustom({ name: "", price: "" });
                 }}
                 className="rounded-lg border px-4 py-2 disabled:opacity-40"
@@ -277,6 +280,14 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                     <span className="text-gray-600">{yen(l.unitPrice)}</span>
+                    <button
+                      onClick={() => update(l.key, { taxRate: l.taxRate === 8 ? 10 : 8 })}
+                      className={`rounded border px-1.5 py-0.5 text-xs ${l.taxRate === 8 ? "border-amber-400 bg-amber-50 text-amber-800" : "text-gray-500"}`}
+                      aria-label={`税率 ${l.taxRate}%（押すと切り替え）`}
+                      title="押すと8%と10%を切り替えます"
+                    >
+                      {l.taxRate === 8 ? "8%軽減" : "10%"}
+                    </button>
                     <span className="flex items-center gap-1">
                       <button onClick={() => l.qty > 1 && update(l.key, { qty: l.qty - 1 })} className="h-8 w-8 rounded-full border" aria-label="減らす">
                         −

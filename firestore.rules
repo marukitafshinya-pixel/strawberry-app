@@ -103,7 +103,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly([
-          'storeName', 'storePhone', 'storeAddress',
+          'storeName', 'storePhone', 'storeAddress', 'invoiceNumber',
           'seasonStart', 'seasonEnd', 'openTime', 'closeTime', 'closedDates',
           'bookingDaysAhead', 'bookingCutoffDays',
           'timeSlots', 'priceCategories', 'plans', 'products', 'updatedAt'

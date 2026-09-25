@@ -15,6 +15,14 @@ export type TimeSlot = {
 /** 料金区分（大人・子ども・幼児など） */
 export type PriceCategory = { id: string; name: string };
 
+/** 消費税率（%）。8 は軽減税率（持ち帰りの食べ物・飲み物など） */
+export type TaxRate = 8 | 10;
+export const TAX_RATES: TaxRate[] = [10, 8];
+/** プランの初期税率（いちご狩りは体験サービスなので10%） */
+export const DEFAULT_PLAN_TAX: TaxRate = 10;
+/** 商品の初期税率（いちご・ジャムなど食べ物が多いので8%） */
+export const DEFAULT_PRODUCT_TAX: TaxRate = 8;
+
 export type Plan = {
   id: string;
   name: string;
@@ -26,6 +34,8 @@ export type Plan = {
   public: boolean;
   /** 売上の分類（例：いちご狩り）。未設定なら「いちご狩り」 */
   category?: string;
+  /** 消費税率。未設定なら10% */
+  taxRate?: TaxRate;
 };
 
 export const DEFAULT_PLAN_CATEGORY = "いちご狩り";
@@ -40,12 +50,16 @@ export type Product = {
   price: number;
   /** 会計画面に表示するか（売り切れ・取扱終了なら外す） */
   active: boolean;
+  /** 消費税率。未設定なら8% */
+  taxRate?: TaxRate;
 };
 
 export type Settings = {
   storeName: string;
   storePhone: string;
   storeAddress: string;
+  /** インボイスの登録番号（"T" + 13桁）。空ならレシートに出さない */
+  invoiceNumber?: string;
   /** 営業期間（毎年） */
   seasonStart: MonthDay;
   seasonEnd: MonthDay;
@@ -100,6 +114,7 @@ export function normalizeSettings(data: Partial<Settings> | undefined): Settings
   return { ...defaultSettings(), ...(data ?? {}) };
 }
 
+export const INVOICE_RE = /^T\d{13}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MONTH_DAY_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
@@ -107,6 +122,7 @@ const MONTH_DAY_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 export function validateSettings(s: Settings): string[] {
   const errors: string[] = [];
   if (s.storeName.length > 50) errors.push("店名は50文字以内にしてください");
+  if (s.invoiceNumber && !INVOICE_RE.test(s.invoiceNumber)) errors.push("インボイスの登録番号は「T」と13桁の数字で入れてください（例：T1234567890123）");
   if (!MONTH_DAY_RE.test(s.seasonStart) || !MONTH_DAY_RE.test(s.seasonEnd)) errors.push("営業期間の日付が正しくありません");
   if (!TIME_RE.test(s.openTime) || !TIME_RE.test(s.closeTime)) errors.push("営業時間が正しくありません");
   if (s.openTime >= s.closeTime) errors.push("営業時間の終わりは始まりより後にしてください");
@@ -163,6 +179,7 @@ export function cleanSettings(s: Settings): Settings {
     storeName: s.storeName.trim(),
     storePhone: s.storePhone.trim(),
     storeAddress: s.storeAddress.trim(),
+    invoiceNumber: (s.invoiceNumber ?? "").trim(),
     closedDates: [...new Set(s.closedDates)].sort(),
     timeSlots: [...s.timeSlots].sort((a, b) => a.time.localeCompare(b.time)),
     priceCategories: s.priceCategories.map((c) => ({ ...c, name: c.name.trim() })),
@@ -170,8 +187,9 @@ export function cleanSettings(s: Settings): Settings {
       ...p,
       name: p.name.trim(),
       category: (p.category ?? DEFAULT_PLAN_CATEGORY).trim() || DEFAULT_PLAN_CATEGORY,
+      taxRate: p.taxRate ?? DEFAULT_PLAN_TAX,
       prices: Object.fromEntries(Object.entries(p.prices).filter(([id]) => catIds.has(id))),
     })),
-    products: s.products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim() })),
+    products: s.products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim(), taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX })),
   };
 }

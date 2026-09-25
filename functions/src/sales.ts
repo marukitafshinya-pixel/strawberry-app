@@ -22,7 +22,8 @@ export type SaleLine = {
   discountRate: number;
   /** この行の金額（値引き後・1円未満切り捨て） */
   amount: number;
-  // インボイス対応で「税区分」などを足すときは、ここに項目を追加する
+  /** 消費税率（%）。8 は軽減税率 */
+  taxRate: 8 | 10;
 };
 
 export type SaleDoc = {
@@ -73,8 +74,9 @@ function parseLines(raw: unknown): SaleLine[] {
     const qty = requireInt(l.qty, `「${name}」の数量`, 1, 9999);
     const discountRate = requireInt(l.discountRate ?? 0, `「${name}」の割引率`, 0, 100);
     const refId = typeof l.refId === "string" ? l.refId.slice(0, 64) : "";
+    const taxRate = l.taxRate === 8 ? 8 : 10;
     // 金額は画面から届いた値を使わず、ここで計算し直す
-    return { kind, refId, name, category, unitPrice, qty, discountRate, amount: lineAmount(unitPrice, qty, discountRate) };
+    return { kind, refId, name, category, unitPrice, qty, discountRate, amount: lineAmount(unitPrice, qty, discountRate), taxRate };
   });
 }
 

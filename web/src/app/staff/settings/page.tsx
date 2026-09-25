@@ -8,7 +8,10 @@ import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
 import {
   DEFAULT_PLAN_CATEGORY,
+  DEFAULT_PLAN_TAX,
+  DEFAULT_PRODUCT_TAX,
   SETTINGS_DOC,
+  TAX_RATES,
   cleanSettings,
   newId,
   normalizeSettings,
@@ -16,6 +19,7 @@ import {
   type Plan,
   type Product,
   type Settings,
+  type TaxRate,
 } from "@/lib/settings";
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
@@ -100,6 +104,22 @@ export default function SettingsPage() {
         </Field>
         <Field label="住所">
           <input value={s.storeAddress} maxLength={100} onChange={(e) => update({ storeAddress: e.target.value })} className={input} />
+        </Field>
+        <Field label="インボイスの登録番号（T＋13桁。レシート・領収書に表示されます）">
+          <input
+            value={s.invoiceNumber ?? ""}
+            maxLength={14}
+            placeholder="例：T1234567890123"
+            onChange={(e) =>
+              update({
+                invoiceNumber: e.target.value
+                  .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+                  .toUpperCase()
+                  .replace(/[^T0-9]/g, ""),
+              })
+            }
+            className={input}
+          />
         </Field>
       </Section>
 
@@ -255,7 +275,7 @@ export default function SettingsPage() {
         </button>
       </Section>
 
-      <Section title="商品（会計で売るもの）" note="お土産・ドリンクなど。金額は税込です。並び順は会計画面の表示順になります。">
+      <Section title="商品（会計で売るもの）" note="お土産・ドリンクなど。金額は税込です。並び順は会計画面の表示順になります。消費税は、持ち帰りの食べ物・飲み物（いちご・ジャム・ジュースなど）は8%、雑貨などは10%です。">
         {s.products.length === 0 && <p className="text-sm text-gray-500">まだありません</p>}
         <datalist id="product-groups">
           {[...new Set(s.products.map((p) => p.group).filter(Boolean))].map((g) => (
@@ -291,6 +311,9 @@ export default function SettingsPage() {
                     <span className="mt-1 block">
                       <NumberInput value={p.price} onChange={(v) => set({ price: v })} suffix="円" />
                     </span>
+                  </Field>
+                  <Field label="消費税">
+                    <TaxSelect value={p.taxRate ?? DEFAULT_PRODUCT_TAX} onChange={(taxRate) => set({ taxRate })} />
                   </Field>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -529,6 +552,9 @@ function PlanEditor({
             ))}
           </datalist>
         </Field>
+        <Field label="消費税">
+          <TaxSelect value={plan.taxRate ?? DEFAULT_PLAN_TAX} onChange={(taxRate) => onChange({ ...plan, taxRate })} />
+        </Field>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {settings.priceCategories.map((c) => (
@@ -584,5 +610,18 @@ function PriceInput({ label, value, onChange }: { label: string; value: number |
         円
       </span>
     </label>
+  );
+}
+
+/** 消費税率の選択（8%は持ち帰りの食べ物・飲み物などの軽減税率） */
+function TaxSelect({ value, onChange }: { value: TaxRate; onChange: (v: TaxRate) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(Number(e.target.value) as TaxRate)} className="mt-1 block rounded-lg border px-2 py-2 text-base">
+      {TAX_RATES.map((r) => (
+        <option key={r} value={r}>
+          {r === 8 ? "8%（軽減・食べ物）" : "10%"}
+        </option>
+      ))}
+    </select>
   );
 }

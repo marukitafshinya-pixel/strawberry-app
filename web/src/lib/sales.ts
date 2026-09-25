@@ -3,6 +3,7 @@
 import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
+import { DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, type Settings, type TaxRate } from "./settings";
 
 export type PaymentMethod = "cash" | "credit";
 export const PAYMENT_LABEL: Record<PaymentMethod, string> = { cash: "現金", credit: "売掛" };
@@ -16,7 +17,30 @@ export type SaleLine = {
   qty: number;
   discountRate: number;
   amount: number;
+  /** 消費税率。この項目ができる前の会計には無い */
+  taxRate?: TaxRate;
 };
+
+/** 明細の税率。古い会計（税率を記録していない）は、今の設定から決める */
+export function lineTaxRate(l: SaleLine, s: Settings): TaxRate {
+  if (l.taxRate === 8 || l.taxRate === 10) return l.taxRate;
+  if (l.kind === "product") return s.products.find((p) => p.id === l.refId)?.taxRate ?? DEFAULT_PRODUCT_TAX;
+  if (l.kind === "plan") return s.plans.find((p) => p.id === l.refId)?.taxRate ?? DEFAULT_PLAN_TAX;
+  return 10;
+}
+
+/**
+ * 税率ごとの合計（税込）と消費税額。
+ * インボイスのルールどおり、消費税額は税率ごとに1回だけ計算して1円未満を切り捨てる。
+ */
+export function taxBreakdown(lines: SaleLine[], s: Settings) {
+  return ([10, 8] as TaxRate[])
+    .map((rate) => {
+      const total = lines.filter((l) => lineTaxRate(l, s) === rate).reduce((n, l) => n + l.amount, 0);
+      return { rate, total, tax: Math.floor((total * rate) / (100 + rate)) };
+    })
+    .filter((x) => x.total > 0);
+}
 
 export type Sale = {
   id: string;
