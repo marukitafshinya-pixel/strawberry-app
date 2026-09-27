@@ -193,6 +193,9 @@ export default function CustomersPage() {
                     <button onClick={() => setEditing(c)} className="rounded-lg border px-3 py-1">
                       詳細
                     </button>
+                    <Link href={`/staff/customers/history/?id=${c.id}`} className="ml-2 inline-block rounded-lg border px-3 py-1">
+                      取引履歴
+                    </Link>
                   </td>
                 </tr>
               ))}

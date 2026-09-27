@@ -114,6 +114,14 @@ export function useReceivables(status: "open" | "collected" | null) {
   );
 }
 
+/** お客様名で探した会計と売掛（顧客の取引履歴） */
+export function useSalesByCustomer(name: string) {
+  return useQuery<Sale>((db) => (name ? query(collection(db, "sales"), where("customerName", "==", name)) : null), [name]);
+}
+export function useReceivablesByCustomer(name: string) {
+  return useQuery<Receivable>((db) => (name ? query(collection(db, "receivables"), where("customerName", "==", name)) : null), [name]);
+}
+
 /** 取り込んだ過去売上（日付 → 金額） */
 export function useImportedSales(from: string, to: string) {
   return useQuery<{ id: string; amount: number }>(
