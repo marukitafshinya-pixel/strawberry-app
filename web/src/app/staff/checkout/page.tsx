@@ -736,6 +736,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                     onClick={() => {
                       setCustomer(c);
                       setCustomerName(c.name);
+                      if (c.payment) setPayment(c.payment);
                       setPickingCustomer(false);
                       setCustomerQ("");
                     }}
