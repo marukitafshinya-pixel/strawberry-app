@@ -152,6 +152,15 @@ describe("会計・売掛・過去売上", () => {
     await assertSucceeds(getDoc(doc(staff(), "importedSales/2025-07-01")));
     await assertFails(getDoc(doc(guest(), "importedSales/2025-07-01")));
   });
+  it("顧客リストはスタッフが見るだけ、管理者が登録。外の人は読めない", async () => {
+    const c = { name: "〇〇旅行", phone: "0120-000-000", prices: { adult: 2500, child: 1800 }, active: true };
+    await assertSucceeds(setDoc(doc(admin(), "customers/c1"), c));
+    await assertFails(setDoc(doc(admin(), "customers/c2"), { ...c, name: "" }));
+    await assertFails(setDoc(doc(admin(), "customers/c2"), { ...c, secret: 1 }));
+    await assertFails(setDoc(doc(staff(), "customers/c2"), c));
+    await assertSucceeds(getDoc(doc(staff(), "customers/c1")));
+    for (const db of [guest(), noRole(), disabled()]) await assertFails(getDoc(doc(db, "customers/c1")));
+  });
   it("去年の商品別の実績は管理者だけが取り込み、スタッフは見るだけ", async () => {
     const data = { from: "2025-06-01", to: "2025-11-30", items: [{ name: "いちごジャム", category: "直売", amount: 104550, qty: 141 }] };
     await assertSucceeds(setDoc(doc(admin(), "itemReferences/2025-06-01_2025-11-30"), data));

@@ -12,6 +12,7 @@ const MENU: MenuItem[] = [
   { label: "予約管理", href: "/staff/reservations/" },
   { label: "会計", href: "/staff/checkout/" },
   { label: "売掛管理", href: "/staff/receivables/" },
+  { label: "顧客リスト", href: "/staff/customers/" },
   { label: "日次締め", href: "/staff/sales/" },
   { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "集計（期間指定）", href: "/staff/report/" },

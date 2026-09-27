@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
+import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
@@ -89,6 +90,11 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
   const [arrange, setArrange] = useState<TileLayout | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [arrangeSaving, setArrangeSaving] = useState(false);
+  /** 選んだ顧客（顧客ごとの単価のタイルを出す） */
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [pickingCustomer, setPickingCustomer] = useState(false);
+  const [customerQ, setCustomerQ] = useState("");
+  const { value: customers } = useCustomers();
 
   const alreadyPaid = !!r?.saleId;
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
@@ -268,7 +274,24 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
       <div className="mt-3 grid gap-4 lg:grid-cols-[24rem_1fr] 2xl:grid-cols-[30rem_1fr]">
         {/* 左：注文リスト */}
         <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100vh-7rem)] ${step === "pay" ? "hidden lg:flex" : ""}`}>
-          <h2 className="border-b px-4 py-3 font-bold">注文リスト</h2>
+          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+            <h2 className="font-bold">注文リスト</h2>
+            {customer ? (
+              <span className="flex items-center gap-1 text-sm">
+                <span className="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">{customer.name} 様</span>
+                <button onClick={() => setPickingCustomer(true)} className="rounded border px-2 py-0.5 text-xs">
+                  変更
+                </button>
+                <button onClick={() => setCustomer(null)} className="rounded border px-2 py-0.5 text-xs" aria-label="顧客を外す">
+                  ×
+                </button>
+              </span>
+            ) : (
+              <button onClick={() => setPickingCustomer(true)} className="rounded-lg border px-3 py-1 text-sm">
+                顧客を選ぶ
+              </button>
+            )}
+          </div>
           <ul className="flex-1 divide-y overflow-y-auto">
             {lines.length === 0 && <li className="px-4 py-8 text-center text-sm text-gray-400">右の商品を押すと、ここに入ります</li>}
             {lines.map((l) => (
@@ -471,6 +494,36 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                     })}
                   </div>
                 )}
+                {customer && tab !== "search" && !arrange && (
+                  <div className="mb-4 border-l-4 border-sky-400 pl-2">
+                    <h3 className="mb-1 text-sm font-semibold text-sky-800">{customer.name} 様の料金</h3>
+                    {CUSTOMER_PRICES.some((p) => customer.prices[p.key] !== undefined) ? (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+                        {CUSTOMER_PRICES.filter((p) => customer.prices[p.key] !== undefined).map((p) => (
+                          <button
+                            key={p.key}
+                            onClick={() =>
+                              addLine({
+                                kind: "custom",
+                                refId: "",
+                                name: `いちご狩り ${p.label}（${customer.name}）`,
+                                category: DEFAULT_PLAN_CATEGORY,
+                                unitPrice: customer.prices[p.key]!,
+                                taxRate: DEFAULT_PLAN_TAX,
+                              })
+                            }
+                            className="flex h-20 flex-col justify-between rounded-lg border border-sky-300 bg-sky-50 p-2 text-left text-sm active:brightness-95"
+                          >
+                            <span className="leading-tight">いちご狩り {p.label}</span>
+                            <span className="self-end tabular-nums">{yen(customer.prices[p.key]!)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">この顧客の単価はまだ設定されていません（顧客リストの詳細で設定できます）</p>
+                    )}
+                  </div>
+                )}
                 {tab === "search" && q === "" && <p className="py-6 text-center text-sm text-gray-400">商品名の一部を入れてください</p>}
                 {tab === "search" && q !== "" && shownTiles.length === 0 && <p className="py-6 text-center text-sm text-gray-400">見つかりません</p>}
                 {groups
@@ -658,6 +711,54 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
               className="ml-auto rounded-lg bg-emerald-700 px-6 py-3 font-bold text-white disabled:opacity-40"
             >
               支払いへ進む
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 顧客を選ぶ */}
+      {pickingCustomer && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setPickingCustomer(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl bg-white p-4 shadow-lg">
+            <p className="font-bold">顧客を選ぶ</p>
+            <input
+              autoFocus
+              value={customerQ}
+              onChange={(e) => setCustomerQ(e.target.value)}
+              placeholder="名前・ふりがな・電話で探す"
+              className="mt-2 w-full rounded-lg border px-3 py-2 text-base"
+            />
+            <ul className="mt-2 flex-1 divide-y overflow-y-auto">
+              {!customers && <li className="py-3 text-sm text-gray-500">読み込み中…</li>}
+              {customers?.filter((c) => c.active && matchCustomer(c, customerQ)).map((c) => (
+                <li key={c.id}>
+                  <button
+                    onClick={() => {
+                      setCustomer(c);
+                      setCustomerName(c.name);
+                      setPickingCustomer(false);
+                      setCustomerQ("");
+                    }}
+                    className="flex w-full items-center justify-between px-2 py-2.5 text-left active:bg-gray-100"
+                  >
+                    <span>
+                      <span className="font-semibold">{c.name}</span>
+                      {c.phone && <span className="ml-2 text-xs text-gray-500">{c.phone}</span>}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {CUSTOMER_PRICES.filter((p) => c.prices[p.key] !== undefined)
+                        .map((p) => `${p.label}${c.prices[p.key]!.toLocaleString("ja-JP")}`)
+                        .join("・")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {customers && customers.filter((c) => c.active && matchCustomer(c, customerQ)).length === 0 && (
+                <li className="py-3 text-sm text-gray-500">見つかりません（顧客は「顧客リスト」で登録します）</li>
+              )}
+            </ul>
+            <button onClick={() => setPickingCustomer(false)} className="mt-2 rounded-lg border py-2">
+              閉じる
             </button>
           </div>
         </div>

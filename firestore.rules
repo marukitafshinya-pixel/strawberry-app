@@ -49,6 +49,18 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // 顧客リスト（名前・連絡先・顧客ごとの単価）：スタッフは見るだけ（会計で使う）、管理者が登録・変更する
+    match /customers/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'memo', 'prices', 'active', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && (!('prices' in request.resource.data) || request.resource.data.prices is map);
+      allow delete: if isAdmin();
+    }
+
     // 去年の商品別の実績（Airレジの商品別CSV）：スタッフは見るだけ、管理者が取り込む
     match /itemReferences/{id} {
       allow read: if isStaff();
