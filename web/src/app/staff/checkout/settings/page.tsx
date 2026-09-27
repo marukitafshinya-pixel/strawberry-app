@@ -78,7 +78,18 @@ export default function RegisterSettingsPage() {
           <button onClick={() => set({ offsetMm: Math.min(20, c.offsetMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左の余白を増やす">
             ＋
           </button>
-          <span className="text-xs text-gray-500">左が切れるときは増やし、右が切れるときは減らします</span>
+          <span className="text-xs text-gray-500">左が切れるときは増やします</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="w-24">右の余白</span>
+          <button onClick={() => set({ rightMm: Math.max(0, c.rightMm - 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="右の余白を減らす">
+            −
+          </button>
+          <span className="w-14 text-center text-lg font-bold tabular-nums">{c.rightMm}mm</span>
+          <button onClick={() => set({ rightMm: Math.min(20, c.rightMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="右の余白を増やす">
+            ＋
+          </button>
+          <span className="text-xs text-gray-500">右が切れるときは増やします</span>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={c.autoPrint} onChange={(e) => set({ autoPrint: e.target.checked })} />

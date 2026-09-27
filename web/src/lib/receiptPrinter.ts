@@ -20,10 +20,12 @@ export type PrinterConfig = {
   keepConnect: boolean;
   /** 印刷位置の調整：左の余白（mm）。左が切れるときに増やす */
   offsetMm: number;
+  /** 印刷位置の調整：右の余白（mm）。右が切れるときに増やす */
+  rightMm: number;
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, offsetMm: 6 };
+export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, offsetMm: 6, rightMm: 2 };
 
 /** この端末（iPad）に保存した設定。端末ごとに違ってよいので、端末の中に保存する */
 export function loadPrinter(): PrinterConfig {
@@ -155,6 +157,9 @@ export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
     { t: "rule" },
     { t: "row", left: "紙の幅", right: `${c.paper}mm` },
     { t: "row", left: "左の余白", right: `${c.offsetMm}mm` },
+    { t: "row", left: "右の余白", right: `${c.rightMm}mm` },
+    { t: "text", text: "← 左はし", size: 0.85 },
+    { t: "text", text: "右はし →", align: "right", size: 0.85 },
     { t: "row", left: "日時", right: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) },
     { t: "rule" },
     { t: "text", text: "この紙が出てくれば、設定は完了です。", align: "center", size: 0.9 },
@@ -166,12 +171,13 @@ export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
 const FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif';
 
 /** レシートを白黒の画像にする（プリンターのドット数に合わせた幅） */
-export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0): HTMLCanvasElement {
+export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0, rightMm = 0): HTMLCanvasElement {
   // 203dpi のプリンターで、80mm紙は576ドット、58mm紙は384ドット印刷できる（1mm＝8ドット）
   const W = paper === 80 ? 576 : 384;
   const base = paper === 80 ? 24 : 20;
   const left = Math.round(Math.max(0, Math.min(20, offsetMm)) * 8);
   const pad = 4 + left;
+  const right = 4 + Math.round(Math.max(0, Math.min(20, rightMm)) * 8);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   const font = (size = 1, bold = false) => `${bold ? "bold " : ""}${Math.round(base * size)}px ${FONT}`;
@@ -213,18 +219,18 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0): HTM
     const f = font(l.size, l.bold);
     const lh = Math.round(base * (l.size ?? 1) * 1.35);
     if (l.t === "text") {
-      for (const part of wrap(l.text, f, W - pad - 4)) {
-        const x = l.align === "center" ? (pad + W - 4) / 2 : l.align === "right" ? W - 4 : pad;
+      for (const part of wrap(l.text, f, W - pad - right)) {
+        const x = l.align === "center" ? (pad + W - right) / 2 : l.align === "right" ? W - right : pad;
         ops.push({ kind: "text", x, y, text: part, font: f, align: l.align ?? "left" });
         y += lh;
       }
     } else {
       ctx.font = f;
       const rightW = ctx.measureText(l.right).width;
-      const leftParts = wrap(l.left, f, Math.max(40, W - pad - 4 - rightW - 12));
+      const leftParts = wrap(l.left, f, Math.max(40, W - pad - right - rightW - 12));
       leftParts.forEach((part, i) => {
         ops.push({ kind: "text", x: pad, y, text: part, font: f, align: "left" });
-        if (i === leftParts.length - 1) ops.push({ kind: "text", x: W - 4, y, text: l.right, font: f, align: "right" });
+        if (i === leftParts.length - 1) ops.push({ kind: "text", x: W - right, y, text: l.right, font: f, align: "right" });
         y += lh;
       });
     }
@@ -240,7 +246,7 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0): HTM
   ctx.textBaseline = "top";
   for (const op of ops) {
     if (op.kind === "rule") {
-      ctx.fillRect(pad, Math.round(op.y), W - pad - 4, 2);
+      ctx.fillRect(pad, Math.round(op.y), W - pad - right, 2);
     } else if (op.kind === "ruler") {
       // 紙の左はし（0mm）から、1mmごとの目もりと5mmごとの数字
       const top = Math.round(op.y);
@@ -259,6 +265,14 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0): HTM
       ctx.fillText(op.text, op.x, op.y);
     }
   }
+  // 四すみに小さな点を打つ。印刷アプリが白いふちを自動で切り取ると余白の調整が効かなくなるため
+  for (const [x, yy] of [
+    [0, 0],
+    [W - 2, 0],
+    [0, canvas.height - 2],
+    [W - 2, canvas.height - 2],
+  ])
+    ctx.fillRect(x, yy, 2, 2);
   return canvas;
 }
 
@@ -324,7 +338,7 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement, paper: 80 | 58): st
 
 /** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる */
 export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string) {
-  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, lines.some((l) => l.t === "ruler") ? 0 : c.offsetMm), c.paper);
+  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, lines.some((l) => l.t === "ruler") ? 0 : c.offsetMm, lines.some((l) => l.t === "ruler") ? 0 : c.rightMm), c.paper);
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [
@@ -338,8 +352,9 @@ export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string
 }
 
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
-export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0) {
-  const img = renderReceipt(lines, paper, lines.some((l) => l.t === "ruler") ? 0 : offsetMm).toDataURL("image/png");
+export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0, rightMm = 0) {
+  const ruler = lines.some((l) => l.t === "ruler");
+  const img = renderReceipt(lines, paper, ruler ? 0 : offsetMm, ruler ? 0 : rightMm).toDataURL("image/png");
   const box = document.createElement("div");
   box.id = "receipt-print-box";
   box.innerHTML = `<img src="${img}" style="width:${paper === 80 ? 72 : 48}mm" alt="">`;
@@ -362,5 +377,5 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0) {
 export function printReceipt(lines: RLine[], returnUrl: string) {
   const c = loadPrinter();
   if (c.method === "sii") printWithSii(lines, c, returnUrl);
-  else printInBrowser(lines, c.paper, c.offsetMm);
+  else printInBrowser(lines, c.paper, c.offsetMm, c.rightMm);
 }
