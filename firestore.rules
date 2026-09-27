@@ -117,7 +117,7 @@ service cloud.firestore {
           'storeName', 'storePhone', 'storeAddress', 'invoiceNumber',
           'seasonStart', 'seasonEnd', 'openTime', 'closeTime', 'closedDates',
           'bookingDaysAhead', 'bookingCutoffDays',
-          'timeSlots', 'priceCategories', 'plans', 'products', 'updatedAt'
+          'timeSlots', 'priceCategories', 'plans', 'products', 'tileLayout', 'updatedAt'
         ])
         && request.resource.data.timeSlots is list
         && request.resource.data.priceCategories is list

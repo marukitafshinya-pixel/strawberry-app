@@ -1,15 +1,16 @@
 "use client";
 
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { formatJa, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, type PaymentMethod, type SaleLine } from "@/lib/sales";
-import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, newId, type Settings, type TaxRate } from "@/lib/settings";
+import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, SETTINGS_DOC, newId, type Settings, type TaxRate, type TileLayout } from "@/lib/settings";
 
 type Line = Omit<SaleLine, "amount" | "taxRate"> & { key: string; taxRate: TaxRate };
 
@@ -83,6 +84,11 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
   const [search, setSearch] = useState("");
   const [openLine, setOpenLine] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ tile: Tile; amount: string } | null>(null);
+  const { role } = useAuth();
+  /** タイルの並べ替え中の並び（null なら並べ替えしていない） */
+  const [arrange, setArrange] = useState<TileLayout | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [arrangeSaving, setArrangeSaving] = useState(false);
 
   const alreadyPaid = !!r?.saleId;
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
@@ -164,12 +170,58 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
     );
   }
 
-  const tiles = buildTiles(settings);
-  const groups = [...new Set(tiles.map((t) => t.group))];
+  const tiles = buildTiles(settings, arrange ?? settings.tileLayout);
+  const groups = orderGroups(tiles, (arrange ?? settings.tileLayout)?.groups);
   const colorOf = (g: string) => GROUP_COLORS[groups.indexOf(g) % GROUP_COLORS.length];
   const count = lines.reduce((n, l) => n + l.qty, 0);
 
+  function startArrange() {
+    setArrange({ groups, tiles: tiles.map((t) => t.key) });
+    setPicked(null);
+    setTab("tile");
+    setFilter("");
+  }
+  /** 選んだタイルを、押したタイルの場所へ移す（同じ分類の中で） */
+  function moveTile(target: Tile) {
+    if (!arrange) return;
+    if (!picked) return setPicked(target.key);
+    if (picked === target.key) return setPicked(null);
+    const from = tiles.find((t) => t.key === picked);
+    if (!from || from.group !== target.group) return setPicked(target.key);
+    const keys = tiles.map((t) => t.key);
+    const fromIdx = keys.indexOf(picked);
+    const toIdx = keys.indexOf(target.key);
+    keys.splice(fromIdx, 1);
+    keys.splice(toIdx, 0, picked);
+    setArrange({ ...arrange, tiles: keys });
+    setPicked(null);
+  }
+  function moveGroup(g: string, delta: number) {
+    if (!arrange) return;
+    const list = [...groups];
+    const i = list.indexOf(g);
+    const j = i + delta;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    setArrange({ ...arrange, groups: list });
+  }
+  async function saveArrange() {
+    if (!arrange) return;
+    setArrangeSaving(true);
+    try {
+      const { db } = await getFirebase();
+      await updateDoc(doc(db, SETTINGS_DOC), { tileLayout: { groups, tiles: tiles.map((t) => t.key) }, updatedAt: serverTimestamp() });
+      setArrange(null);
+      setPicked(null);
+    } catch (e) {
+      window.alert(errorText(e));
+    } finally {
+      setArrangeSaving(false);
+    }
+  }
+
   function tap(t: Tile) {
+    if (arrange) return moveTile(t);
     // 値段が0円の商品は、その場で金額を入れる（Airレジの「金額入力」と同じ）
     if (t.price === 0) return setAsk({ tile: t, amount: "" });
     addTile(t, t.price);
@@ -239,6 +291,17 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                 {openLine === l.key && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 text-sm">
                     <label className="flex items-center gap-1">
+                      単価
+                      <input
+                        inputMode="numeric"
+                        value={String(l.unitPrice)}
+                        onChange={(e) => update(l.key, { unitPrice: Math.min(10_000_000, Number(toDigits(e.target.value) || 0)) })}
+                        className="w-24 rounded border px-1 py-1 text-right"
+                        aria-label="単価"
+                      />
+                      円
+                    </label>
+                    <label className="flex items-center gap-1">
                       <input
                         inputMode="numeric"
                         value={l.discountRate || ""}
@@ -304,6 +367,27 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
               ))}
             </div>
 
+            {role === "admin" && tab !== "custom" && (
+              <div className="flex flex-wrap items-center justify-end gap-2 px-3 pt-3">
+                {arrange ? (
+                  <>
+                    <span className="mr-auto text-sm text-sky-800">
+                      並べ替え中：タイルを押して選び、移したい場所のタイルを押すと、そこへ移ります。分類は ◀ ▶ で動かします。
+                    </span>
+                    <button onClick={() => setArrange(null)} className="rounded-lg border px-3 py-2 text-sm">
+                      やめる
+                    </button>
+                    <button onClick={saveArrange} disabled={arrangeSaving} className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                      {arrangeSaving ? "保存中…" : "配置を保存"}
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={startArrange} className="rounded-lg border px-3 py-2 text-sm">
+                    タイルの配置
+                  </button>
+                )}
+              </div>
+            )}
             {tab === "custom" ? (
               <div className="space-y-3 p-4">
                 <p className="text-sm text-gray-600">一覧にない商品を、名前と金額を入れて追加します。</p>
@@ -375,8 +459,18 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                     const items = shownTiles.filter((t) => t.group === g);
                     return (
                       <div key={g} className={`mb-4 border-l-4 pl-2 ${c.border}`}>
-                        <h3 className={`mb-1 text-sm font-semibold ${c.text}`}>
+                        <h3 className={`mb-1 flex items-center gap-2 text-sm font-semibold ${c.text}`}>
                           {g} <span className="text-xs font-normal text-gray-500">{items.length}商品</span>
+                          {arrange && (
+                            <>
+                              <button onClick={() => moveGroup(g, -1)} className="rounded border bg-white px-2 text-gray-700" aria-label={`${g}を前へ`}>
+                                ◀
+                              </button>
+                              <button onClick={() => moveGroup(g, 1)} className="rounded border bg-white px-2 text-gray-700" aria-label={`${g}を後ろへ`}>
+                                ▶
+                              </button>
+                            </>
+                          )}
                         </h3>
                         {tab === "list" ? (
                           <ul className="divide-y rounded-lg border">
@@ -395,7 +489,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                               <button
                                 key={t.key}
                                 onClick={() => tap(t)}
-                                className={`flex h-20 flex-col justify-between rounded-lg border p-2 text-left text-sm active:brightness-95 ${c.bg} ${c.border}`}
+                                className={`flex h-20 flex-col justify-between rounded-lg border p-2 text-left text-sm active:brightness-95 ${c.bg} ${c.border} ${picked === t.key ? "ring-4 ring-sky-500" : arrange && picked ? "outline-dashed outline-2 outline-sky-300" : ""}`}
                               >
                                 <span className="line-clamp-2 leading-tight">{t.name}</span>
                                 <span className="self-end text-sm tabular-nums">{t.price === 0 ? "金額入力" : yen(t.price)}</span>
@@ -571,7 +665,7 @@ const GROUP_COLORS = [
 ];
 
 /** 会計画面に並べるもの：販売中の商品と、プラン×料金区分 */
-function buildTiles(settings: Settings): Tile[] {
+function buildTiles(settings: Settings, layout?: TileLayout): Tile[] {
   const tiles: Tile[] = settings.products
     .filter((p) => p.active)
     .map((p) => ({ key: `p-${p.id}`, kind: "product", refId: p.id, name: p.name, group: p.group || "その他", price: p.price, taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX }));
@@ -588,7 +682,19 @@ function buildTiles(settings: Settings): Tile[] {
         taxRate: p.taxRate ?? DEFAULT_PLAN_TAX,
       });
     }
-  return tiles;
+  // 保存した並びがあればその順に。新しく増えた商品は後ろに付ける
+  if (!layout) return tiles;
+  const pos = new Map(layout.tiles.map((k, i) => [k, i]));
+  return tiles
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => (pos.get(a.t.key) ?? 100000 + a.i) - (pos.get(b.t.key) ?? 100000 + b.i))
+    .map((x) => x.t);
+}
+
+/** 分類の並び：保存した順、そのあとにまだ並びにない分類 */
+function orderGroups(tiles: Tile[], saved?: string[]): string[] {
+  const all = [...new Set(tiles.map((t) => t.group))];
+  return [...(saved ?? []).filter((g) => all.includes(g)), ...all.filter((g) => !(saved ?? []).includes(g))];
 }
 
 /** 全角数字を半角にして、数字以外を取り除く */

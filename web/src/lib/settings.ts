@@ -77,7 +77,12 @@ export type Settings = {
   priceCategories: PriceCategory[];
   plans: Plan[];
   products: Product[];
+  /** 会計画面のタイルの並び（分類の順番と、タイルの順番）。ないときは商品の登録順 */
+  tileLayout?: TileLayout;
 };
+
+/** タイルの並び。tiles はタイルのキー（商品 "p-商品ID"、プラン "plan-プランID-区分ID"） */
+export type TileLayout = { groups: string[]; tiles: string[] };
 
 export const SETTINGS_DOC = "settings/main";
 
@@ -131,7 +136,7 @@ export function settingsFromFile(text: string): Settings {
   if (d?.app !== SETTINGS_FILE_MARK || typeof d.settings !== "object" || !d.settings) throw new Error("この画面で書き出した設定ファイルを選んでください");
   // 決められた項目だけを取り出す（余計な項目があると保存できないため）
   const base = defaultSettings();
-  const keys = [...Object.keys(base), "invoiceNumber"] as (keyof Settings)[];
+  const keys = [...Object.keys(base), "invoiceNumber", "tileLayout"] as (keyof Settings)[];
   const picked = Object.fromEntries(keys.filter((k) => k in d.settings!).map((k) => [k, d.settings![k]]));
   return normalizeSettings(picked as Partial<Settings>);
 }
