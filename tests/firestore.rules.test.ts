@@ -161,6 +161,15 @@ describe("会計・売掛・過去売上", () => {
     await assertSucceeds(getDoc(doc(staff(), "customers/c1")));
     for (const db of [guest(), noRole(), disabled()]) await assertFails(getDoc(doc(db, "customers/c1")));
   });
+  it("レジ精算はスタッフが記録でき、外の人は読めない", async () => {
+    const d = { float: 30000, counts: { "10000": 3 }, cashSales: 0, counted: 30000, diff: 0, memo: "", updatedBy: "u1" };
+    await assertSucceeds(setDoc(doc(staff(), "cashCounts/2026-09-27"), d));
+    await assertFails(setDoc(doc(staff(), "cashCounts/2026-09-27"), { ...d, updatedBy: "someone" }));
+    await assertFails(setDoc(doc(staff(), "cashCounts/abc"), d));
+    await assertFails(setDoc(doc(staff(), "cashCounts/2026-09-27"), { ...d, extra: 1 }));
+    await assertFails(getDoc(doc(guest(), "cashCounts/2026-09-27")));
+    await assertFails(setDoc(doc(disabled(), "cashCounts/2026-09-28"), { ...d, updatedBy: "u3" }));
+  });
   it("請求書の振込先はスタッフが見るだけ、管理者が変更。外の人は読めない", async () => {
     await assertSucceeds(setDoc(doc(admin(), "config/invoice"), { bankInfo: "○○銀行 本店 普通 1234567", note: "" }));
     await assertFails(setDoc(doc(staff(), "config/invoice"), { bankInfo: "x", note: "" }));

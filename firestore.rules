@@ -61,6 +61,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // レジ精算（日ごと）：スタッフが記録する。決められた項目だけ
+    match /cashCounts/{date} {
+      allow read: if isStaff();
+      allow write: if isStaff()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['float', 'counts', 'cashSales', 'counted', 'diff', 'memo', 'updatedAt', 'updatedBy'])
+        && request.resource.data.float is int
+        && request.resource.data.counts is map
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
     // 請求書の設定（振込先など）：スタッフは見るだけ（請求書に印刷する）、変更は管理者
     match /config/invoice {
       allow read: if isStaff();

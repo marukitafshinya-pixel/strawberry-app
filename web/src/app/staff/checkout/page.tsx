@@ -398,9 +398,9 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
               ))}
             </div>
 
-            {role === "admin" && tab !== "custom" && (
+            {tab !== "custom" && (
               <div className="flex flex-wrap items-center justify-end gap-2 px-3 pt-3">
-                {arrange ? (
+                {role !== "admin" ? null : arrange ? (
                   <>
                     <span className="mr-auto text-sm text-sky-800">
                       並べ替え中：タイルを押して選び、移したいマス（空いたマスも使えます）を押します。ほかのタイルを押すと入れ替わります。分類は ◀ ▶ で動かします。
@@ -429,6 +429,11 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                   <button onClick={startArrange} className="hidden rounded-lg border px-3 py-2 text-sm lg:block">
                     タイルの配置
                   </button>
+                )}
+                {!arrange && (
+                  <Link href="/staff/checkout/settle/" className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-800">
+                    精算
+                  </Link>
                 )}
               </div>
             )}
