@@ -18,10 +18,12 @@ export type PrinterConfig = {
   autoPrint: boolean;
   /** Bluetooth のつながりを保つ（印刷が速くなる） */
   keepConnect: boolean;
+  /** 印刷位置の調整：左の余白（mm）。左が切れるときに増やす */
+  offsetMm: number;
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true };
+export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, offsetMm: 6 };
 
 /** この端末（iPad）に保存した設定。端末ごとに違ってよいので、端末の中に保存する */
 export function loadPrinter(): PrinterConfig {
@@ -46,7 +48,9 @@ export type RLine =
   | { t: "text"; text: string; align?: "left" | "center" | "right"; size?: number; bold?: boolean }
   | { t: "row"; left: string; right: string; size?: number; bold?: boolean }
   | { t: "rule" }
-  | { t: "space"; h?: number };
+  | { t: "space"; h?: number }
+  /** 位置合わせ用のものさし（紙の端から何mmかを印刷する） */
+  | { t: "ruler" };
 
 /** 会計のレシート */
 export function saleReceipt(s: Settings, sale: Sale, opts?: { received?: number | null }): RLine[] {
@@ -133,12 +137,24 @@ export function settleReceipt(s: Settings, d: SettleData): RLine[] {
   return out;
 }
 
+/** 位置合わせ用：ものさしを印刷して、左がどこまで切れるかを見る */
+export function alignReceipt(): RLine[] {
+  return [
+    { t: "text", text: "位置合わせ", align: "center", size: 1.3, bold: true },
+    { t: "text", text: "左のはしで切れずに読める、いちばん小さい数字を見てください。", size: 0.85 },
+    { t: "text", text: "（左の余白 0mm で印刷しています）", size: 0.85 },
+    { t: "ruler" },
+    { t: "text", text: "例：「5」が半分切れて「10」から読めるなら、左の余白を 7〜8mm にします。", size: 0.85 },
+  ];
+}
+
 export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
   return [
     { t: "text", text: "テスト印刷", align: "center", size: 1.4, bold: true },
     { t: "text", text: s.storeName || "（店名）", align: "center" },
     { t: "rule" },
     { t: "row", left: "紙の幅", right: `${c.paper}mm` },
+    { t: "row", left: "左の余白", right: `${c.offsetMm}mm` },
     { t: "row", left: "日時", right: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) },
     { t: "rule" },
     { t: "text", text: "この紙が出てくれば、設定は完了です。", align: "center", size: 0.9 },
@@ -150,17 +166,18 @@ export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
 const FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif';
 
 /** レシートを白黒の画像にする（プリンターのドット数に合わせた幅） */
-export function renderReceipt(lines: RLine[], paper: 80 | 58): HTMLCanvasElement {
-  // 203dpi のプリンターで、80mm紙は576ドット、58mm紙は384ドット印刷できる
+export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0): HTMLCanvasElement {
+  // 203dpi のプリンターで、80mm紙は576ドット、58mm紙は384ドット印刷できる（1mm＝8ドット）
   const W = paper === 80 ? 576 : 384;
   const base = paper === 80 ? 24 : 20;
-  const pad = 4;
+  const left = Math.round(Math.max(0, Math.min(20, offsetMm)) * 8);
+  const pad = 4 + left;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   const font = (size = 1, bold = false) => `${bold ? "bold " : ""}${Math.round(base * size)}px ${FONT}`;
 
   // 1回目：長い文字を折り返して、高さを決める
-  type Op = { kind: "text"; x: number; y: number; text: string; font: string; align: CanvasTextAlign } | { kind: "rule"; y: number };
+  type Op = { kind: "text"; x: number; y: number; text: string; font: string; align: CanvasTextAlign } | { kind: "rule"; y: number } | { kind: "ruler"; y: number };
   const ops: Op[] = [];
   let y = pad;
   const wrap = (text: string, f: string, maxW: number) => {
@@ -183,6 +200,12 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58): HTMLCanvasElement
       y += base * 0.5;
       continue;
     }
+    if (l.t === "ruler") {
+      y += base * 0.3;
+      ops.push({ kind: "ruler", y });
+      y += base * 3;
+      continue;
+    }
     if (l.t === "space") {
       y += base * (l.h ?? 0.8);
       continue;
@@ -190,18 +213,18 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58): HTMLCanvasElement
     const f = font(l.size, l.bold);
     const lh = Math.round(base * (l.size ?? 1) * 1.35);
     if (l.t === "text") {
-      for (const part of wrap(l.text, f, W - pad * 2)) {
-        const x = l.align === "center" ? W / 2 : l.align === "right" ? W - pad : pad;
+      for (const part of wrap(l.text, f, W - pad - 4)) {
+        const x = l.align === "center" ? (pad + W - 4) / 2 : l.align === "right" ? W - 4 : pad;
         ops.push({ kind: "text", x, y, text: part, font: f, align: l.align ?? "left" });
         y += lh;
       }
     } else {
       ctx.font = f;
       const rightW = ctx.measureText(l.right).width;
-      const leftParts = wrap(l.left, f, Math.max(40, W - pad * 2 - rightW - 12));
+      const leftParts = wrap(l.left, f, Math.max(40, W - pad - 4 - rightW - 12));
       leftParts.forEach((part, i) => {
         ops.push({ kind: "text", x: pad, y, text: part, font: f, align: "left" });
-        if (i === leftParts.length - 1) ops.push({ kind: "text", x: W - pad, y, text: l.right, font: f, align: "right" });
+        if (i === leftParts.length - 1) ops.push({ kind: "text", x: W - 4, y, text: l.right, font: f, align: "right" });
         y += lh;
       });
     }
@@ -217,7 +240,19 @@ export function renderReceipt(lines: RLine[], paper: 80 | 58): HTMLCanvasElement
   ctx.textBaseline = "top";
   for (const op of ops) {
     if (op.kind === "rule") {
-      ctx.fillRect(pad, Math.round(op.y), W - pad * 2, 2);
+      ctx.fillRect(pad, Math.round(op.y), W - pad - 4, 2);
+    } else if (op.kind === "ruler") {
+      // 紙の左はし（0mm）から、1mmごとの目もりと5mmごとの数字
+      const top = Math.round(op.y);
+      ctx.fillRect(0, top, W, 2);
+      ctx.font = `bold ${Math.round(base * 0.8)}px ${FONT}`;
+      ctx.textAlign = "center";
+      for (let mm = 0; mm * 8 <= W; mm++) {
+        const x = mm * 8;
+        const h = mm % 5 === 0 ? base * 1.1 : base * 0.5;
+        ctx.fillRect(Math.min(x, W - 2), top, 2, Math.round(h));
+        if (mm % 5 === 0 && mm > 0) ctx.fillText(String(mm), x, top + base * 1.3);
+      }
     } else {
       ctx.font = op.font;
       ctx.textAlign = op.align;
@@ -289,7 +324,7 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement, paper: 80 | 58): st
 
 /** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる */
 export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string) {
-  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper), c.paper);
+  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, lines.some((l) => l.t === "ruler") ? 0 : c.offsetMm), c.paper);
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [
@@ -303,8 +338,8 @@ export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string
 }
 
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
-export function printInBrowser(lines: RLine[], paper: 80 | 58) {
-  const img = renderReceipt(lines, paper).toDataURL("image/png");
+export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0) {
+  const img = renderReceipt(lines, paper, lines.some((l) => l.t === "ruler") ? 0 : offsetMm).toDataURL("image/png");
   const box = document.createElement("div");
   box.id = "receipt-print-box";
   box.innerHTML = `<img src="${img}" style="width:${paper === 80 ? 72 : 48}mm" alt="">`;
@@ -327,5 +362,5 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58) {
 export function printReceipt(lines: RLine[], returnUrl: string) {
   const c = loadPrinter();
   if (c.method === "sii") printWithSii(lines, c, returnUrl);
-  else printInBrowser(lines, c.paper);
+  else printInBrowser(lines, c.paper, c.offsetMm);
 }

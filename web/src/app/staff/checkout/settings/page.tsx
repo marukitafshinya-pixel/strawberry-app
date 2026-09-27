@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { DEFAULT_PRINTER, loadPrinter, printReceipt, savePrinter, testReceipt, type PrinterConfig } from "@/lib/receiptPrinter";
+import { DEFAULT_PRINTER, alignReceipt, loadPrinter, printReceipt, savePrinter, testReceipt, type PrinterConfig } from "@/lib/receiptPrinter";
 import { useSettings } from "@/lib/reservations";
 
 export default function RegisterSettingsPage() {
@@ -69,6 +69,17 @@ export default function RegisterSettingsPage() {
           ))}
           <span className="text-xs text-gray-500">RP-F10 はふつう 80mm です</span>
         </div>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="w-24">左の余白</span>
+          <button onClick={() => set({ offsetMm: Math.max(0, c.offsetMm - 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左の余白を減らす">
+            −
+          </button>
+          <span className="w-14 text-center text-lg font-bold tabular-nums">{c.offsetMm}mm</span>
+          <button onClick={() => set({ offsetMm: Math.min(20, c.offsetMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左の余白を増やす">
+            ＋
+          </button>
+          <span className="text-xs text-gray-500">左が切れるときは増やし、右が切れるときは減らします</span>
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={c.autoPrint} onChange={(e) => set({ autoPrint: e.target.checked })} />
           会計を確定したら、すぐにレシートを印刷する
@@ -79,13 +90,21 @@ export default function RegisterSettingsPage() {
             Bluetooth のつながりを保つ（2枚目からの印刷が速くなります）
           </label>
         )}
-        <button
-          onClick={() => settings && printReceipt(testReceipt(settings, c), "/staff/checkout/settings/")}
-          disabled={!settings}
-          className="rounded-lg bg-emerald-700 px-5 py-3 font-bold text-white disabled:opacity-40"
-        >
-          テスト印刷
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => settings && printReceipt(testReceipt(settings, c), "/staff/checkout/settings/")}
+            disabled={!settings}
+            className="rounded-lg bg-emerald-700 px-5 py-3 font-bold text-white disabled:opacity-40"
+          >
+            テスト印刷
+          </button>
+          <button onClick={() => printReceipt(alignReceipt(), "/staff/checkout/settings/")} className="rounded-lg border px-5 py-3 font-semibold">
+            位置合わせ用の印刷（ものさし）
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          位置合わせ用の印刷は、左の余白を0mmにして、紙の左はしから何mmかを印刷します。左のはしで切れずに読めるいちばん小さい数字を見て、それより少し大きい値を「左の余白」にしてください。
+        </p>
       </section>
 
       {c.method === "sii" && (
