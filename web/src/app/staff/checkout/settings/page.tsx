@@ -104,6 +104,19 @@ export default function RegisterSettingsPage() {
           会計を確定したら、すぐにレシートを印刷する
         </label>
         {c.method === "sii" && (
+          <div className="space-y-2 rounded-xl bg-gray-50 p-3 text-sm">
+            <p className="font-semibold">キャッシュドロアー（プリンターにつないだお金の引き出し）</p>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={c.drawerOnSettle} onChange={(e) => set({ drawerOnSettle: e.target.checked })} />
+              精算レシートを印刷するときに開ける
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={c.drawerOnCash} onChange={(e) => set({ drawerOnCash: e.target.checked })} />
+              現金の会計でレシートを印刷するときに開ける
+            </label>
+          </div>
+        )}
+        {c.method === "sii" && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={c.keepConnect} onChange={(e) => set({ keepConnect: e.target.checked })} />
             Bluetooth のつながりを保つ（2枚目からの印刷が速くなります）

@@ -22,10 +22,14 @@ export type PrinterConfig = {
   shiftMm: number;
   /** 文字の大きさ */
   fontSize: "small" | "normal" | "large";
+  /** 精算レシートを印刷するときに、キャッシュドロアーを開ける */
+  drawerOnSettle: boolean;
+  /** 現金の会計でレシートを印刷するときに、キャッシュドロアーを開ける */
+  drawerOnCash: boolean;
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal" };
+export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal", drawerOnSettle: true, drawerOnCash: false };
 const FONT_SCALE = { small: 0.9, normal: 1.1, large: 1.3 } as const;
 /** RP-F10 の印字幅（ドット）。80mm用の72mm＝576ドット。58mmの紙は、この真ん中に入る */
 const HEAD_DOTS = 576;
@@ -347,14 +351,16 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement): string {
 }
 
 /** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる */
-export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string) {
+export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string, opts: { drawer?: boolean } = {}) {
   const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [
     `CallbackSuccess=${encodeURIComponent(back)}`,
     `CallbackFail=${encodeURIComponent(fail)}`,
-    ...(c.keepConnect ? ["BtKeepConnect=always"] : []),
+    `BtKeepConnect=${c.keepConnect ? "always" : "no"}`,
+    // Drawer=yes で、印刷と一緒にプリンターにつないだキャッシュドロアーを開ける（URL Print Agent の仕様）
+    ...(opts.drawer ? ["Drawer=yes"] : []),
     "Format=pdf",
     `Data=${encodeURIComponent(pdf)}`,
   ];
@@ -382,9 +388,10 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: Printer
   else img2.onload = go;
 }
 
-/** 設定に合わせて印刷する */
-export function printReceipt(lines: RLine[], returnUrl: string) {
+/** 設定に合わせて印刷する。kind でドロアーを開けるかを決める */
+export function printReceipt(lines: RLine[], returnUrl: string, kind: "sale-cash" | "settle" | "other" = "other") {
   const c = loadPrinter();
-  if (c.method === "sii") printWithSii(lines, c, returnUrl);
+  const drawer = (kind === "settle" && c.drawerOnSettle) || (kind === "sale-cash" && c.drawerOnCash);
+  if (c.method === "sii") printWithSii(lines, c, returnUrl, { drawer });
   else printInBrowser(lines, c.paper, c.fontSize);
 }

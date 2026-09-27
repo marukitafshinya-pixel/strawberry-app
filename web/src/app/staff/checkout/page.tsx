@@ -189,7 +189,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       setDoneSale(sale);
       window.scrollTo(0, 0);
       // 設定で「すぐに印刷」にしていれば、そのままレシートを出す
-      if (loadPrinter().autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), "/staff/checkout/");
+      if (loadPrinter().autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), "/staff/checkout/", sale.payment === "cash" ? "sale-cash" : "other");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -210,7 +210,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         <div className="mt-4 grid gap-2">
           {doneSale && (
             <button
-              onClick={() => printReceipt(saleReceipt(settings, doneSale, { received: received === "" ? null : Number(received) }), "/staff/checkout/")}
+              onClick={() =>
+                printReceipt(saleReceipt(settings, doneSale, { received: received === "" ? null : Number(received) }), "/staff/checkout/", doneSale.payment === "cash" ? "sale-cash" : "other")
+              }
               className="rounded-lg bg-emerald-700 py-3 text-center font-bold text-white"
             >
               レシートを印刷

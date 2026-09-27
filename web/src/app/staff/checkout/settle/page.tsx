@@ -267,6 +267,7 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
                   memo: memo.trim(),
                 }),
                 `/staff/checkout/settle/?date=${date}`,
+                "settle",
               )
             }
             disabled={!settings}
