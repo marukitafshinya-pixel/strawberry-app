@@ -226,6 +226,33 @@ export const saveReceivable = onCall(async (req) => {
   return { id };
 });
 
+/** 請求書単位で、まとめて回収済み（または未回収に戻す）にする */
+export const setReceivablesStatus = onCall(async (req) => {
+  const uid = await assertStaff(req);
+  const ids = req.data?.ids;
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 300 || !ids.every((x) => typeof x === "string" && x.length > 0 && x.length <= 64)) {
+    throw new HttpsError("invalid-argument", "売掛の指定が正しくありません");
+  }
+  const status = req.data?.status;
+  if (status !== "open" && status !== "collected") throw new HttpsError("invalid-argument", "状態が正しくありません");
+  const collectedDate = typeof req.data?.collectedDate === "string" && DATE_RE.test(req.data.collectedDate) ? req.data.collectedDate : todayJST();
+  const now = FieldValue.serverTimestamp();
+  await db.runTransaction(async (tx) => {
+    const refs = [...new Set(ids as string[])].map((id) => db.doc(`receivables/${id}`));
+    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+    snaps.forEach((snap, i) => {
+      if (!snap.exists) throw new HttpsError("not-found", "見つからない売掛があります。画面を開き直してください");
+      tx.update(
+        refs[i],
+        status === "collected"
+          ? { status, collectedAt: now, collectedDate, updatedAt: now, updatedBy: uid }
+          : { status, collectedAt: FieldValue.delete(), collectedDate: FieldValue.delete(), updatedAt: now, updatedBy: uid },
+      );
+    });
+  });
+  return { count: ids.length };
+});
+
 export const deleteReceivable = onCall(async (req) => {
   await assertStaff(req);
   const id = requireString(req.data?.id, "売掛", 64);

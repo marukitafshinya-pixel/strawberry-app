@@ -98,6 +98,12 @@ export function billingPeriod(t: PaymentTerms | undefined, ym: string): { from: 
   return { from, to };
 }
 
+/** その日が入る請求期間の「締めの月」（例：20日締めで 9/25 なら 10月締め分） */
+export function periodMonthOf(t: PaymentTerms | undefined, date: string): string {
+  const ym = date.slice(0, 7);
+  return date <= billingPeriod(t, ym).to ? ym : shift(ym, 1);
+}
+
 /** 支払期限（締めた日の月から dueMonths か月後の dueDay） */
 export function dueDateOf(t: PaymentTerms | undefined, closedOn: string): string {
   const terms = t ?? { closing: 0, dueMonths: 1, dueDay: 0 };

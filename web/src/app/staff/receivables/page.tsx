@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
-import { termsText, useCustomers } from "@/lib/customers";
+import { billingPeriod, dueDateOf, periodMonthOf, termsText, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
 import { yen } from "@/lib/reservations";
 import { useReceivables, type Receivable } from "@/lib/sales";
@@ -63,11 +63,7 @@ export default function ReceivablesPage() {
       {error ? <p className="mt-4 text-red-600">{errorText(error)}</p> : null}
       {!list && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
       {list && list.length === 0 && <p className="mt-4 text-sm text-gray-400">{tab === "open" ? "未回収の売掛はありません" : "回収済の売掛はありません"}</p>}
-      <ul className="mt-3 space-y-2">
-        {sorted.map((r) => (
-          <ReceivableRow key={r.id} r={r} today={today} />
-        ))}
-      </ul>
+      <Grouped list={sorted} tab={tab} today={today} />
     </>
   );
 }
@@ -261,5 +257,154 @@ function InvoiceMenu() {
         </ul>
       )}
     </section>
+  );
+}
+
+/** 社名ごと → 請求書（締め期間）ごとにまとめる */
+function Grouped({ list, tab, today }: { list: Receivable[]; tab: Tab; today: string }) {
+  const { value: customers } = useCustomers();
+  const byName = new Map<string, Receivable[]>();
+  for (const r of list) byName.set(r.customerName, [...(byName.get(r.customerName) ?? []), r]);
+  const groups = [...byName.entries()]
+    .map(([name, items]) => ({ name, items, total: items.reduce((n, r) => n + r.amount, 0), customer: customers?.find((c) => c.name === name) }))
+    .sort((a, b) => b.total - a.total);
+  return (
+    <div className="mt-3 space-y-3">
+      {groups.map((g) => (
+        <CustomerCard key={g.name} name={g.name} items={g.items} total={g.total} customer={g.customer} tab={tab} today={today} />
+      ))}
+    </div>
+  );
+}
+
+function CustomerCard({
+  name,
+  items,
+  total,
+  customer,
+  tab,
+  today,
+}: {
+  name: string;
+  items: Receivable[];
+  total: number;
+  customer?: Customer;
+  tab: Tab;
+  today: string;
+}) {
+  const terms = customer?.terms;
+  const byPeriod = new Map<string, Receivable[]>();
+  for (const r of items) {
+    const m = periodMonthOf(terms, r.date);
+    byPeriod.set(m, [...(byPeriod.get(m) ?? []), r]);
+  }
+  const periods = [...byPeriod.entries()].sort((a, b) => (tab === "open" ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0])));
+  return (
+    <section className="rounded-2xl bg-white p-3 shadow-sm">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h2 className="text-lg font-bold">{name} 様</h2>
+        {customer?.terms && <span className="text-xs text-gray-500">{termsText(customer.terms)}</span>}
+        {!customer && <span className="text-xs text-gray-400">（顧客リストに登録なし）</span>}
+        <span className="ml-auto text-lg font-bold tabular-nums">{yen(total)}</span>
+        <span className="text-sm text-gray-500">{items.length}件</span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {periods.map(([month, rs]) => (
+          <PeriodBlock key={month} month={month} items={rs} customer={customer} tab={tab} today={today} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** 1枚の請求書（締め期間）にあたる売掛のまとまり */
+function PeriodBlock({ month, items, customer, tab, today }: { month: string; items: Receivable[]; customer?: Customer; tab: Tab; today: string }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [date, setDate] = useState(today);
+  const terms = customer?.terms;
+  const p = billingPeriod(terms, month);
+  const due = dueDateOf(terms, p.to);
+  const total = items.reduce((n, r) => n + r.amount, 0);
+  const closed = p.to < today;
+  const overdue = tab === "open" && due < today;
+  const collectedDates = [...new Set(items.map((r) => r.collectedDate).filter(Boolean))] as string[];
+  const [y, m] = month.split("-").map(Number);
+
+  async function setStatus(status: "open" | "collected") {
+    const name = items[0]?.customerName ?? "";
+    const text =
+      status === "collected"
+        ? `${name} 様の ${m}月締め分（${items.length}件・${yen(total)}）を、${formatJa(date)} に回収済みにしますか？`
+        : `${name} 様の ${m}月締め分（${items.length}件）を未回収に戻しますか？`;
+    if (!window.confirm(text)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await callFunction("setReceivablesStatus", { ids: items.map((r) => r.id), status, collectedDate: date });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border p-3 ${overdue ? "border-red-300 bg-red-50/40" : "bg-gray-50"}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">
+          {y}年{m}月締め分
+        </span>
+        <span className="text-xs text-gray-500">
+          （{formatJa(p.from)}〜{formatJa(p.to)}{!closed && "・まだ締め前"}）
+        </span>
+        <span className="ml-auto text-lg font-bold tabular-nums">{yen(total)}</span>
+        <span className="text-sm text-gray-500">{items.length}件</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        {tab === "open" ? (
+          <span className={overdue ? "font-bold text-red-600" : "text-gray-600"}>
+            支払期限 {formatJa(due)}
+            {overdue && "（過ぎています）"}
+          </span>
+        ) : (
+          <span className="text-gray-600">回収日 {collectedDates.map((d) => formatJa(d)).join("・") || "—"}</span>
+        )}
+        <button onClick={() => setOpen(!open)} className="rounded-lg border bg-white px-3 py-1.5">
+          {open ? "明細を閉じる" : "明細"}
+        </button>
+        {customer && (
+          <Link href={`/staff/receivables/invoice/?customer=${customer.id}&month=${month}`} className="rounded-lg border bg-white px-3 py-1.5">
+            請求書
+          </Link>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          {tab === "open" ? (
+            <>
+              <label className="flex items-center gap-1 text-xs text-gray-600">
+                回収日
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded border px-2 py-1 text-sm" />
+              </label>
+              <button disabled={busy} onClick={() => setStatus("collected")} className="rounded-lg bg-leaf px-3 py-1.5 font-bold text-white disabled:opacity-50">
+                {busy ? "処理中…" : "回収済みにする"}
+              </button>
+            </>
+          ) : (
+            <button disabled={busy} onClick={() => setStatus("open")} className="rounded-lg border bg-white px-3 py-1.5 disabled:opacity-50">
+              未回収に戻す
+            </button>
+          )}
+        </span>
+      </div>
+      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {open && (
+        <ul className="mt-2 space-y-2">
+          {items.map((r) => (
+            <ReceivableRow key={r.id} r={r} today={today} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
