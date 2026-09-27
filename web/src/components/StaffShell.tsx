@@ -79,7 +79,8 @@ function Guard({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 print:max-w-none print:p-0">{children}</main>
+      {/* 会計はレジとして使うので、画面の幅いっぱいに広げる */}
+      <main className={`mx-auto w-full flex-1 px-4 py-6 print:max-w-none print:p-0 ${pathname?.startsWith("/staff/checkout") ? "max-w-screen-2xl py-3" : "max-w-5xl"}`}>{children}</main>
     </div>
   );
 }
