@@ -775,24 +775,11 @@ const GROUP_COLORS = [
   { bg: "bg-lime-50", border: "border-lime-300", text: "text-lime-800" },
 ];
 
-/** 会計画面に並べるもの：販売中の商品と、プラン×料金区分 */
+/** 会計画面に並べるもの：「商品設定」で販売中にした商品だけ（予約のプラン料金は、予約から会計したときに注文リストへ自動で入る） */
 function buildTiles(settings: Settings, layout?: TileLayout): Tile[] {
   const tiles: Tile[] = settings.products
     .filter((p) => p.active)
     .map((p) => ({ key: `p-${p.id}`, kind: "product", refId: p.id, name: p.name, group: p.group || "その他", price: p.price, taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX }));
-  for (const p of settings.plans)
-    for (const c of settings.priceCategories) {
-      if (p.prices[c.id] === undefined) continue;
-      tiles.push({
-        key: `plan-${p.id}-${c.id}`,
-        kind: "plan",
-        refId: p.id,
-        name: `${p.name}（${c.name}）`,
-        group: p.category ?? DEFAULT_PLAN_CATEGORY,
-        price: p.prices[c.id],
-        taxRate: p.taxRate ?? DEFAULT_PLAN_TAX,
-      });
-    }
   // 保存した並びがあればその順に。新しく増えた商品は後ろに付ける
   if (!layout) return tiles;
   const pos = new Map(layout.tiles.map((k, i) => [k, i]));
