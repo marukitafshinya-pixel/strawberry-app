@@ -173,28 +173,35 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
   const tiles = buildTiles(settings, arrange ?? settings.tileLayout);
   const groups = orderGroups(tiles, (arrange ?? settings.tileLayout)?.groups);
   const colorOf = (g: string) => GROUP_COLORS[groups.indexOf(g) % GROUP_COLORS.length];
+  const layout = arrange ?? settings.tileLayout;
+  const cols = layout?.cols ?? 6;
+  const slots = assignSlots(tiles, layout?.slots);
   const count = lines.reduce((n, l) => n + l.qty, 0);
 
   function startArrange() {
-    setArrange({ groups, tiles: tiles.map((t) => t.key) });
+    setArrange({ groups, tiles: tiles.map((t) => t.key), slots: Object.fromEntries(slots), cols });
     setPicked(null);
     setTab("tile");
     setFilter("");
   }
-  /** 選んだタイルを、押したタイルの場所へ移す（同じ分類の中で） */
-  function moveTile(target: Tile) {
-    if (!arrange) return;
-    if (!picked) return setPicked(target.key);
-    if (picked === target.key) return setPicked(null);
+  /** 選んだタイルを、押したマスへ移す（ほかのタイルがあれば入れ替える。同じ分類の中で） */
+  function moveTo(group: string, slot: number) {
+    if (!arrange || !picked) return;
     const from = tiles.find((t) => t.key === picked);
-    if (!from || from.group !== target.group) return setPicked(target.key);
-    const keys = tiles.map((t) => t.key);
-    const fromIdx = keys.indexOf(picked);
-    const toIdx = keys.indexOf(target.key);
-    keys.splice(fromIdx, 1);
-    keys.splice(toIdx, 0, picked);
-    setArrange({ ...arrange, tiles: keys });
+    if (!from || from.group !== group) return;
+    const next = { ...(arrange.slots ?? {}) };
+    const other = tiles.find((t) => t.group === group && t.key !== picked && slots.get(t.key) === slot);
+    if (other) next[other.key] = slots.get(picked) ?? 0;
+    next[picked] = slot;
+    setArrange({ ...arrange, slots: next });
     setPicked(null);
+  }
+  function pickTile(t: Tile) {
+    if (picked === t.key) return setPicked(null);
+    const from = picked ? tiles.find((x) => x.key === picked) : null;
+    // 選んでいるタイルと同じ分類のタイルを押したら入れ替え、それ以外は選び直し
+    if (from && from.group === t.group) return moveTo(t.group, slots.get(t.key) ?? 0);
+    setPicked(t.key);
   }
   function moveGroup(g: string, delta: number) {
     if (!arrange) return;
@@ -210,7 +217,8 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
     setArrangeSaving(true);
     try {
       const { db } = await getFirebase();
-      await updateDoc(doc(db, SETTINGS_DOC), { tileLayout: { groups, tiles: tiles.map((t) => t.key) }, updatedAt: serverTimestamp() });
+      const saved: TileLayout = { groups, tiles: tiles.map((t) => t.key), slots: Object.fromEntries(slots), cols };
+      await updateDoc(doc(db, SETTINGS_DOC), { tileLayout: saved, updatedAt: serverTimestamp() });
       setArrange(null);
       setPicked(null);
     } catch (e) {
@@ -221,7 +229,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
   }
 
   function tap(t: Tile) {
-    if (arrange) return moveTile(t);
+    if (arrange) return pickTile(t);
     // 値段が0円の商品は、その場で金額を入れる（Airレジの「金額入力」と同じ）
     if (t.price === 0) return setAsk({ tile: t, amount: "" });
     addTile(t, t.price);
@@ -372,7 +380,20 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                 {arrange ? (
                   <>
                     <span className="mr-auto text-sm text-sky-800">
-                      並べ替え中：タイルを押して選び、移したい場所のタイルを押すと、そこへ移ります。分類は ◀ ▶ で動かします。
+                      並べ替え中：タイルを押して選び、移したいマス（空いたマスも使えます）を押します。ほかのタイルを押すと入れ替わります。分類は ◀ ▶ で動かします。
+                    </span>
+                    <span className="flex items-center gap-1 text-sm">
+                      横に
+                      {[4, 5, 6].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setArrange({ ...arrange, cols: n })}
+                          className={`rounded border px-2 py-1 ${cols === n ? "border-sky-700 bg-sky-700 text-white" : "bg-white"}`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      列
                     </span>
                     <button onClick={() => setArrange(null)} className="rounded-lg border px-3 py-2 text-sm">
                       やめる
@@ -382,7 +403,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                     </button>
                   </>
                 ) : (
-                  <button onClick={startArrange} className="rounded-lg border px-3 py-2 text-sm">
+                  <button onClick={startArrange} className="hidden rounded-lg border px-3 py-2 text-sm lg:block">
                     タイルの配置
                   </button>
                 )}
@@ -484,18 +505,47 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                             ))}
                           </ul>
                         ) : (
-                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
-                            {items.map((t) => (
-                              <button
-                                key={t.key}
-                                onClick={() => tap(t)}
-                                className={`flex h-20 flex-col justify-between rounded-lg border p-2 text-left text-sm active:brightness-95 ${c.bg} ${c.border} ${picked === t.key ? "ring-4 ring-sky-500" : arrange && picked ? "outline-dashed outline-2 outline-sky-300" : ""}`}
-                              >
-                                <span className="line-clamp-2 leading-tight">{t.name}</span>
-                                <span className="self-end text-sm tabular-nums">{t.price === 0 ? "金額入力" : yen(t.price)}</span>
-                              </button>
-                            ))}
-                          </div>
+                          <>
+                            {/* 広い画面：マス目に置く（空いたマスもそのまま） */}
+                            <div
+                              className="hidden gap-2 lg:grid"
+                              style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "5rem" }}
+                            >
+                              {items.map((t) => {
+                                const slot = slots.get(t.key) ?? 0;
+                                return (
+                                  <TileButton
+                                    key={t.key}
+                                    t={t}
+                                    c={c}
+                                    onClick={() => tap(t)}
+                                    style={{ gridColumnStart: (slot % cols) + 1, gridRowStart: Math.floor(slot / cols) + 1 }}
+                                    state={picked === t.key ? "picked" : arrange && picked ? "target" : undefined}
+                                  />
+                                );
+                              })}
+                              {arrange &&
+                                emptySlots(items.map((t) => slots.get(t.key) ?? 0), cols).map((slot) => (
+                                  <button
+                                    key={`empty-${slot}`}
+                                    onClick={() => moveTo(g, slot)}
+                                    style={{ gridColumnStart: (slot % cols) + 1, gridRowStart: Math.floor(slot / cols) + 1 }}
+                                    className={`rounded-lg border-2 border-dashed text-xs text-gray-400 ${picked ? "border-sky-300 bg-sky-50" : "border-gray-200"}`}
+                                    aria-label={`空きマス ${slot + 1}`}
+                                  >
+                                    {picked ? "ここへ" : ""}
+                                  </button>
+                                ))}
+                            </div>
+                            {/* 狭い画面：空いたマスは詰めて、同じ順番で並べる */}
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:hidden">
+                              {[...items]
+                                .sort((x, y) => (slots.get(x.key) ?? 0) - (slots.get(y.key) ?? 0))
+                                .map((t) => (
+                                  <TileButton key={t.key} t={t} c={c} onClick={() => tap(t)} />
+                                ))}
+                            </div>
+                          </>
                         )}
                       </div>
                     );
@@ -650,6 +700,67 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
       )}
     </div>
   );
+}
+
+function TileButton({
+  t,
+  c,
+  onClick,
+  style,
+  state,
+}: {
+  t: Tile;
+  c: (typeof GROUP_COLORS)[number];
+  onClick: () => void;
+  style?: React.CSSProperties;
+  state?: "picked" | "target";
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={style}
+      className={`flex h-20 flex-col justify-between rounded-lg border p-2 text-left text-sm active:brightness-95 ${c.bg} ${c.border} ${
+        state === "picked" ? "ring-4 ring-sky-500" : state === "target" ? "outline-dashed outline-2 outline-sky-300" : ""
+      }`}
+    >
+      <span className="line-clamp-2 leading-tight">{t.name}</span>
+      <span className="self-end text-sm tabular-nums">{t.price === 0 ? "金額入力" : yen(t.price)}</span>
+    </button>
+  );
+}
+
+/**
+ * 分類ごとのマスの番号を決める。保存した番号を使い、ないタイル（新しい商品など）や
+ * 重なったタイルは、その分類の空いている後ろのマスに置く。
+ */
+function assignSlots(tiles: Tile[], saved?: Record<string, number>): Map<string, number> {
+  const result = new Map<string, number>();
+  const used = new Map<string, Set<number>>();
+  const usedOf = (g: string) => used.get(g) ?? used.set(g, new Set()).get(g)!;
+  const rest: Tile[] = [];
+  for (const t of tiles) {
+    const s = saved?.[t.key];
+    const u = usedOf(t.group);
+    if (typeof s === "number" && Number.isInteger(s) && s >= 0 && s < 500 && !u.has(s)) {
+      result.set(t.key, s);
+      u.add(s);
+    } else rest.push(t);
+  }
+  for (const t of rest) {
+    const u = usedOf(t.group);
+    let s = u.size === 0 ? 0 : Math.max(...u) + 1;
+    while (u.has(s)) s++;
+    result.set(t.key, s);
+    u.add(s);
+  }
+  return result;
+}
+
+/** 並べ替え中に見せる空きマス（使っている行と、その下の1行） */
+function emptySlots(usedSlots: number[], cols: number): number[] {
+  const rows = (usedSlots.length === 0 ? 0 : Math.floor(Math.max(...usedSlots) / cols) + 1) + 1;
+  const used = new Set(usedSlots);
+  return Array.from({ length: rows * cols }, (_, i) => i).filter((i) => !used.has(i));
 }
 
 type Tile = { key: string; kind: "plan" | "product"; refId: string; name: string; group: string; price: number; taxRate: TaxRate };

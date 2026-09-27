@@ -82,7 +82,14 @@ export type Settings = {
 };
 
 /** タイルの並び。tiles はタイルのキー（商品 "p-商品ID"、プラン "plan-プランID-区分ID"） */
-export type TileLayout = { groups: string[]; tiles: string[] };
+export type TileLayout = {
+  groups: string[];
+  tiles: string[];
+  /** タイルのキー → 分類の中のマスの番号（0から。左上から右へ数える）。空いたマスも作れる */
+  slots?: Record<string, number>;
+  /** 横に並べるマスの数（4〜6） */
+  cols?: number;
+};
 
 export const SETTINGS_DOC = "settings/main";
 
