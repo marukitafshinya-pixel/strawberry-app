@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
-import { loadPrinter, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { loadPrinter, openDrawerWithSii, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
@@ -111,6 +111,12 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   /** 印刷用に、確定した会計の中身を控えておく */
   const [doneSale, setDoneSale] = useState<Sale | null>(null);
   const [printError] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("printError"));
+  /** プリンターのアプリから戻ってきたとき、直前の会計（合計・おつり）を見せる */
+  const [lastPaid] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search);
+    return q.has("lastTotal") ? { total: Number(q.get("lastTotal")) || 0, change: q.has("lastChange") ? Number(q.get("lastChange")) || 0 : null } : null;
+  });
   const [custom, setCustom] = useState({ name: "", price: "" });
   const [customTax, setCustomTax] = useState<TaxRate>(10);
   const [step, setStep] = useState<"order" | "pay">("order");
@@ -188,8 +194,13 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       };
       setDoneSale(sale);
       window.scrollTo(0, 0);
-      // 設定で「すぐに印刷」にしていれば、そのままレシートを出す
-      if (loadPrinter().autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), "/staff/checkout/", sale.payment === "cash" ? "sale-cash" : "other");
+      // 戻ってきたときに合計とおつりが見えるように、戻り先に付けておく
+      const back = `/staff/checkout/?lastTotal=${total}${sale.payment === "cash" && change !== null && change >= 0 ? `&lastChange=${change}` : ""}`;
+      const pc = loadPrinter();
+      // 設定で「すぐに印刷」にしていれば、そのままレシートを出す（現金ならドロアーも一緒に開く）
+      if (pc.autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), back, sale.payment === "cash" ? "sale-cash" : "other");
+      // 印刷しないときも、現金で確定したらドロアーを開ける
+      else if (sale.payment === "cash" && pc.method === "sii" && pc.drawerOnCashConfirm) openDrawerWithSii(pc, back);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -211,7 +222,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           {doneSale && (
             <button
               onClick={() =>
-                printReceipt(saleReceipt(settings, doneSale, { received: received === "" ? null : Number(received) }), "/staff/checkout/", doneSale.payment === "cash" ? "sale-cash" : "other")
+                printReceipt(saleReceipt(settings, doneSale, { received: received === "" ? null : Number(received) }), "/staff/checkout/")
               }
               className="rounded-lg bg-emerald-700 py-3 text-center font-bold text-white"
             >
@@ -327,6 +338,16 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           予約：{formatJa(r.date)} {r.slotTime} {r.customerName}様（{peopleText(r)}）
         </p>
       ) : null}
+      {lastPaid && (
+        <p className="mt-2 rounded-lg bg-green-50 p-3 text-green-900">
+          前回の会計：<b>{yen(lastPaid.total)}</b>
+          {lastPaid.change !== null && (
+            <>
+              　おつり <b className="text-lg">{yen(lastPaid.change)}</b>
+            </>
+          )}
+        </p>
+      )}
       {printError && (
         <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
           レシートを印刷できませんでした。プリンターの電源・紙・Bluetooth を確かめてください（

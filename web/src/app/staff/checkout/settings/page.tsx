@@ -108,11 +108,11 @@ export default function RegisterSettingsPage() {
             <p className="font-semibold">キャッシュドロアー（プリンターにつないだお金の引き出し）</p>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={c.drawerOnSettle} onChange={(e) => set({ drawerOnSettle: e.target.checked })} />
-              精算を保存したとき・精算レシートを印刷するときに開ける
+              精算レシートを印刷するときに開ける
             </label>
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={c.drawerOnCash} onChange={(e) => set({ drawerOnCash: e.target.checked })} />
-              現金の会計でレシートを印刷するときに開ける
+              <input type="checkbox" checked={c.drawerOnCashConfirm} onChange={(e) => set({ drawerOnCashConfirm: e.target.checked })} />
+              「現金で確定」を押したときに開ける（レシートを印刷しなくても開きます）
             </label>
           </div>
         )}

@@ -24,12 +24,12 @@ export type PrinterConfig = {
   fontSize: "small" | "normal" | "large";
   /** 精算レシートを印刷するときに、キャッシュドロアーを開ける */
   drawerOnSettle: boolean;
-  /** 現金の会計でレシートを印刷するときに、キャッシュドロアーを開ける */
-  drawerOnCash: boolean;
+  /** 「現金で確定」を押したときに、キャッシュドロアーを開ける（印刷しないときも） */
+  drawerOnCashConfirm: boolean;
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal", drawerOnSettle: true, drawerOnCash: false };
+export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal", drawerOnSettle: true, drawerOnCashConfirm: true };
 const FONT_SCALE = { small: 0.9, normal: 1.1, large: 1.3 } as const;
 /** RP-F10 の印字幅（ドット）。80mm用の72mm＝576ドット。58mmの紙は、この真ん中に入る */
 const HEAD_DOTS = 576;
@@ -394,14 +394,6 @@ export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
   window.location.href = `siiprintagent://1.0/print?${params.join("&")}`;
 }
 
-/** 精算が終わったとき：設定がオンなら、印刷せずにドロアーを開ける。開けたら true */
-export function openDrawerOnSettle(returnUrl: string): boolean {
-  const c = loadPrinter();
-  if (c.method !== "sii" || !c.drawerOnSettle) return false;
-  openDrawerWithSii(c, returnUrl);
-  return true;
-}
-
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
 export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal") {
   const img = renderReceipt(lines, paper, { fontSize }).toDataURL("image/png");
@@ -426,7 +418,7 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: Printer
 /** 設定に合わせて印刷する。kind でドロアーを開けるかを決める */
 export function printReceipt(lines: RLine[], returnUrl: string, kind: "sale-cash" | "settle" | "other" = "other") {
   const c = loadPrinter();
-  const drawer = (kind === "settle" && c.drawerOnSettle) || (kind === "sale-cash" && c.drawerOnCash);
+  const drawer = (kind === "settle" && c.drawerOnSettle) || (kind === "sale-cash" && c.drawerOnCashConfirm);
   if (c.method === "sii") printWithSii(lines, c, returnUrl, { drawer });
   else printInBrowser(lines, c.paper, c.fontSize);
 }

@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
-import { openDrawerOnSettle, printReceipt, settleReceipt } from "@/lib/receiptPrinter";
+import { printReceipt, settleReceipt } from "@/lib/receiptPrinter";
 import { useSettings, yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
@@ -143,8 +143,6 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
         updatedBy: user.uid,
       });
       setMessage("精算を保存しました");
-      // 精算が終わったらキャッシュドロアーを開ける（設定でオンのとき）
-      openDrawerOnSettle(`/staff/checkout/settle/?date=${date}`);
     } catch (e) {
       setError(errorText(e));
     } finally {
