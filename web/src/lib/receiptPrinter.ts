@@ -367,6 +367,41 @@ export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string
   window.location.href = `siiprintagent://1.0/print?${params.join("&")}`;
 }
 
+/**
+ * レシートを出さずにキャッシュドロアーだけ開ける。
+ * URL Print Agent には「開けるだけ」の命令がないので、白い1mmの紙（カットも紙送りもなし）を
+ * Drawer=yes で送って開けてもらう。
+ */
+export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = HEAD_DOTS;
+  canvas.height = 8;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const back = new URL(returnUrl, window.location.href).toString();
+  const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
+  const params = [
+    `CallbackSuccess=${encodeURIComponent(back)}`,
+    `CallbackFail=${encodeURIComponent(fail)}`,
+    `BtKeepConnect=${c.keepConnect ? "always" : "no"}`,
+    "Drawer=yes",
+    "CutType=off",
+    "CutFeed=no",
+    "Format=pdf",
+    `Data=${encodeURIComponent(canvasToPdfBase64(canvas))}`,
+  ];
+  window.location.href = `siiprintagent://1.0/print?${params.join("&")}`;
+}
+
+/** 精算が終わったとき：設定がオンなら、印刷せずにドロアーを開ける。開けたら true */
+export function openDrawerOnSettle(returnUrl: string): boolean {
+  const c = loadPrinter();
+  if (c.method !== "sii" || !c.drawerOnSettle) return false;
+  openDrawerWithSii(c, returnUrl);
+  return true;
+}
+
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
 export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal") {
   const img = renderReceipt(lines, paper, { fontSize }).toDataURL("image/png");

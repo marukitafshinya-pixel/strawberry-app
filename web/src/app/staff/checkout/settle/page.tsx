@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
-import { printReceipt, settleReceipt } from "@/lib/receiptPrinter";
+import { openDrawerOnSettle, printReceipt, settleReceipt } from "@/lib/receiptPrinter";
 import { useSettings, yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
@@ -107,7 +107,9 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
   );
   const [memo, setMemo] = useState(saved?.memo ?? "");
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("printError") ? "プリンターにつながりませんでした（印刷・ドロアー）。プリンターの電源とBluetoothを確かめてください。" : "",
+  );
   const [saving, setSaving] = useState(false);
 
   const done = (sales ?? []).filter((s) => s.status === "completed");
@@ -141,6 +143,8 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
         updatedBy: user.uid,
       });
       setMessage("精算を保存しました");
+      // 精算が終わったらキャッシュドロアーを開ける（設定でオンのとき）
+      openDrawerOnSettle(`/staff/checkout/settle/?date=${date}`);
     } catch (e) {
       setError(errorText(e));
     } finally {
