@@ -8,7 +8,8 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
-import { yen } from "@/lib/reservations";
+import { printReceipt, settleReceipt } from "@/lib/receiptPrinter";
+import { useSettings, yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
 /** 紙幣・硬貨 */
@@ -99,6 +100,7 @@ function SettleLoader() {
 function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | null; lastFloat: number | null }) {
   const { user } = useAuth();
   const { value: sales } = useSales(date, date);
+  const { value: settings } = useSettings();
   const [float, setFloat] = useState(String(saved?.float ?? lastFloat ?? ""));
   const [counts, setCounts] = useState<Record<string, string>>(
     Object.fromEntries([...BILLS, ...COINS].map((d) => [String(d), saved?.counts?.[d] ? String(saved.counts[d]) : ""])),
@@ -248,6 +250,29 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
           </label>
           <button onClick={save} disabled={saving} className="mt-3 w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
             {saving ? "保存中…" : saved ? "精算を保存し直す" : "精算を保存"}
+          </button>
+          <button
+            onClick={() =>
+              settings &&
+              printReceipt(
+                settleReceipt(settings, {
+                  date,
+                  float: floatN,
+                  cashSales,
+                  cashCount,
+                  creditSales,
+                  counts: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, num(v)])),
+                  counted,
+                  diff,
+                  memo: memo.trim(),
+                }),
+                `/staff/checkout/settle/?date=${date}`,
+              )
+            }
+            disabled={!settings}
+            className="mt-2 w-full rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-40"
+          >
+            精算レシートを印刷
           </button>
           {message && <p className="mt-2 text-sm text-green-700">{message}</p>}
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

@@ -9,6 +9,7 @@ import { formatJa } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { useSettings, yen } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineTaxRate, taxBreakdown, type Sale } from "@/lib/sales";
+import { printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import type { Settings } from "@/lib/settings";
 
 type Kind = "receipt" | "invoice";
@@ -104,6 +105,14 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
                 <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
               </label>
             </div>
+          )}
+          {kind === "receipt" && (
+            <button
+              onClick={() => printReceipt(saleReceipt(s, sale), `/staff/receipt/?sale=${sale.id}`)}
+              className="w-full rounded-lg bg-emerald-700 py-3 text-lg font-bold text-white"
+            >
+              レシートプリンターで印刷
+            </button>
           )}
           <button onClick={() => window.print()} className="w-full rounded-lg bg-berry py-3 text-lg font-bold text-white">
             印刷する

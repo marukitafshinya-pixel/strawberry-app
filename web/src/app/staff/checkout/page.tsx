@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
+import { loadPrinter, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
@@ -107,6 +108,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ id: string; total: number } | null>(null);
+  /** 印刷用に、確定した会計の中身を控えておく */
+  const [doneSale, setDoneSale] = useState<Sale | null>(null);
+  const [printError] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("printError"));
   const [custom, setCustom] = useState({ name: "", price: "" });
   const [customTax, setCustomTax] = useState<TaxRate>(10);
   const [step, setStep] = useState<"order" | "pay">("order");
@@ -168,7 +172,24 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         })),
       });
       setDone(res);
+      const sale: Sale = {
+        id: res.id,
+        date: editing?.date ?? todayJST(),
+        reservationId: r?.id ?? null,
+        customerName,
+        lines: lines.map((l) => ({ ...l, amount: lineAmount(l.unitPrice, l.qty, l.discountRate) })),
+        subtotal,
+        discountTotal: subtotal - total,
+        total,
+        payment,
+        status: "completed",
+        receivableId: null,
+        memo,
+      };
+      setDoneSale(sale);
       window.scrollTo(0, 0);
+      // 設定で「すぐに印刷」にしていれば、そのままレシートを出す
+      if (loadPrinter().autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), "/staff/checkout/");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -187,8 +208,16 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           {payment === "credit" && <p className="mt-2 text-sm">売掛一覧に「{customerName}」様の分を追加しました。</p>}
         </div>
         <div className="mt-4 grid gap-2">
+          {doneSale && (
+            <button
+              onClick={() => printReceipt(saleReceipt(settings, doneSale, { received: received === "" ? null : Number(received) }), "/staff/checkout/")}
+              className="rounded-lg bg-emerald-700 py-3 text-center font-bold text-white"
+            >
+              レシートを印刷
+            </button>
+          )}
           <Link href={`/staff/receipt/?sale=${done.id}`} className="rounded-lg bg-gray-800 py-3 text-center font-bold text-white">
-            レシート・領収書を出す
+            領収書（宛名つき）・A4で出す
           </Link>
           <Link href={`/staff/checkout/history/?date=${editing?.date ?? todayJST()}`} className="rounded-lg border bg-white py-3 text-center">
             取引履歴を見る
@@ -296,6 +325,15 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           予約：{formatJa(r.date)} {r.slotTime} {r.customerName}様（{peopleText(r)}）
         </p>
       ) : null}
+      {printError && (
+        <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          レシートを印刷できませんでした。プリンターの電源・紙・Bluetooth を確かめてください（
+          <Link href="/staff/checkout/settings/" className="underline">
+            設定
+          </Link>
+          ）。
+        </p>
+      )}
       {editing && (
         <p className="mt-2 rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
           {formatJa(editing.date, true)} の会計（{yen(editing.total)}）を修正しています。確定すると、元の会計は取り消され、この内容に置き換わります。
@@ -471,6 +509,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 )}
                 {!arrange && (
                   <>
+                    <Link href="/staff/checkout/settings/" className="rounded-lg border px-3 py-2 text-sm">
+                      設定
+                    </Link>
                     <Link href={`/staff/checkout/history/?date=${todayJST()}`} className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-800">
                       取引履歴
                     </Link>
