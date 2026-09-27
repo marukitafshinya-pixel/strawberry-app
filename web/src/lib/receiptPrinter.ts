@@ -18,14 +18,17 @@ export type PrinterConfig = {
   autoPrint: boolean;
   /** Bluetooth のつながりを保つ（印刷が速くなる） */
   keepConnect: boolean;
-  /** 印刷位置の調整：左の余白（mm）。左が切れるときに増やす */
-  offsetMm: number;
-  /** 印刷位置の調整：右の余白（mm）。右が切れるときに増やす */
-  rightMm: number;
+  /** 位置の微調整（mm）。＋で右へ、−で左へずらす */
+  shiftMm: number;
+  /** 文字の大きさ */
+  fontSize: "small" | "normal" | "large";
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, offsetMm: 6, rightMm: 2 };
+export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal" };
+const FONT_SCALE = { small: 0.9, normal: 1.1, large: 1.3 } as const;
+/** RP-F10 の印字幅（ドット）。80mm用の72mm＝576ドット。58mmの紙は、この真ん中に入る */
+const HEAD_DOTS = 576;
 
 /** この端末（iPad）に保存した設定。端末ごとに違ってよいので、端末の中に保存する */
 export function loadPrinter(): PrinterConfig {
@@ -143,10 +146,10 @@ export function settleReceipt(s: Settings, d: SettleData): RLine[] {
 export function alignReceipt(): RLine[] {
   return [
     { t: "text", text: "位置合わせ", align: "center", size: 1.3, bold: true },
-    { t: "text", text: "左のはしで切れずに読める、いちばん小さい数字を見てください。", size: 0.85 },
-    { t: "text", text: "（左の余白 0mm で印刷しています）", size: 0.85 },
+    { t: "text", text: "紙の左はしと右はしに、どの数字があるかを見てください。", size: 0.85 },
     { t: "ruler" },
-    { t: "text", text: "例：「5」が半分切れて「10」から読めるなら、左の余白を 7〜8mm にします。", size: 0.85 },
+    { t: "text", text: "左はしと右はしの数字を足して2で割り、36を引いた数が「位置の微調整」の目安です。", size: 0.85 },
+    { t: "text", text: "例：左はし7・右はし65なら (7+65)÷2−36＝0mm", size: 0.85 },
   ];
 }
 
@@ -156,8 +159,8 @@ export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
     { t: "text", text: s.storeName || "（店名）", align: "center" },
     { t: "rule" },
     { t: "row", left: "紙の幅", right: `${c.paper}mm` },
-    { t: "row", left: "左の余白", right: `${c.offsetMm}mm` },
-    { t: "row", left: "右の余白", right: `${c.rightMm}mm` },
+    { t: "row", left: "位置の微調整", right: `${c.shiftMm > 0 ? "+" : ""}${c.shiftMm}mm` },
+    { t: "row", left: "文字の大きさ", right: { small: "小", normal: "標準", large: "大" }[c.fontSize] },
     { t: "text", text: "← 左はし", size: 0.85 },
     { t: "text", text: "右はし →", align: "right", size: 0.85 },
     { t: "row", left: "日時", right: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) },
@@ -171,13 +174,20 @@ export function testReceipt(s: Settings, c: PrinterConfig): RLine[] {
 const FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif';
 
 /** レシートを白黒の画像にする（プリンターのドット数に合わせた幅） */
-export function renderReceipt(lines: RLine[], paper: 80 | 58, offsetMm = 0, rightMm = 0): HTMLCanvasElement {
-  // 203dpi のプリンターで、80mm紙は576ドット、58mm紙は384ドット印刷できる（1mm＝8ドット）
-  const W = paper === 80 ? 576 : 384;
-  const base = paper === 80 ? 24 : 20;
-  const left = Math.round(Math.max(0, Math.min(20, offsetMm)) * 8);
-  const pad = 4 + left;
-  const right = 4 + Math.round(Math.max(0, Math.min(20, rightMm)) * 8);
+export function renderReceipt(
+  lines: RLine[],
+  paper: 80 | 58,
+  opts: { fullHead?: boolean; shiftMm?: number; fontSize?: PrinterConfig["fontSize"] } = {},
+): HTMLCanvasElement {
+  // 203dpi のプリンターで1mm＝8ドット。80mm紙は576ドット、58mm紙は384ドットに印刷する。
+  // fullHead のときは、画像をプリンターの印字幅いっぱい（576ドット）にして、中身を真ん中に置く
+  const contentW = paper === 80 ? 576 : 384;
+  const W = opts.fullHead ? HEAD_DOTS : contentW;
+  const base = Math.round((paper === 80 ? 24 : 20) * FONT_SCALE[opts.fontSize ?? "normal"]);
+  const shift = Math.round(Math.max(-10, Math.min(10, opts.shiftMm ?? 0)) * 8);
+  const start = Math.max(0, Math.min(W - contentW, Math.round((W - contentW) / 2) + shift));
+  const pad = start + 4;
+  const right = W - (start + contentW) + 4;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   const font = (size = 1, bold = false) => `${bold ? "bold " : ""}${Math.round(base * size)}px ${FONT}`;
@@ -291,10 +301,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** 画像（JPEG）1枚を、紙の幅ぴったりのページにした PDF（Base64） */
-export function canvasToPdfBase64(canvas: HTMLCanvasElement, paper: 80 | 58): string {
+export function canvasToPdfBase64(canvas: HTMLCanvasElement): string {
   const jpeg = base64ToBytes(canvas.toDataURL("image/jpeg", 0.9).split(",")[1]);
   // 印刷できる幅（80mm紙は72mm、58mm紙は48mm）に合わせる
-  const printMm = paper === 80 ? 72 : 48;
+  const printMm = canvas.width / 8;
   const wPt = (printMm / 25.4) * 72;
   const hPt = (wPt * canvas.height) / canvas.width;
   const enc = new TextEncoder();
@@ -338,7 +348,7 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement, paper: 80 | 58): st
 
 /** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる */
 export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string) {
-  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, lines.some((l) => l.t === "ruler") ? 0 : c.offsetMm, lines.some((l) => l.t === "ruler") ? 0 : c.rightMm), c.paper);
+  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [
@@ -352,9 +362,8 @@ export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string
 }
 
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
-export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0, rightMm = 0) {
-  const ruler = lines.some((l) => l.t === "ruler");
-  const img = renderReceipt(lines, paper, ruler ? 0 : offsetMm, ruler ? 0 : rightMm).toDataURL("image/png");
+export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal") {
+  const img = renderReceipt(lines, paper, { fontSize }).toDataURL("image/png");
   const box = document.createElement("div");
   box.id = "receipt-print-box";
   box.innerHTML = `<img src="${img}" style="width:${paper === 80 ? 72 : 48}mm" alt="">`;
@@ -377,5 +386,5 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, offsetMm = 0, rig
 export function printReceipt(lines: RLine[], returnUrl: string) {
   const c = loadPrinter();
   if (c.method === "sii") printWithSii(lines, c, returnUrl);
-  else printInBrowser(lines, c.paper, c.offsetMm, c.rightMm);
+  else printInBrowser(lines, c.paper, c.fontSize);
 }

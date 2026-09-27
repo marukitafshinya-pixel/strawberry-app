@@ -67,30 +67,38 @@ export default function RegisterSettingsPage() {
               {p}mm
             </button>
           ))}
-          <span className="text-xs text-gray-500">RP-F10 はふつう 80mm です</span>
+          <span className="text-xs text-gray-500">入っているレシート用紙の幅を選びます</span>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="w-24">左の余白</span>
-          <button onClick={() => set({ offsetMm: Math.max(0, c.offsetMm - 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左の余白を減らす">
-            −
-          </button>
-          <span className="w-14 text-center text-lg font-bold tabular-nums">{c.offsetMm}mm</span>
-          <button onClick={() => set({ offsetMm: Math.min(20, c.offsetMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左の余白を増やす">
-            ＋
-          </button>
-          <span className="text-xs text-gray-500">左が切れるときは増やします</span>
+          <span className="w-24">文字の大きさ</span>
+          {(
+            [
+              ["small", "小"],
+              ["normal", "標準"],
+              ["large", "大"],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} onClick={() => set({ fontSize: k })} className={`rounded-lg border px-4 py-2 ${c.fontSize === k ? "border-gray-800 bg-gray-800 text-white" : ""}`}>
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="w-24">右の余白</span>
-          <button onClick={() => set({ rightMm: Math.max(0, c.rightMm - 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="右の余白を減らす">
-            −
-          </button>
-          <span className="w-14 text-center text-lg font-bold tabular-nums">{c.rightMm}mm</span>
-          <button onClick={() => set({ rightMm: Math.min(20, c.rightMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="右の余白を増やす">
-            ＋
-          </button>
-          <span className="text-xs text-gray-500">右が切れるときは増やします</span>
-        </div>
+        {c.method === "sii" && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="w-24">位置の微調整</span>
+            <button onClick={() => set({ shiftMm: Math.max(-10, c.shiftMm - 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="左へずらす">
+              ◀
+            </button>
+            <span className="w-16 text-center text-lg font-bold tabular-nums">
+              {c.shiftMm > 0 ? "+" : ""}
+              {c.shiftMm}mm
+            </span>
+            <button onClick={() => set({ shiftMm: Math.min(10, c.shiftMm + 1) })} className="h-10 w-10 rounded-lg border text-lg" aria-label="右へずらす">
+              ▶
+            </button>
+            <span className="text-xs text-gray-500">ふつうは0mmのままで大丈夫です。左に寄るときは▶、右に寄るときは◀</span>
+          </div>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={c.autoPrint} onChange={(e) => set({ autoPrint: e.target.checked })} />
           会計を確定したら、すぐにレシートを印刷する
@@ -114,7 +122,7 @@ export default function RegisterSettingsPage() {
           </button>
         </div>
         <p className="text-xs text-gray-500">
-          位置合わせ用の印刷は、左の余白を0mmにして、紙の左はしから何mmかを印刷します。左のはしで切れずに読めるいちばん小さい数字を見て、それより少し大きい値を「左の余白」にしてください。
+          位置合わせ用の印刷は、プリンターの印字はしから何mmかのものさしを印刷します。紙の左はしと右はしにある数字を見ると、ずれが分かります。
         </p>
       </section>
 
