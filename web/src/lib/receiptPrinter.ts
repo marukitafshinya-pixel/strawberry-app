@@ -369,7 +369,7 @@ export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string
 
 /**
  * レシートを出さずにキャッシュドロアーだけ開ける。
- * URL Print Agent には「開けるだけ」の命令がないので、白い1mmの紙（カットも紙送りもなし）を
+ * URL Print Agent には「開けるだけ」の命令がないので、ほぼ白い1mmの紙（カットも紙送りもなし）を
  * Drawer=yes で送って開けてもらう。
  */
 export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
@@ -379,6 +379,11 @@ export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // 真っ白だと URL Print Agent が「印刷するものがない」として何もしない（ドロアーも開かない）ので、
+  // 端に小さな点を置く（58mmの紙なら紙の外なので、紙には何も出ない）
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 2, 2);
+  ctx.fillRect(canvas.width - 2, canvas.height - 2, 2, 2);
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [

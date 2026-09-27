@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { DEFAULT_PRINTER, alignReceipt, loadPrinter, printReceipt, savePrinter, testReceipt, type PrinterConfig } from "@/lib/receiptPrinter";
+import { DEFAULT_PRINTER, alignReceipt, loadPrinter, openDrawerWithSii, printReceipt, printWithSii, savePrinter, testReceipt, type PrinterConfig } from "@/lib/receiptPrinter";
 import { useSettings } from "@/lib/reservations";
 
 export default function RegisterSettingsPage() {
@@ -114,6 +114,20 @@ export default function RegisterSettingsPage() {
               <input type="checkbox" checked={c.drawerOnCashConfirm} onChange={(e) => set({ drawerOnCashConfirm: e.target.checked })} />
               「現金で確定」を押したときに開ける（レシートを印刷しなくても開きます）
             </label>
+            <p className="pt-1 text-xs text-gray-600">開くかどうか試す（押すと URL Print Agent に切り替わって、この画面に戻ってきます）</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => openDrawerWithSii(c, "/staff/checkout/settings/")} className="rounded-lg border bg-white px-4 py-2">
+                ドロアーだけ開けてみる
+              </button>
+              <button
+                type="button"
+                onClick={() => settings && printWithSii(testReceipt(settings, c), c, "/staff/checkout/settings/", { drawer: true })}
+                disabled={!settings}
+                className="rounded-lg border bg-white px-4 py-2 disabled:opacity-40"
+              >
+                テスト印刷＋ドロアーを開けてみる
+              </button>
+            </div>
           </div>
         )}
         {c.method === "sii" && (
