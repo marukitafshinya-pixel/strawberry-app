@@ -66,7 +66,17 @@ function SettleLoader() {
           ← 注文入力
         </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">レジ精算</h1>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-bold">レジ精算</h1>
+        <div className="flex gap-2">
+          <Link href={`/staff/checkout/history/?date=${date}`} className="rounded-lg border bg-white px-3 py-2 text-sm">
+            この日の取引履歴
+          </Link>
+          <Link href={`/staff/checkout/settle/history/?month=${date.slice(0, 7)}`} className="rounded-lg border bg-white px-3 py-2 text-sm">
+            精算履歴
+          </Link>
+        </div>
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border bg-white px-3 py-2">
           ‹ 前日

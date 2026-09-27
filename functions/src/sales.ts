@@ -90,19 +90,37 @@ export const checkout = onCall(async (req) => {
   const customerName = typeof req.data?.customerName === "string" ? req.data.customerName.trim().slice(0, 50) : "";
   if (payment === "credit" && !customerName) throw new HttpsError("invalid-argument", "売掛のときは、お客様名が必要です");
   const memo = typeof req.data?.memo === "string" ? req.data.memo.trim().slice(0, 200) : "";
-  const date = typeof req.data?.date === "string" && DATE_RE.test(req.data.date) ? req.data.date : todayJST();
-  const reservationId = typeof req.data?.reservationId === "string" && req.data.reservationId ? req.data.reservationId : null;
+  let date = typeof req.data?.date === "string" && DATE_RE.test(req.data.date) ? req.data.date : todayJST();
+  let reservationId = typeof req.data?.reservationId === "string" && req.data.reservationId ? req.data.reservationId : null;
+  // 取引の修正：元の会計を取り消して、この会計に置き換える（日付と予約は元のまま）
+  const replaceSaleId = typeof req.data?.replaceSaleId === "string" && req.data.replaceSaleId ? req.data.replaceSaleId.slice(0, 64) : null;
   const dueDate = typeof req.data?.dueDate === "string" && DATE_RE.test(req.data.dueDate) ? req.data.dueDate : null;
 
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
   const total = lines.reduce((n, l) => n + l.amount, 0);
 
   return db.runTransaction(async (tx) => {
-    const rRef = reservationId ? db.doc(`reservations/${reservationId}`) : null;
+    const oldRef = replaceSaleId ? db.doc(`sales/${replaceSaleId}`) : null;
+    let old: SaleDoc | null = null;
+    if (oldRef) {
+      const snap = await tx.get(oldRef);
+      if (!snap.exists) throw new HttpsError("not-found", "修正する会計が見つかりません");
+      old = snap.data() as SaleDoc;
+      if (old.status !== "completed") throw new HttpsError("failed-precondition", "この会計はすでに取り消されています");
+      date = old.date;
+      reservationId = old.reservationId;
+    }
+    let rRef = reservationId ? db.doc(`reservations/${reservationId}`) : null;
     if (rRef) {
       const r = await tx.get(rRef);
-      if (!r.exists) throw new HttpsError("not-found", "予約が見つかりません");
-      if (r.get("saleId")) throw new HttpsError("already-exists", "この予約はすでに会計済みです。取り消してから会計し直してください");
+      if (!r.exists && !old) throw new HttpsError("not-found", "予約が見つかりません");
+      // 修正のときに予約が消されていたら、予約とのつながりはなくす
+      if (!r.exists) {
+        rRef = null;
+        reservationId = null;
+      }
+      const linked = r.exists ? r.get("saleId") : null;
+      if (linked && linked !== replaceSaleId) throw new HttpsError("already-exists", "この予約はすでに会計済みです。取り消してから会計し直してください");
     }
     const saleRef = db.collection("sales").doc();
     const recRef = payment === "credit" ? db.collection("receivables").doc() : null;
@@ -120,7 +138,7 @@ export const checkout = onCall(async (req) => {
       receivableId: recRef?.id ?? null,
       memo,
     };
-    tx.set(saleRef, { ...sale, createdAt: now, createdBy: uid });
+    tx.set(saleRef, { ...sale, ...(replaceSaleId ? { replaces: replaceSaleId } : {}), createdAt: now, createdBy: uid });
     if (recRef) {
       tx.set(recRef, {
         customerName,
@@ -134,6 +152,10 @@ export const checkout = onCall(async (req) => {
         createdAt: now,
         createdBy: uid,
       });
+    }
+    if (oldRef && old) {
+      tx.update(oldRef, { status: "voided", voidedAt: now, voidedBy: uid, voidReason: "修正（新しい会計に置き換え）", replacedBy: saleRef.id });
+      if (old.receivableId) tx.delete(db.doc(`receivables/${old.receivableId}`));
     }
     if (rRef) tx.update(rRef, { saleId: saleRef.id, status: "visited", updatedAt: now, updatedBy: uid });
     return { id: saleRef.id, total };

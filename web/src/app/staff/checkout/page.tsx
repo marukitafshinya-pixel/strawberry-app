@@ -10,7 +10,7 @@ import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/l
 import { formatJa, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
-import { PAYMENT_LABEL, lineAmount, type PaymentMethod, type SaleLine } from "@/lib/sales";
+import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
 import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, SETTINGS_DOC, newId, type Settings, type TaxRate, type TileLayout } from "@/lib/settings";
 
 type Line = Omit<SaleLine, "amount" | "taxRate"> & { key: string; taxRate: TaxRate };
@@ -27,9 +27,25 @@ export default function CheckoutPage() {
 function CheckoutLoader() {
   const params = useSearchParams();
   const reservationId = params.get("reservation");
+  const editId = params.get("edit");
   const { value: settings } = useSettings();
   const [reservation, setReservation] = useState<Reservation | null | undefined>(reservationId ? undefined : null);
+  const [editing, setEditing] = useState<Sale | null | undefined>(editId ? undefined : null);
   const [loadError, setLoadError] = useState("");
+
+  // 取引の修正：元の会計を読み込む
+  useEffect(() => {
+    if (!editId) return;
+    getFirebase()
+      .then(({ db }) => getDoc(doc(db, `sales/${editId}`)))
+      .then((snap) => {
+        if (!snap.exists()) return setLoadError("会計が見つかりません");
+        const sale = { id: snap.id, ...(snap.data() as Omit<Sale, "id">) };
+        if (sale.status !== "completed") return setLoadError("この会計は取り消されているので、修正できません");
+        setEditing(sale);
+      })
+      .catch((e) => setLoadError(errorText(e)));
+  }, [editId]);
 
   useEffect(() => {
     if (!reservationId) return;
@@ -43,9 +59,9 @@ function CheckoutLoader() {
   }, [reservationId]);
 
   if (loadError) return <p className="text-red-600">{loadError}</p>;
-  if (!settings || reservation === undefined) return <p className="text-gray-500">読み込み中…</p>;
-  // 画面を開き直したときに中身が混ざらないよう、予約ごとに作り直す
-  return <Checkout key={reservation?.id ?? "walk-in"} settings={settings} reservation={reservation} />;
+  if (!settings || reservation === undefined || editing === undefined) return <p className="text-gray-500">読み込み中…</p>;
+  // 画面を開き直したときに中身が混ざらないよう、予約・修正する会計ごとに作り直す
+  return <Checkout key={editing?.id ?? reservation?.id ?? "walk-in"} settings={settings} reservation={reservation} editing={editing} />;
 }
 
 function initialLines(settings: Settings, r: Reservation | null): Line[] {
@@ -66,12 +82,26 @@ function initialLines(settings: Settings, r: Reservation | null): Line[] {
   }));
 }
 
-function Checkout({ settings, reservation: r }: { settings: Settings; reservation: Reservation | null }) {
-  const [lines, setLines] = useState<Line[]>(() => initialLines(settings, r));
-  const [customerName, setCustomerName] = useState(r?.customerName ?? "");
-  const [payment, setPayment] = useState<PaymentMethod>("cash");
+function Checkout({ settings, reservation: r, editing }: { settings: Settings; reservation: Reservation | null; editing: Sale | null }) {
+  const [lines, setLines] = useState<Line[]>(() =>
+    editing
+      ? editing.lines.map((l) => ({
+          key: newId(),
+          kind: l.kind,
+          refId: l.refId,
+          name: l.name,
+          category: l.category,
+          unitPrice: l.unitPrice,
+          qty: l.qty,
+          discountRate: l.discountRate,
+          taxRate: lineTaxRate(l, settings),
+        }))
+      : initialLines(settings, r),
+  );
+  const [customerName, setCustomerName] = useState(editing?.customerName ?? r?.customerName ?? "");
+  const [payment, setPayment] = useState<PaymentMethod>(editing?.payment ?? "cash");
   const [dueDate, setDueDate] = useState("");
-  const [memo, setMemo] = useState("");
+  const [memo, setMemo] = useState(editing?.memo ?? "");
   const [received, setReceived] = useState("");
   const [allRate, setAllRate] = useState("");
   const [error, setError] = useState("");
@@ -96,7 +126,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
   const [customerQ, setCustomerQ] = useState("");
   const { value: customers } = useCustomers();
 
-  const alreadyPaid = !!r?.saleId;
+  const alreadyPaid = !editing && !!r?.saleId;
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
   const total = lines.reduce((n, l) => n + lineAmount(l.unitPrice, l.qty, l.discountRate), 0);
   const change = received === "" ? null : Number(received) - total;
@@ -120,7 +150,8 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
     try {
       const res = await callFunction<Record<string, unknown>, { id: string; total: number }>("checkout", {
         reservationId: r?.id ?? null,
-        date: todayJST(),
+        date: editing?.date ?? todayJST(),
+        replaceSaleId: editing?.id ?? null,
         customerName,
         payment,
         dueDate: payment === "credit" ? dueDate || null : null,
@@ -149,7 +180,7 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
     return (
       <div className="mx-auto max-w-md">
         <div className="rounded-2xl bg-green-50 p-6 text-center text-green-900">
-          <p className="text-lg font-bold">会計が完了しました</p>
+          <p className="text-lg font-bold">{editing ? "会計を修正しました" : "会計が完了しました"}</p>
           <p className="mt-2 text-3xl font-bold">{yen(done.total)}</p>
           <p className="mt-1 text-sm">{PAYMENT_LABEL[payment]}</p>
           {payment === "cash" && change !== null && change >= 0 && <p className="mt-2 text-lg">おつり {yen(change)}</p>}
@@ -159,8 +190,8 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
           <Link href={`/staff/receipt/?sale=${done.id}`} className="rounded-lg bg-gray-800 py-3 text-center font-bold text-white">
             レシート・領収書を出す
           </Link>
-          <Link href={`/staff/sales/?date=${todayJST()}`} className="rounded-lg border bg-white py-3 text-center">
-            今日の会計履歴を見る
+          <Link href={`/staff/checkout/history/?date=${editing?.date ?? todayJST()}`} className="rounded-lg border bg-white py-3 text-center">
+            取引履歴を見る
           </Link>
           {r && (
             <Link href={`/staff/reservations/?date=${r.date}`} className="rounded-lg border bg-white py-3 text-center">
@@ -256,8 +287,8 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
           </Link>
           <span className="ml-3 text-lg font-bold text-gray-900">{step === "pay" ? "お支払い" : "注文入力"}</span>
         </p>
-        <Link href={`/staff/sales/?date=${todayJST()}`} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
-          会計一覧
+        <Link href={`/staff/checkout/history/?date=${todayJST()}`} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+          取引履歴
         </Link>
       </div>
       {r ? (
@@ -265,6 +296,14 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
           予約：{formatJa(r.date)} {r.slotTime} {r.customerName}様（{peopleText(r)}）
         </p>
       ) : null}
+      {editing && (
+        <p className="mt-2 rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
+          {formatJa(editing.date, true)} の会計（{yen(editing.total)}）を修正しています。確定すると、元の会計は取り消され、この内容に置き換わります。
+          <Link href={`/staff/checkout/history/?date=${editing.date}`} className="ml-2 underline">
+            やめて取引履歴に戻る
+          </Link>
+        </p>
+      )}
       {alreadyPaid && (
         <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           この予約はすでに会計済みです。やり直す場合は、会計履歴から取り消してください。
@@ -431,9 +470,14 @@ function Checkout({ settings, reservation: r }: { settings: Settings; reservatio
                   </button>
                 )}
                 {!arrange && (
-                  <Link href="/staff/checkout/settle/" className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-800">
-                    精算
-                  </Link>
+                  <>
+                    <Link href={`/staff/checkout/history/?date=${todayJST()}`} className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-800">
+                      取引履歴
+                    </Link>
+                    <Link href="/staff/checkout/settle/" className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-semibold text-emerald-800">
+                      精算
+                    </Link>
+                  </>
                 )}
               </div>
             )}
