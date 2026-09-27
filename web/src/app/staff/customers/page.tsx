@@ -6,7 +6,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv, parseAmount, parseCsv } from "@/lib/csv";
-import { CUSTOMER_PRICES, emptyCustomer, matchCustomer, parseCustomerCsv, useCustomers, type Customer } from "@/lib/customers";
+import { CUSTOMER_PRICES, emptyCustomer, matchCustomer, parseCustomerCsv, termsText, useCustomers, type Customer, type PaymentTerms } from "@/lib/customers";
 import { getFirebase } from "@/lib/firebase";
 import { yen } from "@/lib/reservations";
 import { newId } from "@/lib/settings";
@@ -54,6 +54,7 @@ export default function CustomersPage() {
           payment: it.payment || base.payment,
           memo: it.memo || base.memo,
           prices: { ...base.prices, ...it.prices },
+          ...(base.terms ? { terms: base.terms } : {}),
           active: true,
           updatedAt: serverTimestamp(),
         };
@@ -188,7 +189,10 @@ export default function CustomersPage() {
                       {c.prices[p.key] !== undefined ? yen(c.prices[p.key]!) : "—"}
                     </td>
                   ))}
-                  <td className="px-3 py-2">{c.payment === "credit" ? "売掛" : c.payment === "cash" ? "現金" : ""}</td>
+                  <td className="px-3 py-2">
+                    {c.payment === "credit" ? "売掛" : c.payment === "cash" ? "現金" : ""}
+                    {c.terms && <div className="text-xs text-gray-500">{termsText(c.terms)}</div>}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => setEditing(c)} className="rounded-lg border px-3 py-1">
                       詳細
@@ -238,6 +242,7 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
         address: c.address.trim().slice(0, 200),
         contract: c.contract.trim().slice(0, 200),
         payment: c.payment,
+        ...(c.terms ? { terms: c.terms } : {}),
         memo: c.memo.trim().slice(0, 500),
         prices,
         active: c.active,
@@ -304,6 +309,8 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
           </label>
         </div>
 
+        <TermsEditor value={c.terms} onChange={(terms) => set({ terms })} />
+
         <div>
           <p className="text-sm font-semibold">いちご狩りの単価（税込）</p>
           <p className="text-xs text-gray-500">この顧客だけの料金です。空欄の区分は、会計に出ません。</p>
@@ -352,5 +359,49 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
         )}
       </div>
     </form>
+  );
+}
+
+/** 支払い条件（締め日・支払期限） */
+function TermsEditor({ value, onChange }: { value?: PaymentTerms; onChange: (t: PaymentTerms | undefined) => void }) {
+  const t = value ?? { closing: 0, dueMonths: 1, dueDay: 0 };
+  const days = Array.from({ length: 28 }, (_, i) => i + 1);
+  const sel = "rounded-lg border px-2 py-2 text-base";
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked ? t : undefined)} />
+        支払い条件を決める（請求書に使います）
+      </label>
+      {value && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <select value={t.closing} onChange={(e) => onChange({ ...t, closing: Number(e.target.value) })} className={sel} aria-label="締め日">
+            <option value={0}>月末</option>
+            {days.map((d) => (
+              <option key={d} value={d}>
+                {d}日
+              </option>
+            ))}
+          </select>
+          締め
+          <select value={t.dueMonths} onChange={(e) => onChange({ ...t, dueMonths: Number(e.target.value) })} className={sel} aria-label="支払月">
+            <option value={0}>当月</option>
+            <option value={1}>翌月</option>
+            <option value={2}>翌々月</option>
+            <option value={3}>3か月後</option>
+          </select>
+          <select value={t.dueDay} onChange={(e) => onChange({ ...t, dueDay: Number(e.target.value) })} className={sel} aria-label="支払日">
+            <option value={0}>末日</option>
+            {days.map((d) => (
+              <option key={d} value={d}>
+                {d}日
+              </option>
+            ))}
+          </select>
+          までに支払い
+          <span className="ml-2 rounded bg-gray-100 px-2 py-1 text-xs">{termsText(t)}</span>
+        </div>
+      )}
+    </div>
   );
 }

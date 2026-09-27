@@ -161,6 +161,13 @@ describe("会計・売掛・過去売上", () => {
     await assertSucceeds(getDoc(doc(staff(), "customers/c1")));
     for (const db of [guest(), noRole(), disabled()]) await assertFails(getDoc(doc(db, "customers/c1")));
   });
+  it("請求書の振込先はスタッフが見るだけ、管理者が変更。外の人は読めない", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "config/invoice"), { bankInfo: "○○銀行 本店 普通 1234567", note: "" }));
+    await assertFails(setDoc(doc(staff(), "config/invoice"), { bankInfo: "x", note: "" }));
+    await assertFails(setDoc(doc(admin(), "config/invoice"), { bankInfo: "x", other: 1 }));
+    await assertSucceeds(getDoc(doc(staff(), "config/invoice")));
+    await assertFails(getDoc(doc(guest(), "config/invoice")));
+  });
   it("去年の商品別の実績は管理者だけが取り込み、スタッフは見るだけ", async () => {
     const data = { from: "2025-06-01", to: "2025-11-30", items: [{ name: "いちごジャム", category: "直売", amount: 104550, qty: 141 }] };
     await assertSucceeds(setDoc(doc(admin(), "itemReferences/2025-06-01_2025-11-30"), data));

@@ -53,12 +53,21 @@ service cloud.firestore {
     match /customers/{id} {
       allow read: if isStaff();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'contract', 'payment', 'memo', 'prices', 'active', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'contract', 'payment', 'terms', 'memo', 'prices', 'active', 'updatedAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 100
         && (!('prices' in request.resource.data) || request.resource.data.prices is map);
       allow delete: if isAdmin();
+    }
+
+    // 請求書の設定（振込先など）：スタッフは見るだけ（請求書に印刷する）、変更は管理者
+    match /config/invoice {
+      allow read: if isStaff();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['bankInfo', 'note', 'updatedAt'])
+        && request.resource.data.bankInfo is string
+        && request.resource.data.bankInfo.size() <= 500;
     }
 
     // 去年の商品別の実績（Airレジの商品別CSV）：スタッフは見るだけ、管理者が取り込む

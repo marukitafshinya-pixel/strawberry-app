@@ -22,6 +22,8 @@ export type Customer = {
   address: string;
   /** 契約内容（例：通常価格から10%引き） */
   contract: string;
+  /** 支払い条件（締め日と支払期限）。ないときは決めていない */
+  terms?: PaymentTerms;
   /** いつもの支払方法（会計で顧客を選ぶと、この支払方法になる） */
   payment: "cash" | "credit" | "";
   memo: string;
@@ -60,6 +62,52 @@ export function useCustomers() {
     };
   }, []);
   return { value: list, error };
+}
+
+/**
+ * 支払い条件。例：月末締め・翌月末払い＝{ closing: 0, dueMonths: 1, dueDay: 0 }
+ * closing：締め日（0は月末、1〜28はその日）／dueMonths：締めた月から何か月後に払うか／dueDay：支払日（0は末日）
+ */
+export type PaymentTerms = { closing: number; dueMonths: number; dueDay: number };
+
+const lastDayOf = (ym: string) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
+const shift = (ym: string, n: number) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+};
+const pad = (n: number) => String(n).padStart(2, "0");
+const dayOf = (ym: string, d: number) => `${ym}-${pad(d === 0 ? lastDayOf(ym) : Math.min(d, lastDayOf(ym)))}`;
+
+/** 支払い条件を文字にする（例：月末締め・翌月末払い） */
+export function termsText(t?: PaymentTerms): string {
+  if (!t) return "";
+  const close = t.closing === 0 ? "月末締め" : `${t.closing}日締め`;
+  const month = ["当月", "翌月", "翌々月", "3か月後"][t.dueMonths] ?? `${t.dueMonths}か月後`;
+  return `${close}・${month}${t.dueDay === 0 ? "末" : `${t.dueDay}日`}払い`;
+}
+
+/** その月に締める請求期間（例：月末締めで2026-09なら 9/1〜9/30、20日締めなら 8/21〜9/20） */
+export function billingPeriod(t: PaymentTerms | undefined, ym: string): { from: string; to: string } {
+  const closing = t?.closing ?? 0;
+  const to = dayOf(ym, closing);
+  const prevClose = dayOf(shift(ym, -1), closing);
+  const from = closing === 0 ? `${ym}-01` : nextDay(prevClose);
+  return { from, to };
+}
+
+/** 支払期限（締めた日の月から dueMonths か月後の dueDay） */
+export function dueDateOf(t: PaymentTerms | undefined, closedOn: string): string {
+  const terms = t ?? { closing: 0, dueMonths: 1, dueDay: 0 };
+  return dayOf(shift(closedOn.slice(0, 7), terms.dueMonths), terms.dueDay);
+}
+
+function nextDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /** 顧客のCSVを読み取る（見出しの名前で列を探す。1列目に名前がある表にも対応） */

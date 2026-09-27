@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
+import { termsText, useCustomers } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
 import { yen } from "@/lib/reservations";
 import { useReceivables, type Receivable } from "@/lib/sales";
@@ -54,6 +55,8 @@ export default function ReceivablesPage() {
           </div>
         </div>
       )}
+
+      <InvoiceMenu />
 
       {adding && <AddForm onClose={() => setAdding(false)} />}
 
@@ -217,5 +220,46 @@ function ReceivableRow({ r, today }: { r: Receivable; today: string }) {
       {r.memo && <p className="mt-1 text-sm text-gray-500">📝 {r.memo}</p>}
       {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
     </li>
+  );
+}
+
+/** 会社ごとの請求書（顧客リストに登録した会社） */
+function InvoiceMenu() {
+  const { value: customers } = useCustomers();
+  const { value: open } = useReceivables("open");
+  const [show, setShow] = useState(false);
+  const list = (customers ?? [])
+    .filter((c) => c.active)
+    .map((c) => {
+      const mine = (open ?? []).filter((r) => r.customerName === c.name);
+      return { c, count: mine.length, amount: mine.reduce((n, r) => n + r.amount, 0) };
+    })
+    .sort((a, b) => b.amount - a.amount);
+  if (!customers || customers.length === 0) return null;
+  return (
+    <section className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold">会社ごとの請求書</h2>
+        <button onClick={() => setShow(!show)} className="rounded-lg border px-3 py-1.5 text-sm">
+          {show ? "閉じる" : "請求書を作る"}
+        </button>
+      </div>
+      {show && (
+        <ul className="mt-2 divide-y text-sm">
+          {list.map(({ c, count, amount }) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-2 py-2">
+              <span className="font-semibold">{c.name}</span>
+              <span className="text-xs text-gray-500">{c.terms ? termsText(c.terms) : "支払い条件なし"}</span>
+              <span className={`ml-auto tabular-nums ${amount > 0 ? "font-semibold text-amber-800" : "text-gray-400"}`}>
+                未回収 {yen(amount)}（{count}件）
+              </span>
+              <Link href={`/staff/receivables/invoice/?customer=${c.id}`} className="rounded-lg bg-gray-800 px-3 py-1.5 text-white">
+                請求書
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
