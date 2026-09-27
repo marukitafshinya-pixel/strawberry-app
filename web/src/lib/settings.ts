@@ -52,6 +52,8 @@ export type Product = {
   active: boolean;
   /** 消費税率。未設定なら8% */
   taxRate?: TaxRate;
+  /** Airレジの商品ID（Airレジから読み込んだ商品だけ。読み込み直したときに同じ商品を見つけるため） */
+  airregiId?: string;
 };
 
 export type Settings = {
@@ -185,15 +187,29 @@ export function validateSettings(s: Settings): string[] {
       if (!Number.isInteger(yen) || yen < 0 || yen > 1_000_000) errors.push(`プラン「${label}」の料金が正しくありません`);
     }
   }
+  errors.push(...validateProducts(s.products));
+  return [...new Set(errors)];
+}
+
+/** 商品のチェック。問題があれば日本語の説明を返す */
+export function validateProducts(products: Product[]): string[] {
+  const errors: string[] = [];
   const productNames = new Set<string>();
-  for (const p of s.products) {
+  for (const p of products) {
     const label = p.name.trim() || "（名前なし）";
     if (!p.name.trim()) errors.push("商品の名前が空です");
+    if (p.name.trim().length > 50) errors.push(`商品「${label}」の名前は50文字以内にしてください`);
     if (productNames.has(p.name.trim())) errors.push(`商品「${p.name}」が重複しています`);
     productNames.add(p.name.trim());
     if (!Number.isInteger(p.price) || p.price < 0 || p.price > 1_000_000) errors.push(`商品「${label}」の金額が正しくありません`);
   }
+  if (products.length > 300) errors.push("商品は300件までにしてください");
   return [...new Set(errors)];
+}
+
+/** 商品を保存用に整える */
+export function cleanProducts(products: Product[]): Product[] {
+  return products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim(), taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX }));
 }
 
 /** 保存用に整える（前後の空白を取る・時間枠を時刻順に・削除した区分の料金を消す） */
@@ -215,6 +231,6 @@ export function cleanSettings(s: Settings): Settings {
       taxRate: p.taxRate ?? DEFAULT_PLAN_TAX,
       prices: Object.fromEntries(Object.entries(p.prices).filter(([id]) => catIds.has(id))),
     })),
-    products: s.products.map((p) => ({ ...p, name: p.name.trim(), group: p.group.trim(), taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX })),
+    products: cleanProducts(s.products),
   };
 }

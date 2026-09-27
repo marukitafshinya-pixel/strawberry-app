@@ -6,11 +6,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
-import { PLAN_CATEGORY_NAMES, suggestPrice, suggestTax, useItemRefs } from "@/lib/itemRefs";
 import {
   DEFAULT_PLAN_CATEGORY,
   DEFAULT_PLAN_TAX,
-  DEFAULT_PRODUCT_TAX,
   SETTINGS_DOC,
   TAX_RATES,
   cleanSettings,
@@ -20,7 +18,6 @@ import {
   settingsToFile,
   validateSettings,
   type Plan,
-  type Product,
   type Settings,
   type TaxRate,
 } from "@/lib/settings";
@@ -36,6 +33,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // 商品は「商品設定」の画面で編集する。ここではファイルから読み込んだときだけ保存する（あちらの変更を消さないように）
+  const [productsDirty, setProductsDirty] = useState(false);
 
   useEffect(() => {
     getFirebase()
@@ -80,6 +79,7 @@ export default function SettingsPage() {
       const next = settingsFromFile(await file.text());
       if (!window.confirm("ファイルの設定で、この画面の内容をすべて置き換えます。よろしいですか？\n（確かめてから「保存する」を押すまでは保存されません）")) return;
       setS(next);
+      setProductsDirty(true);
       setErrors([]);
       setSaved(false);
       setDirty(true);
@@ -97,7 +97,9 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const { db } = await getFirebase();
-      await setDoc(doc(db, SETTINGS_DOC), { ...cleaned, updatedAt: serverTimestamp() });
+      const { products, ...rest } = cleaned;
+      await setDoc(doc(db, SETTINGS_DOC), { ...rest, ...(productsDirty ? { products } : {}), updatedAt: serverTimestamp() }, { merge: true });
+      setProductsDirty(false);
       setS(cleaned);
       setSaved(true);
       setDirty(false);
@@ -314,93 +316,14 @@ export default function SettingsPage() {
         </button>
       </Section>
 
-      <Section title="商品（会計で売るもの）" note="お土産・ドリンクなど。金額は税込です。並び順は会計画面の表示順になります。消費税は、持ち帰りの食べ物・飲み物（いちご・ジャム・ジュースなど）は8%、雑貨などは10%です。">
-        {s.products.length === 0 && <p className="text-sm text-gray-500">まだありません</p>}
-        <datalist id="product-groups">
-          {[...new Set(s.products.map((p) => p.group).filter(Boolean))].map((g) => (
-            <option key={g} value={g} />
-          ))}
-        </datalist>
-        <ul className="space-y-2">
-          {s.products.map((p, i) => {
-            const set = (patch: Partial<Product>) =>
-              update({ products: s.products.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
-            return (
-              <li key={p.id} className={`rounded-xl border p-3 ${p.active ? "" : "bg-gray-50"}`}>
-                <div className="flex flex-wrap items-end gap-2">
-                  <Field label="商品名">
-                    <input
-                      value={p.name}
-                      maxLength={30}
-                      onChange={(e) => set({ name: e.target.value })}
-                      className="mt-1 w-48 rounded-lg border px-3 py-2 text-base"
-                    />
-                  </Field>
-                  <Field label="分類">
-                    <input
-                      value={p.group}
-                      maxLength={20}
-                      list="product-groups"
-                      placeholder="例：お土産"
-                      onChange={(e) => set({ group: e.target.value })}
-                      className="mt-1 w-32 rounded-lg border px-3 py-2 text-base"
-                    />
-                  </Field>
-                  <Field label="金額（税込）">
-                    <span className="mt-1 block">
-                      <NumberInput value={p.price} onChange={(v) => set({ price: v })} suffix="円" />
-                    </span>
-                  </Field>
-                  <Field label="消費税">
-                    <TaxSelect value={p.taxRate ?? DEFAULT_PRODUCT_TAX} onChange={(taxRate) => set({ taxRate })} />
-                  </Field>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <label className="mr-auto flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={p.active} onChange={(e) => set({ active: e.target.checked })} />
-                    販売中（外すと会計画面に出なくなります）
-                  </label>
-                  <button
-                    disabled={i === 0}
-                    onClick={() => update({ products: move(s.products, i, -1) })}
-                    className={`${smallButton} disabled:opacity-30`}
-                    aria-label="上へ"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    disabled={i === s.products.length - 1}
-                    onClick={() => update({ products: move(s.products, i, 1) })}
-                    className={`${smallButton} disabled:opacity-30`}
-                    aria-label="下へ"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`商品「${p.name}」を削除しますか？\n（過去の会計の記録はそのまま残ります）`))
-                        update({ products: s.products.filter((_, j) => j !== i) });
-                    }}
-                    className={`${smallButton} text-red-700`}
-                  >
-                    削除
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        <button
-          onClick={() =>
-            update({
-              products: [...s.products, { id: newId(), name: "", group: s.products.at(-1)?.group ?? "", price: 0, active: true }],
-            })
-          }
-          className={`${smallButton} mt-2`}
-        >
-          ＋ 商品を追加
-        </button>
-        <ProductsFromRefs settings={s} onAdd={(added) => update({ products: [...s.products, ...added] })} />
+      <Section title="商品（会計で売るもの）">
+        <p className="text-sm">
+          商品の追加・修正・削除は、メニューの「
+          <Link href="/staff/products/" className="font-bold text-berry underline">
+            商品設定
+          </Link>
+          」でできます（いま {s.products.length} 件）。
+        </p>
       </Section>
 
       {/* 画面下に固定の保存ボタン */}
@@ -666,80 +589,3 @@ function TaxSelect({ value, onChange }: { value: TaxRate; onChange: (v: TaxRate)
   );
 }
 
-/** 去年の商品別の実績（Airレジ）から、まだ登録していない商品をまとめて追加する */
-function ProductsFromRefs({ settings, onAdd }: { settings: Settings; onAdd: (p: Product[]) => void }) {
-  const { value: refs } = useItemRefs();
-  const [open, setOpen] = useState(false);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const ref = refs?.[0];
-  if (!ref) return null;
-  const have = new Set(settings.products.map((p) => p.name.trim()));
-  const candidates = ref.items
-    .filter((i) => !PLAN_CATEGORY_NAMES.includes(i.category) && !have.has(i.name) && i.qty > 0)
-    .sort((a, b) => b.amount - a.amount);
-
-  if (!open)
-    return (
-      <button onClick={() => { setChecked(new Set(candidates.map((c) => c.name))); setOpen(true); }} className={`${smallButton} ml-2 mt-2`}>
-        去年の実績から商品を追加
-      </button>
-    );
-  return (
-    <div className="mt-3 rounded-xl border border-berry/40 bg-berry/5 p-3">
-      <p className="text-sm font-semibold">
-        去年の実績（{ref.from.replaceAll("-", "/")}〜{ref.to.replaceAll("-", "/")}）から追加
-      </p>
-      <p className="mt-1 text-xs text-gray-600">
-        値段は「売上 ÷ 販売数」の目安です（割引の分、実際より少し安く出ることがあります）。追加したあと、上の一覧で直してください。いちご狩りの料金はプランで設定します。
-      </p>
-      {candidates.length === 0 ? (
-        <p className="mt-2 text-sm text-gray-500">追加できる商品はありません（すべて登録済みです）</p>
-      ) : (
-        <ul className="mt-2 max-h-72 divide-y overflow-y-auto rounded-lg bg-white text-sm">
-          {candidates.map((c) => (
-            <li key={c.name}>
-              <label className="flex items-center gap-2 px-2 py-1.5">
-                <input
-                  type="checkbox"
-                  checked={checked.has(c.name)}
-                  onChange={(e) => {
-                    const next = new Set(checked);
-                    if (e.target.checked) next.add(c.name);
-                    else next.delete(c.name);
-                    setChecked(next);
-                  }}
-                />
-                <span className="flex-1">
-                  {c.name}
-                  <span className="ml-1 text-xs text-gray-500">{c.category || "いちご"}</span>
-                </span>
-                <span className="text-xs text-gray-500 tabular-nums">{c.qty.toLocaleString("ja-JP")}個</span>
-                <span className="w-20 text-right tabular-nums">{suggestPrice(c).toLocaleString("ja-JP")}円</span>
-                <span className="w-10 text-right text-xs">{suggestTax(c.name)}%</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="mt-2 flex gap-2">
-        <button
-          disabled={checked.size === 0}
-          onClick={() => {
-            onAdd(
-              candidates
-                .filter((c) => checked.has(c.name))
-                .map((c) => ({ id: newId(), name: c.name.slice(0, 30), group: c.category || "いちご", price: suggestPrice(c), active: true, taxRate: suggestTax(c.name) })),
-            );
-            setOpen(false);
-          }}
-          className="rounded-lg bg-berry px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
-        >
-          {checked.size}件を追加
-        </button>
-        <button onClick={() => setOpen(false)} className={smallButton}>
-          やめる
-        </button>
-      </div>
-    </div>
-  );
-}
