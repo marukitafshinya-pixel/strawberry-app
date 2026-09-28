@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
-import { loadPrinter, openDrawerWithSii, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { isHomeScreenApp, loadPrinter, openDrawerWithSii, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
@@ -275,6 +275,8 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       const back = "/staff/checkout/?resume=1";
       if (pc.autoPrint) printReceipt(saleReceipt(settings, pending.sale, { received: received === "" ? null : Number(received) }), back, payment === "cash" ? "sale-cash" : "other");
       else openDrawerWithSii(pc, back);
+      // ホーム画面のアプリのときは、この画面のまま戻ってくるので、ここで確定を確かめる
+      if (isHomeScreenApp()) void submitPending(pending);
       return;
     }
     setSaving(true);

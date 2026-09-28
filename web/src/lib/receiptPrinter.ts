@@ -350,14 +350,28 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement): string {
   return bytesToBase64(all);
 }
 
-/** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる */
-export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string, opts: { drawer?: boolean } = {}) {
-  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
+/** ホーム画面に追加したアプリとして開いているか（Safari のタブではなく） */
+export function isHomeScreenApp(): boolean {
+  return window.matchMedia?.("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+/**
+ * 印刷のあとに戻ってくるページ。
+ * ホーム画面のアプリから呼んだときは付けない（付けると、戻り先のページが Safari で開いてしまうため）。
+ * そのときは画面左上の「◀ いちごスタッフ」か、アプリの切り替えで戻る。
+ */
+function callbackParams(returnUrl: string): string[] {
+  if (isHomeScreenApp()) return [];
   const back = new URL(returnUrl, window.location.href).toString();
   const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
+  return [`CallbackSuccess=${encodeURIComponent(back)}`, `CallbackFail=${encodeURIComponent(fail)}`];
+}
+
+/** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる（Safari のとき） */
+export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string, opts: { drawer?: boolean } = {}) {
+  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
   const params = [
-    `CallbackSuccess=${encodeURIComponent(back)}`,
-    `CallbackFail=${encodeURIComponent(fail)}`,
+    ...callbackParams(returnUrl),
     `BtKeepConnect=${c.keepConnect ? "always" : "no"}`,
     // Drawer=yes で、印刷と一緒にプリンターにつないだキャッシュドロアーを開ける（URL Print Agent の仕様）
     ...(opts.drawer ? ["Drawer=yes"] : []),
@@ -384,11 +398,8 @@ export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, 2, 2);
   ctx.fillRect(canvas.width - 2, canvas.height - 2, 2, 2);
-  const back = new URL(returnUrl, window.location.href).toString();
-  const fail = back + (back.includes("?") ? "&" : "?") + "printError=1";
   const params = [
-    `CallbackSuccess=${encodeURIComponent(back)}`,
-    `CallbackFail=${encodeURIComponent(fail)}`,
+    ...callbackParams(returnUrl),
     `BtKeepConnect=${c.keepConnect ? "always" : "no"}`,
     "Drawer=yes",
     "CutType=off",
