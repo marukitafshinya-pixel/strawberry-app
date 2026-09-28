@@ -193,6 +193,7 @@ describe("給与（管理者のみ）", () => {
     await assertSucceeds(setDoc(doc(admin(), "employees/e1"), { name: "山田", accountNumber: "1234567" }));
     await assertSucceeds(getDoc(doc(admin(), "employees/e1")));
     await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-07"), { paymentDate: "2026-08-15", rows: {}, employer: {} }));
+    await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-08"), { paymentDate: "", rows: {}, employer: {}, memo: "", payerAccount: "117779", author: "hirayama" }));
     for (const db of [staff(), guest(), noRole(), disabled()]) {
       await assertFails(getDoc(doc(db, "employees/e1")));
       await assertFails(getDoc(doc(db, "payrolls/2026-07")));

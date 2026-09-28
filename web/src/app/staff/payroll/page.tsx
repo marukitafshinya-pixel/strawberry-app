@@ -149,7 +149,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const snap = await getDoc(doc(db, `payrolls/${prev}`));
       if (!snap.exists()) return setError("前の月の給与がまだ保存されていません");
       const p = snap.data() as Payroll;
-      update({ rows: p.rows ?? {}, employer: p.employer ?? {} });
+      update({ rows: p.rows ?? {}, employer: p.employer ?? {}, payerAccount: data.payerAccount || p.payerAccount || "", author: data.author || p.author || "" });
     } catch (e) {
       setError(errorText(e));
     }
@@ -223,6 +223,20 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         <label className="block text-sm">
           <span className="text-gray-600">振込日（支給日）</span>
           <input type="date" value={data.paymentDate} onChange={(e) => update({ paymentDate: e.target.value })} className="mt-1 block rounded-lg border px-3 py-2 text-base" />
+        </label>
+        <label className="block text-sm">
+          <span className="text-gray-600">支払口座番号（会社）</span>
+          <input
+            value={data.payerAccount}
+            maxLength={30}
+            inputMode="numeric"
+            onChange={(e) => update({ payerAccount: e.target.value })}
+            className="mt-1 block w-32 rounded-lg border px-3 py-2 text-base"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-gray-600">作成者</span>
+          <input value={data.author} maxLength={30} onChange={(e) => update({ author: e.target.value })} className="mt-1 block w-32 rounded-lg border px-3 py-2 text-base" />
         </label>
         <button onClick={copyPrev} className="rounded-lg border bg-white px-3 py-2 text-sm">
           前の月の金額を写す

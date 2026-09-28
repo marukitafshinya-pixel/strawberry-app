@@ -97,14 +97,17 @@ function ReservationsView() {
 
   return (
     <>
-      <p className="text-sm">
+      <p className="text-sm print:hidden">
         <Link href="/staff/" className="text-gray-500 underline">
           ← メニュー
         </Link>
       </p>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">予約管理</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 print:hidden">
+          <button onClick={() => window.print()} className="rounded-lg border bg-white px-3 py-2 text-sm">
+            印刷
+          </button>
           {role === "admin" && (
             <button onClick={() => setBulkOpen(true)} className="rounded-lg border bg-white px-3 py-2 text-sm">
               まとめて受付停止・再開
@@ -117,7 +120,7 @@ function ReservationsView() {
       </div>
 
       {/* 表示の切り替え */}
-      <div className="mt-3 inline-flex overflow-hidden rounded-lg border bg-white text-sm">
+      <div className="mt-3 inline-flex overflow-hidden rounded-lg border bg-white text-sm print:hidden">
         <button onClick={() => setDate(date)} className={`px-4 py-2 ${!calendar ? "bg-berry font-bold text-white" : ""}`}>
           日ごと
         </button>
@@ -131,21 +134,21 @@ function ReservationsView() {
       ) : (
         <>
           {/* 日付の切り替え */}
-          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 shadow-sm">
-            <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-3 py-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 shadow-sm print:mt-2 print:p-0 print:shadow-none">
+            <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-3 py-2 print:hidden">
               ‹ 前日
             </button>
             <input
               type="date"
               value={date}
               onChange={(e) => isValidYmd(e.target.value) && setDate(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-base"
+              className="rounded-lg border px-3 py-2 text-base print:hidden"
             />
-            <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-3 py-2">
+            <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-3 py-2 print:hidden">
               翌日 ›
             </button>
             {date !== todayJST() && (
-              <button onClick={() => setDate(todayJST())} className="rounded-lg border px-3 py-2">
+              <button onClick={() => setDate(todayJST())} className="rounded-lg border px-3 py-2 print:hidden">
                 今日
               </button>
             )}
@@ -163,14 +166,14 @@ function ReservationsView() {
           {!reservations && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
 
           {/* 時間枠ごとの埋まり具合と予約一覧 */}
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-4 print:mt-2 print:space-y-2">
             {slotRows.map((slot) => {
               const rank = (r: Reservation) => (r.status === "request" ? 0 : r.status === "cancelled" ? 2 : 1);
               const list = (bySlot.get(slot.id) ?? []).sort((a, b) => rank(a) - rank(b));
               const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
               const requests = list.filter((r) => r.status === "request");
               return (
-                <section key={slot.id} className="rounded-2xl bg-white p-3 shadow-sm">
+                <section key={slot.id} className="break-inside-avoid rounded-2xl bg-white p-3 shadow-sm print:border print:p-2 print:shadow-none">
                   <SlotHeader
                     time={slot.time}
                     booked={booked}
@@ -202,6 +205,7 @@ function ReservationsView() {
         </>
       )}
 
+      <style>{`@media print { @page { size: A4 portrait; margin: 10mm; } body { background: #fff !important; } }`}</style>
       {bulkOpen && <BulkStopDialog settings={settings} initialDate={date} onClose={() => setBulkOpen(false)} />}
       {editing && (
         <ReservationForm
@@ -310,7 +314,7 @@ function PendingRequests({ current, onOpen }: { current: string; onOpen: (d: str
   const { value } = usePendingRequests(todayJST());
   if (!value || value.length === 0) return null;
   return (
-    <div className="mt-2 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm">
+    <div className="mt-2 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm print:hidden">
       <p className="font-bold text-purple-900">承認待ちのリクエスト {value.length}件</p>
       <p className="text-xs text-purple-800">お客様にお電話かメールで可否を連絡し、「承認」または「キャンセル」にしてください。</p>
       <ul className="mt-1 flex flex-wrap gap-2">
@@ -410,7 +414,7 @@ function SlotHeader({
         <div className={`h-full ${remaining < 0 ? "bg-red-500" : "bg-berry"}`} style={{ width: `${ratio * 100}%` }} />
       </div>
       {canEdit && !editing && (
-        <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500">
+        <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500 print:hidden">
           <button
             onClick={() => {
               setText(String(capacity));
@@ -501,7 +505,7 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
         <span className={`font-semibold ${cancelled ? "line-through" : ""}`}>{r.customerName} 様</span>
         <span className="text-sm">{r.people}人</span>
         {r.source === "web" && <span className="rounded bg-berry/10 px-1.5 text-xs text-berry-dark">Web {r.code}</span>}
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-2 print:hidden">
           {r.status === "request" ? (
             <button
               onClick={() => changeStatus("confirmed")}

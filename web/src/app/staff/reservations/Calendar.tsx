@@ -58,11 +58,11 @@ export function ReservationCalendar({
   };
 
   return (
-    <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+    <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm print:mt-0 print:p-0 print:shadow-none">
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => onMonth(shiftMonth(month, -1))}
-          className="rounded-lg border px-3 py-2"
+          className="rounded-lg border px-3 py-2 print:hidden"
         >
           ‹ 前の月
         </button>
@@ -71,14 +71,14 @@ export function ReservationCalendar({
         </h2>
         <button
           onClick={() => onMonth(shiftMonth(month, 1))}
-          className="rounded-lg border px-3 py-2"
+          className="rounded-lg border px-3 py-2 print:hidden"
         >
           次の月 ›
         </button>
         {month !== today.slice(0, 7) && (
           <button
             onClick={() => onMonth(today.slice(0, 7))}
-            className="rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2 print:hidden"
           >
             今月
           </button>
@@ -147,7 +147,7 @@ export function ReservationCalendar({
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-gray-500">
+      <p className="mt-2 text-xs text-gray-500 print:hidden">
         数字はその日の予約の合計人数です（キャンセルとリクエストは入れていません）。日付を押すと、その日の予約一覧を開きます。
       </p>
     </div>

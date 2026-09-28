@@ -56,6 +56,10 @@ export type Payroll = {
   rows: Record<string, PayRow>;
   employer: Partial<Record<EmployerKey, number>>;
   memo: string;
+  /** 振込一覧（給与明細）の「支払口座番号」（会社の口座） */
+  payerAccount: string;
+  /** 振込一覧の「作成」の名前 */
+  author: string;
 };
 
 const v = (r: PayRow, k: PayKey) => r[k] ?? 0;
@@ -69,7 +73,7 @@ export function computeRow(r: PayRow) {
 }
 
 export function emptyPayroll(): Payroll {
-  return { paymentDate: "", rows: {}, employer: {}, memo: "" };
+  return { paymentDate: "", rows: {}, employer: {}, memo: "", payerAccount: "", author: "" };
 }
 
 /** 和暦（令和）の年 */
