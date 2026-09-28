@@ -162,7 +162,10 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const [lastPaid] = useState(() => {
     if (typeof window === "undefined") return null;
     const q = new URLSearchParams(window.location.search);
-    return q.has("lastTotal") ? { total: Number(q.get("lastTotal")) || 0, change: q.has("lastChange") ? Number(q.get("lastChange")) || 0 : null } : null;
+    const id = q.get("lastId");
+    return q.has("lastTotal")
+      ? { total: Number(q.get("lastTotal")) || 0, change: q.has("lastChange") ? Number(q.get("lastChange")) || 0 : null, id: id && /^[A-Za-z0-9]{1,40}$/.test(id) ? id : null }
+      : null;
   });
   const [custom, setCustom] = useState({ name: "", price: "" });
   const [customTax, setCustomTax] = useState<TaxRate>(10);
@@ -250,7 +253,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         } catch {
           // 控えられなくても会計は確定している
         }
-        window.location.replace(`/staff/checkout/?lastTotal=${p.sale.total}${change !== null && change >= 0 ? `&lastChange=${change}` : ""}`);
+        window.location.replace(`/staff/checkout/?lastTotal=${p.sale.total}${change !== null && change >= 0 ? `&lastChange=${change}` : ""}&lastId=${res.id}`);
         return;
       }
       setDone(res);
@@ -491,6 +494,11 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           >
             このレシートを印刷
           </button>
+          {lastPaid.id && (
+            <Link href={`/staff/receipt/?sale=${lastPaid.id}&from=checkout&kind=invoice`} className="rounded-lg border border-green-700 bg-white px-3 py-1.5 text-sm font-bold text-green-800">
+              領収書（宛名つき）
+            </Link>
+          )}
         </div>
       )}
       {printError && (

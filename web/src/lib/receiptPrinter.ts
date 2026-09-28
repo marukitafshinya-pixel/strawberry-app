@@ -102,6 +102,33 @@ export function saleReceipt(s: Settings, sale: Sale, opts?: { received?: number 
   return out;
 }
 
+/** 宛名つきの領収書（レシートプリンター用） */
+export function invoiceReceipt(s: Settings, sale: Sale, opts: { addressee: string; note: string; issueDate: string }): RLine[] {
+  const [y, m, d] = opts.issueDate.split("-").map(Number);
+  const taxes = taxBreakdown(sale.lines, s);
+  const out: RLine[] = [
+    { t: "text", text: sale.status === "voided" ? "【取消】" : "領 収 書", align: "center", size: 1.6, bold: true },
+    { t: "row", left: `No.${sale.id.slice(0, 6).toUpperCase()}`, right: `${y}年${m}月${d}日`, size: 0.85 },
+    { t: "space", h: 0.5 },
+    { t: "text", text: `${opts.addressee.trim() || "上"} 様`, size: 1.25, bold: true },
+    { t: "rule" },
+    { t: "space", h: 0.3 },
+    { t: "text", text: `¥${sale.total.toLocaleString("ja-JP")}-`, align: "center", size: 1.9, bold: true },
+    { t: "text", text: "（税込）", align: "right", size: 0.85 },
+    ...taxes.map((r) => ({ t: "row", left: `${r.rate}%対象 ${yen(r.total)}`, right: `内消費税 ${yen(r.tax)}`, size: 0.85 }) as RLine),
+    { t: "space", h: 0.4 },
+    { t: "text", text: `但し　${opts.note}` },
+    { t: "text", text: "上記正に領収いたしました", size: 0.9 },
+    { t: "space" },
+    ...(sale.total - taxes.reduce((n, r) => n + r.tax, 0) >= 50000 ? [{ t: "text", text: "（収入印紙）", align: "left", size: 0.85 } as RLine, { t: "space" } as RLine] : []),
+    { t: "text", text: s.storeName || "（店名）", align: "center", size: 1.2, bold: true },
+    ...(s.storeAddress ? [{ t: "text", text: s.storeAddress, align: "center", size: 0.85 } as RLine] : []),
+    ...(s.storePhone ? [{ t: "text", text: `TEL ${s.storePhone}`, align: "center", size: 0.85 } as RLine] : []),
+    ...(s.invoiceNumber ? [{ t: "text", text: `登録番号 ${s.invoiceNumber}`, align: "center", size: 0.85 } as RLine] : []),
+  ];
+  return out;
+}
+
 export type SettleData = {
   date: string;
   float: number;

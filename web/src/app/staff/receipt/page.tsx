@@ -9,7 +9,7 @@ import { formatJa } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { useSettings, yen } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineTaxRate, taxBreakdown, type Sale } from "@/lib/sales";
-import { printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { invoiceReceipt, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import type { Settings } from "@/lib/settings";
 
 type Kind = "receipt" | "invoice";
@@ -46,7 +46,10 @@ function ReceiptLoader() {
 }
 
 function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
-  const [kind, setKind] = useState<Kind>("receipt");
+  // 会計の画面から来たとき（「← 会計に戻る」を出し、最初から領収書にする）
+  const params = useSearchParams();
+  const fromCheckout = params.get("from") === "checkout";
+  const [kind, setKind] = useState<Kind>(params.get("kind") === "invoice" ? "invoice" : "receipt");
   const [paper, setPaper] = useState<Paper>("narrow");
   const [addressee, setAddressee] = useState(sale.customerName);
   const [note, setNote] = useState("いちご狩り代として");
@@ -60,9 +63,15 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
       {/* 画面だけに出す操作部分（印刷されない） */}
       <div className="print:hidden">
         <p className="text-sm">
-          <Link href={`/staff/sales/?date=${sale.date}`} className="text-gray-500 underline">
-            ← 日次締め
-          </Link>
+          {fromCheckout ? (
+            <Link href="/staff/checkout/" className="text-gray-500 underline">
+              ← 会計に戻る
+            </Link>
+          ) : (
+            <Link href={`/staff/sales/?date=${sale.date}`} className="text-gray-500 underline">
+              ← 日次締め
+            </Link>
+          )}
         </p>
         <h1 className="mt-2 text-xl font-bold">レシート・領収書</h1>
         {voided && <p className="mt-2 rounded-lg bg-red-50 p-3 text-red-700">この会計は取り消されています。印刷すると「取消」と表示されます。</p>}
@@ -106,19 +115,22 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
               </label>
             </div>
           )}
-          {kind === "receipt" && (
-            <button
-              onClick={() => printReceipt(saleReceipt(s, sale), `/staff/receipt/?sale=${sale.id}`)}
-              className="w-full rounded-lg bg-emerald-700 py-3 text-lg font-bold text-white"
-            >
-              レシートプリンターで印刷
-            </button>
-          )}
-          <button onClick={() => window.print()} className="w-full rounded-lg bg-berry py-3 text-lg font-bold text-white">
-            印刷する
+          <button
+            onClick={() =>
+              printReceipt(
+                kind === "receipt" ? saleReceipt(s, sale) : invoiceReceipt(s, sale, { addressee, note, issueDate }),
+                `/staff/receipt/?sale=${sale.id}${fromCheckout ? "&from=checkout" : ""}`,
+              )
+            }
+            className="w-full rounded-lg bg-emerald-700 py-3 text-lg font-bold text-white"
+          >
+            {kind === "receipt" ? "レシート" : "領収書"}をレシートプリンターで印刷
+          </button>
+          <button onClick={() => window.print()} className="w-full rounded-lg border border-berry bg-white py-3 text-lg font-bold text-berry">
+            ふつうのプリンター（AirPrint）で印刷
           </button>
           <p className="text-xs text-gray-500">
-            iPad・iPhoneでは、印刷の画面でプリンター（AirPrint）を選びます。PDFとして保存したいときは、印刷の画面でプレビューを2本指で広げると保存・共有できます。
+            ホーム画面に追加したアプリでは、ふつうのプリンターの印刷は使えません（Safariで開いてください）。iPad・iPhoneでは、印刷の画面でプリンター（AirPrint）を選びます。PDFとして保存したいときは、印刷の画面でプレビューを2本指で広げると保存・共有できます。
           </p>
         </div>
         <p className="mt-4 text-sm text-gray-500">印刷のイメージ</p>
