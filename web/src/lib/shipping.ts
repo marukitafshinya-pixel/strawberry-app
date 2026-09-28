@@ -118,37 +118,20 @@ export function summarize(grades: Grade[], days: Record<string, DayItems>) {
 }
 
 /**
- * 単価表（Excel）の読み取り。いただいた表と同じ形：
- *   1行目に「6月」「7月」…、2行目に日（1〜31）、3行目から A列=区分・B列=規格、各日の列に単価
+ * 出荷の表（Excel）の読み取り。いただいた「日別実績」の表と同じ形：
+ *   「6月」「7月」…の行、その下に日（1〜31）の行、その下に A列=区分・B列=規格、各日の列に数字
+ *   A列（または月の行・日の行）に「数量」とあれば数量の表、「単価」とあれば単価の表として読む。
+ *   どちらとも書いていない表は単価の表として読む。
+ * 日付は「〇月」と書いてある列から順に1日、2日…と数える（日の行の数字がずれていても大丈夫なように）。
  * 区分や規格名は少し違っても（「粒」と「粒売り」、「プレミアム20」と「プレミアム」）同じものとして扱う。
  */
-export function parsePriceTable(table: string[][], grades: Grade[], year: number) {
-  const isDay = (s: string) => /^\d{1,2}$/.test(s.trim()) && Number(s) >= 1 && Number(s) <= 31;
-  // 日の行：1〜31の数字がいちばん多い行
-  let dayRow = -1;
-  let best = 0;
-  table.slice(0, 10).forEach((r, i) => {
-    const n = (r ?? []).filter((c) => isDay(c ?? "")).length;
-    if (n > best) {
-      best = n;
-      dayRow = i;
-    }
-  });
-  if (dayRow < 1 || best < 5) return { error: "「6月」「7月」の行と、日（1〜31）の行が見つかりません" as string };
-  const monthRow = table[dayRow - 1] ?? [];
-  const days = table[dayRow];
-  // 列 → 日付
-  const colDate = new Map<number, string>();
-  let month = 0;
-  for (let c = 0; c < days.length; c++) {
-    const m = (monthRow[c] ?? "").match(/(\d{1,2})\s*月/);
-    if (m) month = Number(m[1]);
-    if (!month || !isDay(days[c] ?? "")) continue;
-    const d = `${year}-${String(month).padStart(2, "0")}-${String(Number(days[c])).padStart(2, "0")}`;
-    if (!Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d) colDate.set(c, d);
-  }
-  const firstDayCol = Math.min(...colDate.keys());
-
+export function parseShipmentTable(table: string[][], grades: Grade[], year: number) {
+  const cell = (r: number, c: number) => (table[r]?.[c] ?? "").trim();
+  const isDay = (s: string) => /^\d{1,2}$/.test(s) && Number(s) >= 1 && Number(s) <= 31;
+  const monthOf = (s: string) => {
+    const m = s.match(/^(\d{1,2})\s*月$/);
+    return m && Number(m[1]) >= 1 && Number(m[1]) <= 12 ? Number(m[1]) : 0;
+  };
   const norm = (s: string) => s.replace(/\s/g, "").normalize("NFKC");
   const like = (a: string, b: string) => a === b || (a.length > 0 && b.length > 0 && (a.startsWith(b) || b.startsWith(a)));
   const findGrade = (group: string, name: string) => {
@@ -156,31 +139,87 @@ export function parsePriceTable(table: string[][], grades: Grade[], year: number
     return inGroup.find((g) => norm(g.name) === name) ?? inGroup.find((g) => like(norm(g.name), name));
   };
 
-  const prices: Record<string, Record<string, number>> = {};
-  const matched: { grade: Grade; label: string; cells: number }[] = [];
-  const unmatched: string[] = [];
-  let group = "";
-  for (const r of table.slice(dayRow + 1)) {
-    if (!r) continue;
-    if ((r[0] ?? "").trim()) group = norm(r[0]);
-    const name = norm(r[1] ?? "");
-    if (!name) continue;
-    const label = `${group} ${name}`;
-    const g = findGrade(group, name);
-    if (!g || matched.some((m) => m.grade.id === g.id)) {
-      unmatched.push(label);
-      continue;
+  const qty: Record<string, Record<string, number>> = {};
+  const price: Record<string, Record<string, number>> = {};
+  type Found = { grade: Grade; label: string; qtyDays: number; priceDays: number };
+  const found = new Map<string, Found>();
+  const unmatched = new Set<string>();
+  let blocks = 0;
+
+  for (let r = 1; r < table.length; r++) {
+    const row = table[r] ?? [];
+    // 日の行：1〜31の数字が20個以上
+    if (row.filter((c) => isDay((c ?? "").trim())).length < 20) continue;
+    // 月の行：すぐ上の行の「〇月」
+    const monthRow = table[r - 1] ?? [];
+    const starts: { col: number; month: number }[] = [];
+    monthRow.forEach((c, i) => {
+      const m = monthOf((c ?? "").trim());
+      if (m) starts.push({ col: i, month: m });
+    });
+    if (starts.length === 0) continue;
+    const label = [cell(r - 1, 0), cell(r, 0), cell(r - 2, 0)].join(" ");
+    const kind: "qty" | "price" = /数量|個数|パック数/.test(label) ? "qty" : "price";
+    const target = kind === "qty" ? qty : price;
+    blocks++;
+    // 列 → 日付（月の列から順に数える）
+    const colDate = new Map<number, string>();
+    starts.forEach(({ col, month }, k) => {
+      const end = k + 1 < starts.length ? starts[k + 1].col : row.length;
+      const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      for (let c = col; c < end && c - col < last; c++) {
+        colDate.set(c, `${year}-${String(month).padStart(2, "0")}-${String(c - col + 1).padStart(2, "0")}`);
+      }
+    });
+    // 規格の行（空の行か、次の表で終わり）
+    let group = "";
+    for (let rr = r + 1; rr < table.length; rr++) {
+      const g0 = cell(rr, 0);
+      const name = norm(cell(rr, 1));
+      if (!g0 && !name) break;
+      if (g0) group = norm(g0);
+      if (!name) continue;
+      const grade = findGrade(group, name);
+      if (!grade) {
+        unmatched.add(`${group} ${name}`);
+        continue;
+      }
+      const f = found.get(grade.id) ?? { grade, label: `${group} ${name}`, qtyDays: 0, priceDays: 0 };
+      for (const [c, d] of colDate) {
+        const raw = (table[rr]?.[c] ?? "").replace(/[,¥円]/g, "").trim();
+        const v = Number(raw);
+        if (!raw || !Number.isFinite(v) || v < 0) continue;
+        // 数量の0は「出荷なし」なので入れない
+        if (kind === "qty" && v === 0) continue;
+        (target[d] ??= {})[grade.id] = Math.round(v);
+        if (kind === "qty") f.qtyDays++;
+        else f.priceDays++;
+      }
+      found.set(grade.id, f);
     }
-    let cells = 0;
-    for (const [c, d] of colDate) {
-      if (c < firstDayCol) continue;
-      const v = Number((r[c] ?? "").replace(/[,¥円]/g, ""));
-      if (!(r[c] ?? "").trim() || !Number.isFinite(v) || v < 0) continue;
-      (prices[d] ??= {})[g.id] = Math.round(v);
-      cells++;
-    }
-    matched.push({ grade: g, label, cells });
   }
-  const dates = Object.keys(prices).sort();
-  return { prices, matched, unmatched, from: dates[0] ?? "", to: dates[dates.length - 1] ?? "", error: "" };
+  if (blocks === 0) return { error: "「6月」「7月」の行と、日（1〜31）の行が見つかりません" };
+  const dates = [...new Set([...Object.keys(qty), ...Object.keys(price)])].sort();
+  return {
+    error: "",
+    qty,
+    price,
+    matched: [...found.values()],
+    unmatched: [...unmatched],
+    from: dates[0] ?? "",
+    to: dates[dates.length - 1] ?? "",
+    qtyDays: Object.keys(qty).length,
+    priceDays: Object.keys(price).length,
+  };
+}
+
+/** シート名や表の見出しから年を読む（「2026」「R8」「令和8年」） */
+export function guessYear(texts: string[]): number | null {
+  for (const t of texts) {
+    const y = t.match(/20\d\d/);
+    if (y) return Number(y[0]);
+    const r = t.normalize("NFKC").match(/(?:R|令和)\s*(\d{1,2})/);
+    if (r) return 2018 + Number(r[1]);
+  }
+  return null;
 }

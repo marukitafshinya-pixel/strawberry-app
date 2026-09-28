@@ -11,8 +11,8 @@ import { addDays, shiftMonth, todayJST, weekday } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { parsePriceTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
-import { readXlsxFirstSheet } from "@/lib/xlsx";
+import { guessYear, parseShipmentTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 type Mode = "qty" | "price";
 
@@ -334,52 +334,82 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
   );
 }
 
-/** 単価表（Excel）を取り込んで、日ごとの単価をまとめて保存する。数量はそのまま */
+/** 出荷の表（Excel）を取り込んで、日ごとの数量・単価をまとめて保存する */
 function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; defaultYear: number; onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [table, setTable] = useState<{ name: string; rows: string[][] } | null>(null);
+  const [file, setFile] = useState<{ name: string; book: Workbook | null; csv: string[][] | null } | null>(null);
+  const [sheet, setSheet] = useState("");
+  const [table, setTable] = useState<string[][] | null>(null);
   const [year, setYear] = useState(defaultYear);
-  const [onlyShipped, setOnlyShipped] = useState(false);
+  const [useQty, setUseQty] = useState(true);
+  const [usePrice, setUsePrice] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function pick(file: File) {
+  async function openSheet(book: Workbook, name: string, fileName: string) {
+    setSheet(name);
+    setTable(null);
+    const rows = await book.readSheet(name);
+    setTable(rows);
+    const y = guessYear([...(rows.slice(0, 3).flat() ?? []), name, fileName]);
+    if (y) setYear(y);
+  }
+
+  async function pick(f: File) {
     setError("");
     setMessage("");
+    setBusy(true);
     try {
-      const buf = await file.arrayBuffer();
-      const rows = /\.xlsx$/i.test(file.name) ? await readXlsxFirstSheet(buf) : parseCsv(decodeCsv(buf).text);
-      setTable({ name: file.name, rows });
-      const y = file.name.match(/20\d\d/);
-      if (y) setYear(Number(y[0]));
+      const buf = await f.arrayBuffer();
+      if (/\.csv$/i.test(f.name)) {
+        const rows = parseCsv(decodeCsv(buf).text);
+        setFile({ name: f.name, book: null, csv: rows });
+        setTable(rows);
+        const y = guessYear([f.name]);
+        if (y) setYear(y);
+      } else {
+        const book = await openWorkbook(buf);
+        setFile({ name: f.name, book, csv: null });
+        // 「日別実績」のシートを先に選ぶ（年の新しいものを優先）
+        const names = book.sheetNames;
+        const daily = names.filter((n) => /日別実績/.test(n)).sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0));
+        await openSheet(book, daily[0] ?? names[0], f.name);
+      }
     } catch (e) {
       setError(`読み込めませんでした：${e instanceof Error ? e.message : String(e)}`);
+      setFile(null);
+    } finally {
+      setBusy(false);
     }
   }
 
-  const parsed = table ? parsePriceTable(table.rows, grades, year) : null;
-  const days = parsed && !parsed.error ? Object.keys(parsed.prices!).length : 0;
+  const parsed = table ? parseShipmentTable(table, grades, year) : null;
+  const ok = parsed && !parsed.error ? parsed : null;
+  const willQty = useQty && !!ok && ok.qtyDays! > 0;
+  const willPrice = usePrice && !!ok && ok.priceDays! > 0;
 
   async function save() {
-    if (!parsed || parsed.error) return;
-    setSaving(true);
+    if (!ok) return;
+    setBusy(true);
     setError("");
     try {
       const { db } = await getFirebase();
-      // いま入っている数量を消さないよう、先に読んでから単価だけ上書きする
-      const snap = await getDocs(query(collection(db, "shipments"), where(documentId(), ">=", parsed.from!), where(documentId(), "<=", parsed.to!)));
+      // いま入っている内容を読んでから、表にある数量・単価だけ上書きする（表が空欄のところはそのまま）
+      const snap = await getDocs(query(collection(db, "shipments"), where(documentId(), ">=", ok.from!), where(documentId(), "<=", ok.to!)));
       const current = new Map(snap.docs.map((d) => [d.id, (d.get("items") as DayItems) ?? {}]));
+      const dates = [...new Set([...(willQty ? Object.keys(ok.qty!) : []), ...(willPrice ? Object.keys(ok.price!) : [])])].sort();
       const writes: [string, DayItems][] = [];
-      for (const [date, prices] of Object.entries(parsed.prices!)) {
+      for (const date of dates) {
         const items: DayItems = { ...(current.get(date) ?? {}) };
         let changed = false;
-        for (const [gid, price] of Object.entries(prices)) {
-          if (onlyShipped && !items[gid]?.qty) continue;
-          if (items[gid]?.price === price) continue;
-          items[gid] = { ...(items[gid] ?? {}), price };
+        const put = (gid: string, field: "qty" | "price", v: number) => {
+          if (items[gid]?.[field] === v) return;
+          items[gid] = { ...(items[gid] ?? {}), [field]: v };
           changed = true;
-        }
+        };
+        if (willQty) for (const [gid, v] of Object.entries(ok.qty![date] ?? {})) put(gid, "qty", v);
+        if (willPrice) for (const [gid, v] of Object.entries(ok.price![date] ?? {})) put(gid, "price", v);
         if (changed) writes.push([date, items]);
       }
       // 1回に書けるのは500件までなので分ける
@@ -388,13 +418,14 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
         for (const [date, items] of writes.slice(i, i + 400)) batch.set(doc(db, `shipments/${date}`), { items, updatedAt: serverTimestamp() });
         await batch.commit();
       }
-      setMessage(`${writes.length}日分の単価を保存しました。`);
+      setMessage(writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。");
+      setFile(null);
       setTable(null);
       onDone();
     } catch (e) {
       setError(errorText(e));
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
 
@@ -403,7 +434,7 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
       <input
         ref={fileRef}
         type="file"
-        accept=".xlsx,.csv"
+        accept=".xlsx,.xlsb,.csv"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -411,61 +442,94 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
           if (f) pick(f);
         }}
       />
-      {!table && (
-        <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-4 py-2 text-sm">
-          Excelの単価表を取り込む
+      {!file && (
+        <button disabled={busy} onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-4 py-2 text-sm disabled:opacity-50">
+          {busy ? "読み込み中…" : "Excelの出荷実績を取り込む（数量・単価）"}
         </button>
       )}
       {message && <p className="mt-2 text-sm text-green-700">{message}</p>}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {table && parsed && (
+      {file && (
         <section className="mt-2 rounded-2xl border border-berry/40 bg-white p-4 text-sm shadow-sm">
-          <h2 className="font-bold">単価表の取り込み（{table.name}）</h2>
-          <label className="mt-2 flex items-center gap-2">
-            <span className="text-gray-600">何年の単価ですか</span>
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border px-2 py-1 text-base">
-              {Array.from({ length: 8 }, (_, i) => defaultYear + 1 - i).map((y) => (
-                <option key={y} value={y}>
-                  {y}年
-                </option>
-              ))}
-            </select>
-          </label>
-          {parsed.error ? (
+          <h2 className="font-bold">出荷実績の取り込み（{file.name}）</h2>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {file.book && (
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">タブ</span>
+                <select
+                  value={sheet}
+                  disabled={busy}
+                  onChange={(e) => openSheet(file.book!, e.target.value, file.name).catch((er) => setError(String(er)))}
+                  className="rounded-lg border px-2 py-1 text-base"
+                >
+                  {file.book.sheetNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="flex items-center gap-2">
+              <span className="text-gray-600">何年の実績ですか</span>
+              <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border px-2 py-1 text-base">
+                {Array.from({ length: 8 }, (_, i) => defaultYear + 1 - i).map((y) => (
+                  <option key={y} value={y}>
+                    {y}年
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {!table ? (
+            <p className="mt-2 text-gray-500">読み込み中…</p>
+          ) : parsed?.error ? (
             <p className="mt-2 text-red-600">{parsed.error}</p>
           ) : (
-            <>
-              <p className="mt-2">
-                <b>
-                  {formatYmd(parsed.from!)} 〜 {formatYmd(parsed.to!)}
-                </b>
-                の{days}日分・{parsed.matched!.length}規格の単価を入れます。数量はそのままです。
-              </p>
-              <ul className="mt-2 grid gap-x-4 gap-y-0.5 text-xs text-gray-700 sm:grid-cols-2">
-                {parsed.matched!.map((m) => (
-                  <li key={m.grade.id}>
-                    表の「{m.label}」→ <b>{m.grade.group} {m.grade.name}</b>（{m.cells}日）
-                  </li>
-                ))}
-              </ul>
-              {parsed.unmatched!.length > 0 && (
-                <p className="mt-2 text-xs text-amber-800">規格が見つからず入れないもの：{parsed.unmatched!.join("、")}（規格の設定に追加すると入れられます）</p>
-              )}
-              <label className="mt-3 flex items-center gap-2">
-                <input type="checkbox" checked={onlyShipped} onChange={(e) => setOnlyShipped(e.target.checked)} />
-                数量が入っている日だけに入れる
-              </label>
-            </>
+            ok && (
+              <>
+                <p className="mt-2">
+                  <b>
+                    {formatYmd(ok.from!)} 〜 {formatYmd(ok.to!)}
+                  </b>
+                  　数量：{ok.qtyDays}日分　単価：{ok.priceDays}日分
+                </p>
+                <div className="mt-2 flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={useQty} disabled={ok.qtyDays === 0} onChange={(e) => setUseQty(e.target.checked)} />
+                    数量を入れる
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={usePrice} disabled={ok.priceDays === 0} onChange={(e) => setUsePrice(e.target.checked)} />
+                    単価を入れる
+                  </label>
+                </div>
+                <ul className="mt-2 grid gap-x-4 gap-y-0.5 text-xs text-gray-700 sm:grid-cols-2">
+                  {ok.matched!.map((m) => (
+                    <li key={m.grade.id}>
+                      表の「{m.label}」→ <b>{m.grade.group} {m.grade.name}</b>（数量{m.qtyDays}日・単価{m.priceDays}日）
+                    </li>
+                  ))}
+                </ul>
+                {ok.unmatched!.length > 0 && (
+                  <p className="mt-2 text-xs text-amber-800">規格が見つからず入れないもの：{ok.unmatched!.join("、")}（規格の設定に追加すると入れられます）</p>
+                )}
+                <p className="mt-2 text-xs text-gray-500">表が空欄の日・規格は、今入っている内容のままです。</p>
+              </>
+            )
           )}
           <div className="mt-3 flex gap-2">
-            <button
-              disabled={saving || !!parsed.error || days === 0}
-              onClick={save}
-              className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-40"
-            >
-              {saving ? "保存中…" : "取り込んで保存する"}
+            <button disabled={busy || !ok || (!willQty && !willPrice)} onClick={save} className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-40">
+              {busy ? "保存中…" : "取り込んで保存する"}
             </button>
-            <button disabled={saving} onClick={() => setTable(null)} className="rounded-lg border px-4 py-2">
+            <button
+              disabled={busy}
+              onClick={() => {
+                setFile(null);
+                setTable(null);
+              }}
+              className="rounded-lg border px-4 py-2"
+            >
               やめる
             </button>
           </div>
