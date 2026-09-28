@@ -90,6 +90,8 @@ function initialLines(settings: Settings, r: Reservation | null): Line[] {
  * サーバーは同じ番号の会計を2回記録しない。
  */
 const PENDING_KEY = "ichigo.pendingCheckout";
+/** 直前の会計（次の会計の画面から、レシートを出せるように） */
+const LAST_SALE_KEY = "ichigo.lastSale";
 type Pending = {
   requestId: string;
   payload: Record<string, unknown>;
@@ -233,13 +235,24 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   });
 
   /** 控えておいた会計を送り、確定したら完了の画面にする（同じ番号なので2回送っても1回分） */
-  async function submitPending(p: Pending) {
+  async function submitPending(p: Pending, thenNew = false) {
     setSaving(true);
     setError("");
     try {
       const res = await callFunction<Record<string, unknown>, { id: string; total: number }>("checkout", { ...p.payload, requestId: p.requestId });
       savePending(null);
       setRetry(null);
+      if (thenNew) {
+        // すぐ次の会計の画面にする。前回の会計はレシートを後から出せるよう控えておく
+        const change = p.payment === "cash" && p.received !== "" ? Number(p.received) - p.sale.total : null;
+        try {
+          window.localStorage.setItem(LAST_SALE_KEY, JSON.stringify({ sale: { ...p.sale, id: res.id }, received: p.received }));
+        } catch {
+          // 控えられなくても会計は確定している
+        }
+        window.location.replace(`/staff/checkout/?lastTotal=${p.sale.total}${change !== null && change >= 0 ? `&lastChange=${change}` : ""}`);
+        return;
+      }
       setDone(res);
       setDoneSale({ ...p.sale, id: res.id });
       window.scrollTo(0, 0);
@@ -276,7 +289,8 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       if (pc.autoPrint) printReceipt(saleReceipt(settings, pending.sale, { received: received === "" ? null : Number(received) }), back, payment === "cash" ? "sale-cash" : "other");
       else openDrawerWithSii(pc, back);
       // ホーム画面のアプリのときは、この画面のまま戻ってくるので、ここで確定を確かめる
-      if (isHomeScreenApp()) void submitPending(pending);
+      // 確定したら、そのまま次の会計の画面にする（「続けて別の会計をする」を押さなくてよいように）
+      if (isHomeScreenApp()) void submitPending(pending, true);
       return;
     }
     setSaving(true);
@@ -454,14 +468,30 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         </div>
       )}
       {lastPaid && (
-        <p className="mt-2 rounded-lg bg-green-50 p-3 text-green-900">
-          前回の会計：<b>{yen(lastPaid.total)}</b>
-          {lastPaid.change !== null && (
-            <>
-              　おつり <b className="text-lg">{yen(lastPaid.change)}</b>
-            </>
-          )}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-green-50 p-3 text-green-900">
+          <span>
+            前回の会計：<b>{yen(lastPaid.total)}</b>
+            {lastPaid.change !== null && (
+              <>
+                　おつり <b className="text-2xl">{yen(lastPaid.change)}</b>
+              </>
+            )}
+          </span>
+          <button
+            onClick={() => {
+              try {
+                const v = JSON.parse(window.localStorage.getItem(LAST_SALE_KEY) ?? "null") as { sale: Sale; received: string } | null;
+                if (!v) return setError("前回の会計が見つかりません。取引履歴から印刷してください");
+                printReceipt(saleReceipt(settings, v.sale, { received: v.received === "" ? null : Number(v.received) }), "/staff/checkout/");
+              } catch {
+                setError("前回の会計が見つかりません。取引履歴から印刷してください");
+              }
+            }}
+            className="rounded-lg border border-green-700 bg-white px-3 py-1.5 text-sm font-bold text-green-800"
+          >
+            このレシートを印刷
+          </button>
+        </div>
       )}
       {printError && (
         <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
