@@ -25,6 +25,7 @@ import {
 } from "@/lib/reservations";
 import type { Settings } from "@/lib/settings";
 import { ReservationForm } from "./ReservationForm";
+import { ReservationCalendar } from "./Calendar";
 
 export default function ReservationsPage() {
   return (
@@ -39,6 +40,11 @@ function ReservationsView() {
   const router = useRouter();
   const date = isValidYmd(params.get("date")) ? params.get("date")! : todayJST();
   const setDate = (d: string) => router.replace(`/staff/reservations/?date=${d}`);
+  // カレンダー表示（?view=calendar&month=YYYY-MM）
+  const calendar = params.get("view") === "calendar";
+  const monthParam = params.get("month");
+  const month = monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : date.slice(0, 7);
+  const showCalendar = (ym: string) => router.replace(`/staff/reservations/?view=calendar&month=${ym}&date=${date}`);
 
   const { value: settings } = useSettings();
   const { value: reservations, error } = useReservations(date);
@@ -110,75 +116,91 @@ function ReservationsView() {
         </div>
       </div>
 
-      {/* 日付の切り替え */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 shadow-sm">
-        <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-3 py-2">
-          ‹ 前日
+      {/* 表示の切り替え */}
+      <div className="mt-3 inline-flex overflow-hidden rounded-lg border bg-white text-sm">
+        <button onClick={() => setDate(date)} className={`px-4 py-2 ${!calendar ? "bg-berry font-bold text-white" : ""}`}>
+          日ごと
         </button>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => isValidYmd(e.target.value) && setDate(e.target.value)}
-          className="rounded-lg border px-3 py-2 text-base"
-        />
-        <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-3 py-2">
-          翌日 ›
+        <button onClick={() => showCalendar(month)} className={`px-4 py-2 ${calendar ? "bg-berry font-bold text-white" : ""}`}>
+          カレンダー
         </button>
-        {date !== todayJST() && (
-          <button onClick={() => setDate(todayJST())} className="rounded-lg border px-3 py-2">
-            今日
-          </button>
-        )}
-        <div className="ml-auto text-right">
-          <div className="font-bold">{formatJa(date, true)}</div>
-          <div className="text-sm text-gray-600">
-            {active.length}件・{totalPeople}人
+      </div>
+
+      {calendar ? (
+        <ReservationCalendar month={month} selected={date} settings={settings} onMonth={showCalendar} onPick={setDate} />
+      ) : (
+        <>
+          {/* 日付の切り替え */}
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 shadow-sm">
+            <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-3 py-2">
+              ‹ 前日
+            </button>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => isValidYmd(e.target.value) && setDate(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-base"
+            />
+            <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-3 py-2">
+              翌日 ›
+            </button>
+            {date !== todayJST() && (
+              <button onClick={() => setDate(todayJST())} className="rounded-lg border px-3 py-2">
+                今日
+              </button>
+            )}
+            <div className="ml-auto text-right">
+              <div className="font-bold">{formatJa(date, true)}</div>
+              <div className="text-sm text-gray-600">
+                {active.length}件・{totalPeople}人
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <DayNotice date={date} settings={settings} />
-      <PendingRequests current={date} onOpen={setDate} />
+          <DayNotice date={date} settings={settings} />
+          <PendingRequests current={date} onOpen={setDate} />
 
-      {error ? <p className="mt-4 text-red-600">{errorText(error)}</p> : null}
-      {!reservations && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
+          {error ? <p className="mt-4 text-red-600">{errorText(error)}</p> : null}
+          {!reservations && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
 
-      {/* 時間枠ごとの埋まり具合と予約一覧 */}
-      <div className="mt-4 space-y-4">
-        {slotRows.map((slot) => {
-          const rank = (r: Reservation) => (r.status === "request" ? 0 : r.status === "cancelled" ? 2 : 1);
-          const list = (bySlot.get(slot.id) ?? []).sort((a, b) => rank(a) - rank(b));
-          const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
-          const requests = list.filter((r) => r.status === "request");
-          return (
-            <section key={slot.id} className="rounded-2xl bg-white p-3 shadow-sm">
-              <SlotHeader
-                time={slot.time}
-                booked={booked}
-                capacity={slot.capacity}
-                standard={slot.standard}
-                canEdit={role === "admin"}
-                onChangeCapacity={(v) => saveDailyCapacity(slot.id, v)}
-                webStopped={stopped?.[slot.id] === true}
-                onToggleWeb={(v) => setWebStopped(slot.id, v)}
-              />
-              {requests.length > 0 && (
-                <p className="mt-1 text-sm text-purple-800">
-                  リクエスト {requests.length}件（{requests.reduce((n, r) => n + r.people, 0)}人）…承認すると定員に数えます
-                </p>
-              )}
-              {list.length === 0 ? (
-                <p className="mt-2 text-sm text-gray-400">予約なし</p>
-              ) : (
-                <ul className="mt-2 divide-y">
-                  {list.map((r) => (
-                    <ReservationRow key={r.id} r={r} phone={contacts?.[r.id]?.phone} onEdit={() => setEditing(r)} />
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+          {/* 時間枠ごとの埋まり具合と予約一覧 */}
+          <div className="mt-4 space-y-4">
+            {slotRows.map((slot) => {
+              const rank = (r: Reservation) => (r.status === "request" ? 0 : r.status === "cancelled" ? 2 : 1);
+              const list = (bySlot.get(slot.id) ?? []).sort((a, b) => rank(a) - rank(b));
+              const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
+              const requests = list.filter((r) => r.status === "request");
+              return (
+                <section key={slot.id} className="rounded-2xl bg-white p-3 shadow-sm">
+                  <SlotHeader
+                    time={slot.time}
+                    booked={booked}
+                    capacity={slot.capacity}
+                    standard={slot.standard}
+                    canEdit={role === "admin"}
+                    onChangeCapacity={(v) => saveDailyCapacity(slot.id, v)}
+                    webStopped={stopped?.[slot.id] === true}
+                    onToggleWeb={(v) => setWebStopped(slot.id, v)}
+                  />
+                  {requests.length > 0 && (
+                    <p className="mt-1 text-sm text-purple-800">
+                      リクエスト {requests.length}件（{requests.reduce((n, r) => n + r.people, 0)}人）…承認すると定員に数えます
+                    </p>
+                  )}
+                  {list.length === 0 ? (
+                    <p className="mt-2 text-sm text-gray-400">予約なし</p>
+                  ) : (
+                    <ul className="mt-2 divide-y">
+                      {list.map((r) => (
+                        <ReservationRow key={r.id} r={r} phone={contacts?.[r.id]?.phone} onEdit={() => setEditing(r)} />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {bulkOpen && <BulkStopDialog settings={settings} initialDate={date} onClose={() => setBulkOpen(false)} />}
       {editing && (
