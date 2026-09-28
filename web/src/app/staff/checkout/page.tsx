@@ -83,9 +83,52 @@ function initialLines(settings: Settings, r: Reservation | null): Line[] {
   }));
 }
 
+/**
+ * プリンターのアプリ（SII URL Print Agent）に切り替える会計は、ボタンを押したその場で切り替える
+ * （サーバーの返事を待ってから切り替えると、iPad が「開きますか？」と聞いてくるため）。
+ * そのため会計の中身をこの端末に控えておき、戻ってきたら同じ番号でもう一度送って確定を確かめる。
+ * サーバーは同じ番号の会計を2回記録しない。
+ */
+const PENDING_KEY = "ichigo.pendingCheckout";
+type Pending = {
+  requestId: string;
+  payload: Record<string, unknown>;
+  sale: Sale;
+  lines: Line[];
+  payment: PaymentMethod;
+  received: string;
+  customerName: string;
+  memo: string;
+};
+function loadPending(): Pending | null {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(PENDING_KEY) ?? "null") as Pending | null;
+    return v && typeof v.requestId === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function savePending(p: Pending | null) {
+  try {
+    if (p) window.localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+    else window.localStorage.removeItem(PENDING_KEY);
+  } catch {
+    // 保存できなくても会計は進める（戻ったときに確かめられないだけ）
+  }
+}
+function newRequestId(): string {
+  const a = new Uint8Array(12);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function Checkout({ settings, reservation: r, editing }: { settings: Settings; reservation: Reservation | null; editing: Sale | null }) {
+  // プリンターのアプリから戻ってきたところなら、控えておいた会計を使う
+  const [resume] = useState<Pending | null>(() => (typeof window !== "undefined" && !editing ? loadPending() : null));
   const [lines, setLines] = useState<Line[]>(() =>
-    editing
+    resume
+      ? resume.lines
+      : editing
       ? editing.lines.map((l) => ({
           key: newId(),
           kind: l.kind,
@@ -99,14 +142,16 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         }))
       : initialLines(settings, r),
   );
-  const [customerName, setCustomerName] = useState(editing?.customerName ?? r?.customerName ?? "");
-  const [payment, setPayment] = useState<PaymentMethod>(editing?.payment ?? "cash");
+  const [customerName, setCustomerName] = useState(resume?.customerName ?? editing?.customerName ?? r?.customerName ?? "");
+  const [payment, setPayment] = useState<PaymentMethod>(resume?.payment ?? editing?.payment ?? "cash");
   const [dueDate, setDueDate] = useState("");
-  const [memo, setMemo] = useState(editing?.memo ?? "");
-  const [received, setReceived] = useState("");
+  const [memo, setMemo] = useState(resume?.memo ?? editing?.memo ?? "");
+  const [received, setReceived] = useState(resume?.received ?? "");
   const [allRate, setAllRate] = useState("");
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(!!resume);
+  /** 戻ってきたときに確定を確かめられなかった会計（もう一度送る） */
+  const [retry, setRetry] = useState<Pending | null>(null);
   const [done, setDone] = useState<{ id: string; total: number } | null>(null);
   /** 印刷用に、確定した会計の中身を控えておく */
   const [doneSale, setDoneSale] = useState<Sale | null>(null);
@@ -152,55 +197,95 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
     else setLines([...lines, { ...line, key: newId(), qty: 1, discountRate: Number(allRate) || 0 }]);
   }
 
+  /** サーバーに送る会計の中身 */
+  const payloadNow = () => ({
+    reservationId: r?.id ?? null,
+    date: editing?.date ?? todayJST(),
+    replaceSaleId: editing?.id ?? null,
+    customerName,
+    payment,
+    dueDate: payment === "credit" ? dueDate || null : null,
+    memo,
+    lines: lines.map(({ kind, refId, name, category, unitPrice, qty, discountRate, taxRate }) => ({
+      taxRate,
+      kind,
+      refId,
+      name,
+      category,
+      unitPrice,
+      qty,
+      discountRate,
+    })),
+  });
+  const saleNow = (id: string): Sale => ({
+    id,
+    date: editing?.date ?? todayJST(),
+    reservationId: r?.id ?? null,
+    customerName,
+    lines: lines.map((l) => ({ ...l, amount: lineAmount(l.unitPrice, l.qty, l.discountRate) })),
+    subtotal,
+    discountTotal: subtotal - total,
+    total,
+    payment,
+    status: "completed",
+    receivableId: null,
+    memo,
+  });
+
+  /** 控えておいた会計を送り、確定したら完了の画面にする（同じ番号なので2回送っても1回分） */
+  async function submitPending(p: Pending) {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await callFunction<Record<string, unknown>, { id: string; total: number }>("checkout", { ...p.payload, requestId: p.requestId });
+      savePending(null);
+      setRetry(null);
+      setDone(res);
+      setDoneSale({ ...p.sale, id: res.id });
+      window.scrollTo(0, 0);
+    } catch (e) {
+      setRetry(p);
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // プリンターのアプリから戻ってきたら、控えておいた会計を確かめる
+  useEffect(() => {
+    // 画面を出してから送る
+    if (resume) queueMicrotask(() => submitPending(resume));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function confirm() {
     setError("");
     if (lines.length === 0) return setError("明細を1つ以上入れてください");
     if (payment === "credit" && !customerName.trim()) return setError("売掛のときは、お客様名を入れてください");
+    const pc = loadPrinter();
+    const useAgent = pc.method === "sii" && !editing && (pc.autoPrint || (payment === "cash" && pc.drawerOnCashConfirm));
+    if (useAgent) {
+      // 押したその場でプリンターのアプリに切り替える（iPad の「開きますか？」を出さないため）
+      const requestId = newRequestId();
+      const pending: Pending = { requestId, payload: payloadNow(), sale: saleNow(requestId), lines, payment, received, customerName, memo };
+      savePending(pending);
+      setSaving(true);
+      // 先に送っておく（戻ってきたときに同じ番号で送り直して、確定を確かめる）
+      callFunction("checkout", { ...pending.payload, requestId }).catch(() => {});
+      const back = "/staff/checkout/?resume=1";
+      if (pc.autoPrint) printReceipt(saleReceipt(settings, pending.sale, { received: received === "" ? null : Number(received) }), back, payment === "cash" ? "sale-cash" : "other");
+      else openDrawerWithSii(pc, back);
+      return;
+    }
     setSaving(true);
     try {
-      const res = await callFunction<Record<string, unknown>, { id: string; total: number }>("checkout", {
-        reservationId: r?.id ?? null,
-        date: editing?.date ?? todayJST(),
-        replaceSaleId: editing?.id ?? null,
-        customerName,
-        payment,
-        dueDate: payment === "credit" ? dueDate || null : null,
-        memo,
-        lines: lines.map(({ kind, refId, name, category, unitPrice, qty, discountRate, taxRate }) => ({
-          taxRate,
-          kind,
-          refId,
-          name,
-          category,
-          unitPrice,
-          qty,
-          discountRate,
-        })),
-      });
+      const res = await callFunction<Record<string, unknown>, { id: string; total: number }>("checkout", payloadNow());
       setDone(res);
-      const sale: Sale = {
-        id: res.id,
-        date: editing?.date ?? todayJST(),
-        reservationId: r?.id ?? null,
-        customerName,
-        lines: lines.map((l) => ({ ...l, amount: lineAmount(l.unitPrice, l.qty, l.discountRate) })),
-        subtotal,
-        discountTotal: subtotal - total,
-        total,
-        payment,
-        status: "completed",
-        receivableId: null,
-        memo,
-      };
+      const sale = saleNow(res.id);
       setDoneSale(sale);
       window.scrollTo(0, 0);
-      // 戻ってきたときに合計とおつりが見えるように、戻り先に付けておく
-      const back = `/staff/checkout/?lastTotal=${total}${sale.payment === "cash" && change !== null && change >= 0 ? `&lastChange=${change}` : ""}`;
-      const pc = loadPrinter();
-      // 設定で「すぐに印刷」にしていれば、そのままレシートを出す（現金ならドロアーも一緒に開く）
-      if (pc.autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), back, sale.payment === "cash" ? "sale-cash" : "other");
-      // 印刷しないときも、現金で確定したらドロアーを開ける
-      else if (sale.payment === "cash" && pc.method === "sii" && pc.drawerOnCashConfirm) openDrawerWithSii(pc, back);
+      // 設定で「すぐに印刷」にしていれば、そのままレシートを出す（ふつうの印刷のとき）
+      if (pc.autoPrint) printReceipt(saleReceipt(settings, sale, { received: received === "" ? null : Number(received) }), "/staff/checkout/", "other");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -338,6 +423,34 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           予約：{formatJa(r.date)} {r.slotTime} {r.customerName}様（{peopleText(r)}）
         </p>
       ) : null}
+      {resume && !done && !retry && (
+        <p className="mt-2 rounded-lg bg-sky-50 p-3 text-sky-900">会計を確定しています…</p>
+      )}
+      {retry && !done && (
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p className="font-bold">
+            {yen(retry.sale.total)}（{PAYMENT_LABEL[retry.payment]}）の会計の確定を確かめられませんでした。
+          </p>
+          <p className="mt-1">電波を確かめて「もう一度送る」を押してください。同じ会計が2回記録されることはありません。（{error}）</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button disabled={saving} onClick={() => submitPending(retry)} className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-50">
+              {saving ? "送信中…" : "もう一度送る"}
+            </button>
+            <button
+              disabled={saving}
+              onClick={() => {
+                if (!window.confirm("この会計を記録せずにやめますか？（すでに記録されていた場合は、取引履歴から取り消してください）")) return;
+                savePending(null);
+                setRetry(null);
+                setError("");
+              }}
+              className="rounded-lg border bg-white px-4 py-2"
+            >
+              この会計をやめる
+            </button>
+          </div>
+        </div>
+      )}
       {lastPaid && (
         <p className="mt-2 rounded-lg bg-green-50 p-3 text-green-900">
           前回の会計：<b>{yen(lastPaid.total)}</b>

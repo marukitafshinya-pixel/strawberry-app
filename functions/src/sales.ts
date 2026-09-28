@@ -95,11 +95,19 @@ export const checkout = onCall(async (req) => {
   // 取引の修正：元の会計を取り消して、この会計に置き換える（日付と予約は元のまま）
   const replaceSaleId = typeof req.data?.replaceSaleId === "string" && req.data.replaceSaleId ? req.data.replaceSaleId.slice(0, 64) : null;
   const dueDate = typeof req.data?.dueDate === "string" && DATE_RE.test(req.data.dueDate) ? req.data.dueDate : null;
+  // 同じ会計を2回送っても1回分だけ記録するための番号（画面が先に決める。プリンターのアプリに切り替わる前に送るため）
+  const requestId = typeof req.data?.requestId === "string" && /^[A-Za-z0-9]{12,40}$/.test(req.data.requestId) ? req.data.requestId : null;
 
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
   const total = lines.reduce((n, l) => n + l.amount, 0);
 
   return db.runTransaction(async (tx) => {
+    const saleRef = requestId ? db.doc(`sales/${requestId}`) : db.collection("sales").doc();
+    if (requestId) {
+      const already = await tx.get(saleRef);
+      // すでに記録済み（送り直し）なら、そのまま同じ結果を返す
+      if (already.exists) return { id: saleRef.id, total: already.get("total") as number };
+    }
     const oldRef = replaceSaleId ? db.doc(`sales/${replaceSaleId}`) : null;
     let old: SaleDoc | null = null;
     if (oldRef) {
@@ -122,7 +130,6 @@ export const checkout = onCall(async (req) => {
       const linked = r.exists ? r.get("saleId") : null;
       if (linked && linked !== replaceSaleId) throw new HttpsError("already-exists", "この予約はすでに会計済みです。取り消してから会計し直してください");
     }
-    const saleRef = db.collection("sales").doc();
     const recRef = payment === "credit" ? db.collection("receivables").doc() : null;
     const now = FieldValue.serverTimestamp();
     const sale: SaleDoc = {
