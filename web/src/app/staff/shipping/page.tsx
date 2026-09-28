@@ -1,16 +1,18 @@
 "use client";
 
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
+import { decodeCsv, parseCsv } from "@/lib/csv";
 import { addDays, shiftMonth, todayJST, weekday } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { parsePriceTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { readXlsxFirstSheet } from "@/lib/xlsx";
 
 type Mode = "qty" | "price";
 
@@ -38,6 +40,8 @@ function ShippingView() {
   const loaded = useShipments(from, to);
   const year = month.slice(0, 4);
   const yearData = useShipments(`${year}-01-01`, `${year}-12-31`);
+  // 取り込みのあと、表を読み直すための番号
+  const [version, setVersion] = useState(0);
 
   return (
     <>
@@ -83,7 +87,10 @@ function ShippingView() {
           )}
         </p>
       ) : (
-        <Grid key={month} month={month} grades={config.grades} loaded={loaded} />
+        <>
+          <PriceImport grades={config.grades} defaultYear={Number(year)} onDone={() => setVersion((v) => v + 1)} />
+          <Grid key={`${month}_${version}`} month={month} grades={config.grades} loaded={loaded} />
+        </>
       )}
       {config && exists && yearData && <YearSummary year={year} grades={config.grades} data={yearData} />}
     </>
@@ -326,6 +333,150 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
     </div>
   );
 }
+
+/** 単価表（Excel）を取り込んで、日ごとの単価をまとめて保存する。数量はそのまま */
+function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; defaultYear: number; onDone: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [table, setTable] = useState<{ name: string; rows: string[][] } | null>(null);
+  const [year, setYear] = useState(defaultYear);
+  const [onlyShipped, setOnlyShipped] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function pick(file: File) {
+    setError("");
+    setMessage("");
+    try {
+      const buf = await file.arrayBuffer();
+      const rows = /\.xlsx$/i.test(file.name) ? await readXlsxFirstSheet(buf) : parseCsv(decodeCsv(buf).text);
+      setTable({ name: file.name, rows });
+      const y = file.name.match(/20\d\d/);
+      if (y) setYear(Number(y[0]));
+    } catch (e) {
+      setError(`読み込めませんでした：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const parsed = table ? parsePriceTable(table.rows, grades, year) : null;
+  const days = parsed && !parsed.error ? Object.keys(parsed.prices!).length : 0;
+
+  async function save() {
+    if (!parsed || parsed.error) return;
+    setSaving(true);
+    setError("");
+    try {
+      const { db } = await getFirebase();
+      // いま入っている数量を消さないよう、先に読んでから単価だけ上書きする
+      const snap = await getDocs(query(collection(db, "shipments"), where(documentId(), ">=", parsed.from!), where(documentId(), "<=", parsed.to!)));
+      const current = new Map(snap.docs.map((d) => [d.id, (d.get("items") as DayItems) ?? {}]));
+      const writes: [string, DayItems][] = [];
+      for (const [date, prices] of Object.entries(parsed.prices!)) {
+        const items: DayItems = { ...(current.get(date) ?? {}) };
+        let changed = false;
+        for (const [gid, price] of Object.entries(prices)) {
+          if (onlyShipped && !items[gid]?.qty) continue;
+          if (items[gid]?.price === price) continue;
+          items[gid] = { ...(items[gid] ?? {}), price };
+          changed = true;
+        }
+        if (changed) writes.push([date, items]);
+      }
+      // 1回に書けるのは500件までなので分ける
+      for (let i = 0; i < writes.length; i += 400) {
+        const batch = writeBatch(db);
+        for (const [date, items] of writes.slice(i, i + 400)) batch.set(doc(db, `shipments/${date}`), { items, updatedAt: serverTimestamp() });
+        await batch.commit();
+      }
+      setMessage(`${writes.length}日分の単価を保存しました。`);
+      setTable(null);
+      onDone();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".xlsx,.csv"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) pick(f);
+        }}
+      />
+      {!table && (
+        <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-4 py-2 text-sm">
+          Excelの単価表を取り込む
+        </button>
+      )}
+      {message && <p className="mt-2 text-sm text-green-700">{message}</p>}
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {table && parsed && (
+        <section className="mt-2 rounded-2xl border border-berry/40 bg-white p-4 text-sm shadow-sm">
+          <h2 className="font-bold">単価表の取り込み（{table.name}）</h2>
+          <label className="mt-2 flex items-center gap-2">
+            <span className="text-gray-600">何年の単価ですか</span>
+            <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border px-2 py-1 text-base">
+              {Array.from({ length: 8 }, (_, i) => defaultYear + 1 - i).map((y) => (
+                <option key={y} value={y}>
+                  {y}年
+                </option>
+              ))}
+            </select>
+          </label>
+          {parsed.error ? (
+            <p className="mt-2 text-red-600">{parsed.error}</p>
+          ) : (
+            <>
+              <p className="mt-2">
+                <b>
+                  {formatYmd(parsed.from!)} 〜 {formatYmd(parsed.to!)}
+                </b>
+                の{days}日分・{parsed.matched!.length}規格の単価を入れます。数量はそのままです。
+              </p>
+              <ul className="mt-2 grid gap-x-4 gap-y-0.5 text-xs text-gray-700 sm:grid-cols-2">
+                {parsed.matched!.map((m) => (
+                  <li key={m.grade.id}>
+                    表の「{m.label}」→ <b>{m.grade.group} {m.grade.name}</b>（{m.cells}日）
+                  </li>
+                ))}
+              </ul>
+              {parsed.unmatched!.length > 0 && (
+                <p className="mt-2 text-xs text-amber-800">規格が見つからず入れないもの：{parsed.unmatched!.join("、")}（規格の設定に追加すると入れられます）</p>
+              )}
+              <label className="mt-3 flex items-center gap-2">
+                <input type="checkbox" checked={onlyShipped} onChange={(e) => setOnlyShipped(e.target.checked)} />
+                数量が入っている日だけに入れる
+              </label>
+            </>
+          )}
+          <div className="mt-3 flex gap-2">
+            <button
+              disabled={saving || !!parsed.error || days === 0}
+              onClick={save}
+              className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-40"
+            >
+              {saving ? "保存中…" : "取り込んで保存する"}
+            </button>
+            <button disabled={saving} onClick={() => setTable(null)} className="rounded-lg border px-4 py-2">
+              やめる
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">表示中の月の表で、まだ保存していない入力があるときは、先に保存してください。</p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+const formatYmd = (d: string) => `${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`;
 
 /** 期間でまとめて単価を入れる */
 function BulkPrice({

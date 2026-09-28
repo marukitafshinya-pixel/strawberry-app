@@ -116,3 +116,71 @@ export function summarize(grades: Grade[], days: Record<string, DayItems>) {
     };
   });
 }
+
+/**
+ * 単価表（Excel）の読み取り。いただいた表と同じ形：
+ *   1行目に「6月」「7月」…、2行目に日（1〜31）、3行目から A列=区分・B列=規格、各日の列に単価
+ * 区分や規格名は少し違っても（「粒」と「粒売り」、「プレミアム20」と「プレミアム」）同じものとして扱う。
+ */
+export function parsePriceTable(table: string[][], grades: Grade[], year: number) {
+  const isDay = (s: string) => /^\d{1,2}$/.test(s.trim()) && Number(s) >= 1 && Number(s) <= 31;
+  // 日の行：1〜31の数字がいちばん多い行
+  let dayRow = -1;
+  let best = 0;
+  table.slice(0, 10).forEach((r, i) => {
+    const n = (r ?? []).filter((c) => isDay(c ?? "")).length;
+    if (n > best) {
+      best = n;
+      dayRow = i;
+    }
+  });
+  if (dayRow < 1 || best < 5) return { error: "「6月」「7月」の行と、日（1〜31）の行が見つかりません" as string };
+  const monthRow = table[dayRow - 1] ?? [];
+  const days = table[dayRow];
+  // 列 → 日付
+  const colDate = new Map<number, string>();
+  let month = 0;
+  for (let c = 0; c < days.length; c++) {
+    const m = (monthRow[c] ?? "").match(/(\d{1,2})\s*月/);
+    if (m) month = Number(m[1]);
+    if (!month || !isDay(days[c] ?? "")) continue;
+    const d = `${year}-${String(month).padStart(2, "0")}-${String(Number(days[c])).padStart(2, "0")}`;
+    if (!Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d) colDate.set(c, d);
+  }
+  const firstDayCol = Math.min(...colDate.keys());
+
+  const norm = (s: string) => s.replace(/\s/g, "").normalize("NFKC");
+  const like = (a: string, b: string) => a === b || (a.length > 0 && b.length > 0 && (a.startsWith(b) || b.startsWith(a)));
+  const findGrade = (group: string, name: string) => {
+    const inGroup = grades.filter((g) => like(norm(g.group), group));
+    return inGroup.find((g) => norm(g.name) === name) ?? inGroup.find((g) => like(norm(g.name), name));
+  };
+
+  const prices: Record<string, Record<string, number>> = {};
+  const matched: { grade: Grade; label: string; cells: number }[] = [];
+  const unmatched: string[] = [];
+  let group = "";
+  for (const r of table.slice(dayRow + 1)) {
+    if (!r) continue;
+    if ((r[0] ?? "").trim()) group = norm(r[0]);
+    const name = norm(r[1] ?? "");
+    if (!name) continue;
+    const label = `${group} ${name}`;
+    const g = findGrade(group, name);
+    if (!g || matched.some((m) => m.grade.id === g.id)) {
+      unmatched.push(label);
+      continue;
+    }
+    let cells = 0;
+    for (const [c, d] of colDate) {
+      if (c < firstDayCol) continue;
+      const v = Number((r[c] ?? "").replace(/[,¥円]/g, ""));
+      if (!(r[c] ?? "").trim() || !Number.isFinite(v) || v < 0) continue;
+      (prices[d] ??= {})[g.id] = Math.round(v);
+      cells++;
+    }
+    matched.push({ grade: g, label, cells });
+  }
+  const dates = Object.keys(prices).sort();
+  return { prices, matched, unmatched, from: dates[0] ?? "", to: dates[dates.length - 1] ?? "", error: "" };
+}
