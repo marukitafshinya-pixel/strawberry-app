@@ -269,3 +269,104 @@ export function SeriesToggle({
     </div>
   );
 }
+
+/**
+ * 2つの年を並べた縦棒（例：月ごとの売上を今年と去年で比べる）
+ * rows: 月ごとに a（比べる年）と b（基準の年）の値
+ */
+export function PairedColumns({
+  rows,
+  a,
+  b,
+  fmt,
+  axis,
+  height = 240,
+  ariaLabel,
+}: {
+  rows: { key: string; label: string; a: number | null; b: number | null }[];
+  a: Series;
+  b: Series;
+  fmt: (n: number) => string;
+  axis: (n: number) => string;
+  height?: number;
+  ariaLabel: string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [box, W] = useWidth<HTMLDivElement>(640);
+  const H = height;
+  const pad = { l: 48, r: 8, t: 12, b: 24 };
+  const max = niceMax(Math.max(0, ...rows.flatMap((r) => [r.a ?? 0, r.b ?? 0])));
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const slot = plotW / Math.max(1, rows.length);
+  // 2本の棒の間に2pxのすき間
+  const barW = Math.max(3, Math.min(22, (slot * 0.8 - 2) / 2));
+  const y = (v: number) => pad.t + plotH - (Math.max(0, v) / max) * plotH;
+  const ticks = [0, max / 2, max];
+  const pct = (x: number | null, base: number | null) => (x !== null && base ? `${Math.round((x / base) * 100)}%` : "－");
+
+  return (
+    <div className="relative" ref={box}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={ariaLabel} onPointerLeave={() => setHover(null)}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
+            <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
+              {axis(t)}
+            </text>
+          </g>
+        ))}
+        {rows.map((r, i) => {
+          const cx = pad.l + slot * i + slot / 2;
+          const dim = hover === null || hover === i ? 1 : 0.55;
+          const bar = (v: number | null, x: number, color: string) =>
+            v !== null && v > 0 ? <path d={topRoundedRect(x, y(v), barW, y(0) - y(v), 4)} fill={color} opacity={dim} /> : null;
+          return (
+            <g key={r.key}>
+              {bar(r.a, cx - barW - 1, a.color)}
+              {bar(r.b, cx + 1, b.color)}
+              <text x={cx} y={H - 6} textAnchor="middle" fontSize={11} fill={TEXT_MUTED}>
+                {/* 狭いときは「月」を省く */}
+                {slot < 34 ? r.label.replace(/月$/, "") : r.label}
+              </text>
+              <rect
+                x={pad.l + slot * i}
+                y={pad.t}
+                width={slot}
+                height={plotH}
+                fill="transparent"
+                tabIndex={0}
+                onPointerEnter={() => setHover(i)}
+                onPointerDown={() => setHover(i)}
+                onFocus={() => setHover(i)}
+                onBlur={() => setHover(null)}
+                aria-label={`${r.label} ${a.label} ${r.a === null ? "なし" : fmt(r.a)} ${b.label} ${r.b === null ? "なし" : fmt(r.b)}`}
+              />
+            </g>
+          );
+        })}
+        <line x1={pad.l} x2={W - pad.r} y1={y(0)} y2={y(0)} stroke="#bdbbb4" strokeWidth={1} />
+      </svg>
+      {hover !== null && (
+        <Tooltip x={((pad.l + slot * hover + slot / 2) / W) * 100}>
+          <div className="text-xs text-gray-500">{rows[hover].label}</div>
+          <ul className="mt-1 space-y-0.5">
+            {[
+              { s: a, v: rows[hover].a },
+              { s: b, v: rows[hover].b },
+            ].map(({ s, v }) => (
+              <li key={s.key} className="flex items-center gap-2 text-xs">
+                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: s.color }} />
+                <span className="font-semibold">{v === null ? "なし" : fmt(v)}</span>
+                <span className="text-gray-500">{s.label}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1 text-xs">
+            {b.label}比 <b>{pct(rows[hover].a, rows[hover].b)}</b>
+          </div>
+        </Tooltip>
+      )}
+    </div>
+  );
+}

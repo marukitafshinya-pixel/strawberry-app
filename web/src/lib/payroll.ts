@@ -1,7 +1,7 @@
 "use client";
 
 // 給与（管理者だけが使う）
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, documentId, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { parseAmount } from "./csv";
 import { getFirebase } from "./firebase";
@@ -187,4 +187,26 @@ export function parsePayrollCsv(rows: string[][]): { entries: PayrollCsvEntry[];
   const dup = codes.find((c, i) => codes.indexOf(c) !== i);
   if (dup) return { entries: [], error: `社員番号 ${dup} が2回出てきます` };
   return { entries };
+}
+
+/** 期間内の給与（"YYYY-MM" → 給与）。enabled が false のときは読まない（管理者以外は読めないため） */
+export function usePayrollsRange(fromMonth: string, toMonth: string, enabled: boolean) {
+  const key = `${fromMonth}_${toMonth}_${enabled}`;
+  const [state, setState] = useState<{ key: string; data: Record<string, Payroll> } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let unsubscribe = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsubscribe = onSnapshot(query(collection(db, "payrolls"), where(documentId(), ">=", fromMonth), where(documentId(), "<=", toMonth)), (snap) =>
+        setState({ key, data: Object.fromEntries(snap.docs.map((d) => [d.id, { ...emptyPayroll(), ...(d.data() as Partial<Payroll>) }])) }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [fromMonth, toMonth, enabled, key]);
+  return state && state.key === key ? state.data : null;
 }
