@@ -205,6 +205,13 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
 
   const dayTotal = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * (data[d]?.[g.id]?.price ?? 0), 0);
   const dayQty = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0), 0);
+  // パック数量：粒売り（1粒ずつ売るもの）はパックではないので数えない（Excelの「パック数」と同じ）
+  const isPack = (g: Grade) => (g.count || 1) > 1;
+  const dayPacks = (d: string) => grades.reduce((n, g) => n + (isPack(g) ? (data[d]?.[g.id]?.qty ?? 0) : 0), 0);
+  const totalPacks = days.reduce((n, d) => n + dayPacks(d), 0);
+  // 粒数：粒売り（プレミアム・ロイヤル）はそのまま、パックは 数量×1パックの粒数
+  const dayBerries = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * (g.count || 1), 0);
+  const totalBerries = days.reduce((n, d) => n + dayBerries(d), 0);
   const today = todayJST();
 
   return (
@@ -249,7 +256,7 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
                   )}
                 </th>
               ))}
-              <th className="bg-berry/10 px-2 py-2 text-right">合計</th>
+              <th className="bg-berry/10 px-2 py-2 text-right">合計（パック）</th>
               <th className="bg-berry/10 px-2 py-2 text-right">重量</th>
               <th className="bg-berry/10 px-2 py-2 text-right">金額</th>
               <th className="bg-berry/10 px-2 py-2 text-right">平均単価</th>
@@ -288,21 +295,31 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
           </tbody>
           <tfoot className="bg-gray-50 text-xs font-semibold">
             <tr className="border-t-2">
-              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（数量）</td>
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（パック数量）</td>
               {days.map((d) => (
                 <td key={d} className="px-1 text-right tabular-nums">
-                  {dayQty(d) || ""}
+                  {dayPacks(d) || ""}
                 </td>
               ))}
-              <td className="px-2 text-right tabular-nums">{summary.reduce((n, s) => n + s.qty, 0).toLocaleString("ja-JP")}</td>
+              <td className="px-2 text-right tabular-nums">{totalPacks.toLocaleString("ja-JP")}</td>
               <td className="px-2 text-right tabular-nums">{totalWeight.toLocaleString("ja-JP")}kg</td>
               <td colSpan={3} />
             </tr>
             <tr className="border-t">
-              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額）</td>
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（粒数）</td>
               {days.map((d) => (
                 <td key={d} className="px-1 text-right tabular-nums">
-                  {dayTotal(d) ? (dayTotal(d) / 1000).toFixed(1) + "k" : ""}
+                  {dayBerries(d) ? dayBerries(d).toLocaleString("ja-JP") : ""}
+                </td>
+              ))}
+              <td className="px-2 text-right tabular-nums">{totalBerries.toLocaleString("ja-JP")}粒</td>
+              <td colSpan={4} />
+            </tr>
+            <tr className="border-t">
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額・円）</td>
+              {days.map((d) => (
+                <td key={d} className="whitespace-nowrap px-1 text-right tabular-nums">
+                  {dayTotal(d) ? dayTotal(d).toLocaleString("ja-JP") : ""}
                 </td>
               ))}
               <td colSpan={2} />
@@ -312,11 +329,13 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
           </tfoot>
         </table>
       </div>
-      <p className="mt-1 text-xs text-gray-500">日計（金額）の「k」は千円です（例：12.5k ＝ 12,500円）。金額は 数量×単価 で、単価が入っていない日の分は含みません。</p>
+      <p className="mt-1 text-xs text-gray-500">日計（パック数量）は、パックの数だけを足しています（粒売りのプレミアム・ロイヤルは入れません）。日計（粒数）は、粒売り（プレミアム・ロイヤル）はそのまま、パックは「数量×1パックの粒数」で数えています（例：秀8粒を10パック ＝ 80粒）。金額は 数量×単価 で、単価が入っていない日の分は含みません。</p>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Tile label={`${Number(month.slice(5))}月の出荷金額`} value={yen(totalAmount)} strong />
         <Tile label="出荷重量" value={`${totalWeight.toLocaleString("ja-JP")}kg`} />
+        <Tile label="パック数量" value={totalPacks.toLocaleString("ja-JP")} />
+        <Tile label="粒数" value={`${totalBerries.toLocaleString("ja-JP")}粒`} />
         <Tile label="出荷日数" value={`${days.filter((d) => dayQty(d) > 0).length}日`} />
       </div>
 
@@ -679,7 +698,7 @@ function YearSummary({ year, grades, data }: { year: string; grades: Grade[]; da
     .map((m) => {
       const days = Object.fromEntries(Object.entries(data).filter(([d]) => d.startsWith(m)));
       const s = summarize(grades, days);
-      return { m, qty: s.reduce((n, x) => n + x.qty, 0), kg: Math.round(s.reduce((n, x) => n + x.weightKg, 0) * 10) / 10, amount: s.reduce((n, x) => n + x.amount, 0) };
+      return { m, qty: s.reduce((n, x) => n + x.qty, 0), packs: s.reduce((n, x) => n + ((x.grade.count || 1) > 1 ? x.qty : 0), 0), berries: s.reduce((n, x) => n + x.qty * (x.grade.count || 1), 0), kg: Math.round(s.reduce((n, x) => n + x.weightKg, 0) * 10) / 10, amount: s.reduce((n, x) => n + x.amount, 0) };
     })
     .filter((r) => r.qty > 0);
   if (rows.length === 0) return null;
@@ -690,7 +709,8 @@ function YearSummary({ year, grades, data }: { year: string; grades: Grade[]; da
         <thead>
           <tr className="text-left text-xs text-gray-500">
             <th className="py-1">月</th>
-            <th className="py-1 text-right">数量</th>
+            <th className="py-1 text-right">パック数量</th>
+            <th className="py-1 text-right">粒数</th>
             <th className="py-1 text-right">重量</th>
             <th className="py-1 text-right">金額</th>
           </tr>
@@ -699,14 +719,16 @@ function YearSummary({ year, grades, data }: { year: string; grades: Grade[]; da
           {rows.map((r) => (
             <tr key={r.m} className="border-t">
               <td className="py-1">{Number(r.m.slice(5))}月</td>
-              <td className="py-1 text-right tabular-nums">{r.qty.toLocaleString("ja-JP")}</td>
+              <td className="py-1 text-right tabular-nums">{r.packs.toLocaleString("ja-JP")}</td>
+              <td className="py-1 text-right tabular-nums">{r.berries.toLocaleString("ja-JP")}</td>
               <td className="py-1 text-right tabular-nums">{r.kg.toLocaleString("ja-JP")}kg</td>
               <td className="py-1 text-right font-semibold tabular-nums">{yen(r.amount)}</td>
             </tr>
           ))}
           <tr className="border-t-2 font-bold">
             <td className="py-1">合計</td>
-            <td className="py-1 text-right tabular-nums">{rows.reduce((n, r) => n + r.qty, 0).toLocaleString("ja-JP")}</td>
+            <td className="py-1 text-right tabular-nums">{rows.reduce((n, r) => n + r.packs, 0).toLocaleString("ja-JP")}</td>
+            <td className="py-1 text-right tabular-nums">{rows.reduce((n, r) => n + r.berries, 0).toLocaleString("ja-JP")}</td>
             <td className="py-1 text-right tabular-nums">{(Math.round(rows.reduce((n, r) => n + r.kg, 0) * 10) / 10).toLocaleString("ja-JP")}kg</td>
             <td className="py-1 text-right tabular-nums">{yen(rows.reduce((n, r) => n + r.amount, 0))}</td>
           </tr>
