@@ -20,6 +20,8 @@ export const STORE_ITEMS = [
 
 export type StoreKey = (typeof STORE_ITEMS)[number]["key"];
 export type StoreDay = Partial<Record<StoreKey, number>>;
+/** エアレジから取り込んだ項目（エアレジの数字を優先し、Excelでは上書きしない） */
+export const AIRREGI_KEYS: StoreKey[] = ["total", "totalCustomers", "discount"];
 export const STORE_KEYS = STORE_ITEMS.map((i) => i.key) as StoreKey[];
 
 /** 期間内の店舗実績（日付 → 項目ごとの数字） */

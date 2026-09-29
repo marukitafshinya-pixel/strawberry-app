@@ -147,7 +147,7 @@ service cloud.firestore {
       allow read: if isStaff();
       allow write: if isStaff()
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.keys().hasOnly(['direct', 'directCustomers', 'cafe', 'cafeCustomers', 'ichigo', 'ichigoCustomers', 'total', 'totalCustomers', 'discount', 'updatedAt']);
+        && request.resource.data.keys().hasOnly(['direct', 'directCustomers', 'cafe', 'cafeCustomers', 'ichigo', 'ichigoCustomers', 'total', 'totalCustomers', 'discount', 'airregi', 'updatedAt']);
       allow delete: if isStaff();
     }
 

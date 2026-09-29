@@ -1,6 +1,6 @@
 "use client";
 
-import { collection, doc, documentId, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
+import { collection, deleteField, doc, documentId, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -11,7 +11,7 @@ import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear } from "@/lib/shipping";
 import { decodeCsv, parseCsv } from "@/lib/csv";
-import { STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
+import { AIRREGI_KEYS, STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 const lastDayOf = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
@@ -113,7 +113,13 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
       for (const d of changed) {
         const day = data[d] ?? {};
         if (Object.keys(day).length === 0) batch.delete(doc(db, `storeDaily/${d}`));
-        else batch.set(doc(db, `storeDaily/${d}`), { ...day, updatedAt: serverTimestamp() });
+        // 項目だけを書き換える（エアレジから取り込んだ印は残す）。空にした項目は消える
+        else
+          batch.set(
+            doc(db, `storeDaily/${d}`),
+            { ...Object.fromEntries(STORE_KEYS.map((k) => [k, day[k] ?? deleteField()])), updatedAt: serverTimestamp() },
+            { merge: true },
+          );
       }
       await batch.commit();
       setChanged([]);
@@ -297,19 +303,29 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       // 今入っている内容を読んでから、表にある項目だけ上書きする（表が空欄のところはそのまま）
       const snap = await getDocs(query(collection(db, "storeDaily"), where(documentId(), ">=", ok.from!), where(documentId(), "<=", ok.to!)));
       const current = new Map(snap.docs.map((d) => [d.id, Object.fromEntries(STORE_KEYS.filter((k) => typeof d.get(k) === "number").map((k) => [k, d.get(k) as number])) as StoreDay]));
-      const writes: [string, StoreDay][] = [];
+      const fromAirregi = new Set(snap.docs.filter((d) => d.get("airregi") === true).map((d) => d.id));
+      const writes: [string, StoreDay, boolean][] = [];
+      let kept = 0;
       for (const [date, day] of Object.entries(ok.days!)) {
         const cur = current.get(date) ?? {};
-        const next = { ...cur, ...day };
-        if (STORE_KEYS.every((k) => cur[k] === next[k])) continue;
-        writes.push([date, next]);
+        const add = { ...day };
+        // ExcelとエアレジでI数字が違うときはエアレジを優先：エアレジで入れた日の 売上合計・客数・値引額 はExcelで上書きしない
+        if (!csv && fromAirregi.has(date)) {
+          for (const k of AIRREGI_KEYS) if (k in add) delete add[k];
+          kept++;
+        }
+        const next = { ...cur, ...add };
+        const air = !!csv || fromAirregi.has(date);
+        if (STORE_KEYS.every((k) => cur[k] === next[k]) && air === fromAirregi.has(date)) continue;
+        writes.push([date, next, air]);
       }
       for (let i = 0; i < writes.length; i += 400) {
         const batch = writeBatch(db);
-        for (const [date, day] of writes.slice(i, i + 400)) batch.set(doc(db, `storeDaily/${date}`), { ...day, updatedAt: serverTimestamp() });
+        for (const [date, day, air] of writes.slice(i, i + 400)) batch.set(doc(db, `storeDaily/${date}`), { ...day, ...(air ? { airregi: true } : {}), updatedAt: serverTimestamp() });
         await batch.commit();
       }
-      setMessage(writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。");
+      if (kept > 0) setMessage(`（${kept}日分は、売上合計・客数・値引額をエアレジの数字のまま残しました）`);
+      setMessage((m) => `${writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。"}${m.startsWith("（") ? m : ""}`);
       setFile(null);
       setTable(null);
       setCsv(null);
