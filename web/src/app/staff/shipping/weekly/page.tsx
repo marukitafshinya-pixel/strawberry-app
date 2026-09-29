@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { Legend, SERIES_COLORS, StackedColumns, type Series } from "@/components/charts";
+import { Legend, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
 import { addDays, todayJST } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
@@ -40,6 +40,33 @@ type WeekRow = {
   days: number;
 };
 
+/** 日ごとの出荷を、週ごとにまとめる */
+function computeRows(weeks: { no: number; from: string; to: string }[], days: Record<string, DayItems>, grades: Grade[]): WeekRow[] {
+  return weeks.map((w) => {
+    const r: WeekRow = { ...w, packs: 0, berries: 0, kg: 0, amount: 0, byGrade: {}, byGroup: {}, days: 0 };
+    for (let d = w.from; d <= w.to; d = addDays(d, 1)) {
+      const items: DayItems = days[d] ?? {};
+      let any = false;
+      for (const g of grades) {
+        const it = items[g.id];
+        if (!it?.qty) continue;
+        any = true;
+        const count = g.count || 1;
+        if (count > 1) r.packs += it.qty;
+        r.berries += it.qty * count;
+        r.kg += (it.qty * unitWeight(g)) / 1000;
+        const amt = it.qty * (it.price ?? 0);
+        r.amount += amt;
+        r.byGrade[g.id] = (r.byGrade[g.id] ?? 0) + it.qty;
+        r.byGroup[g.group] = (r.byGroup[g.group] ?? 0) + amt;
+      }
+      if (any) r.days++;
+    }
+    r.kg = Math.round(r.kg * 10) / 10;
+    return r;
+  });
+}
+
 export default function WeeklyPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
@@ -61,35 +88,18 @@ function WeeklyView() {
   const [showEmpty, setShowEmpty] = useState(false);
   const years = Array.from({ length: thisYear - 2023 + 2 }, (_, i) => thisYear + 1 - i);
 
+  // 前年と比べるときは、前年の同じ週（第〇週）どうしを並べる
+  const compare = params.get("view") === "compare";
+  const prevWeeks = useMemo(() => weeksOf(year - 1), [year]);
+  const prevDays = useShipments(prevWeeks[0].from, prevWeeks[prevWeeks.length - 1].to);
   const data = useMemo(() => {
     if (!days || !config) return null;
     const grades = config.grades;
     const groups = [...new Set(grades.map((g) => g.group))];
-    const rows: WeekRow[] = weeks.map((w) => {
-      const r: WeekRow = { ...w, packs: 0, berries: 0, kg: 0, amount: 0, byGrade: {}, byGroup: {}, days: 0 };
-      for (let d = w.from; d <= w.to; d = addDays(d, 1)) {
-        const items: DayItems = days[d] ?? {};
-        let any = false;
-        for (const g of grades) {
-          const it = items[g.id];
-          if (!it?.qty) continue;
-          any = true;
-          const count = g.count || 1;
-          if (count > 1) r.packs += it.qty;
-          r.berries += it.qty * count;
-          r.kg += (it.qty * unitWeight(g)) / 1000;
-          const amt = it.qty * (it.price ?? 0);
-          r.amount += amt;
-          r.byGrade[g.id] = (r.byGrade[g.id] ?? 0) + it.qty;
-          r.byGroup[g.group] = (r.byGroup[g.group] ?? 0) + amt;
-        }
-        if (any) r.days++;
-      }
-      r.kg = Math.round(r.kg * 10) / 10;
-      return r;
-    });
-    return { rows, grades, groups };
+    return { rows: computeRows(weeks, days, grades), grades, groups };
   }, [days, config, weeks]);
+  const prevRows = useMemo(() => (prevDays && config ? computeRows(prevWeeks, prevDays, config.grades) : null), [prevDays, config, prevWeeks]);
+  const go = (yy: number, cmp: boolean) => router.replace(`/staff/shipping/weekly/?year=${yy}${cmp ? "&view=compare" : ""}`);
 
   return (
     <>
@@ -103,14 +113,28 @@ function WeeklyView() {
         {years.map((yy) => (
           <button
             key={yy}
-            onClick={() => router.replace(`/staff/shipping/weekly/?year=${yy}`)}
+            onClick={() => go(yy, compare)}
             className={`rounded-full border px-4 py-2 text-sm ${yy === year ? "border-berry bg-berry font-bold text-white" : "bg-white"}`}
           >
             {yy}年（令和{yy - 2018}年）
           </button>
         ))}
       </div>
-      {!data ? <p className="mt-4 text-gray-500">読み込み中…</p> : <Report year={year} {...data} showEmpty={showEmpty} setShowEmpty={setShowEmpty} />}
+      <div className="mt-3 inline-flex overflow-hidden rounded-lg border bg-white text-sm print:hidden">
+        <button onClick={() => go(year, false)} className={`px-4 py-2 ${!compare ? "bg-berry font-bold text-white" : ""}`}>
+          この年だけ
+        </button>
+        <button onClick={() => go(year, true)} className={`px-4 py-2 ${compare ? "bg-berry font-bold text-white" : ""}`}>
+          前年（{year - 1}年）と比較
+        </button>
+      </div>
+      {!data || (compare && !prevRows) ? (
+        <p className="mt-4 text-gray-500">読み込み中…</p>
+      ) : compare ? (
+        <Compare year={year} rows={data.rows} prev={prevRows!} />
+      ) : (
+        <Report year={year} {...data} showEmpty={showEmpty} setShowEmpty={setShowEmpty} />
+      )}
       <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } body { background: #fff !important; } }`}</style>
     </>
   );
@@ -281,5 +305,133 @@ function Tile({ label, value, sub, strong }: { label: string; value: string; sub
       <div className="mt-1 text-2xl font-bold tabular-nums">{value}</div>
       {sub && <div className={`mt-0.5 text-xs ${strong ? "text-white/90" : "text-gray-600"}`}>{sub}</div>}
     </div>
+  );
+}
+
+type Metric = "amount" | "packs" | "berries" | "kg";
+const METRICS: { key: Metric; label: string; unit: string }[] = [
+  { key: "amount", label: "金額", unit: "円" },
+  { key: "packs", label: "パック数量", unit: "" },
+  { key: "berries", label: "粒数", unit: "粒" },
+  { key: "kg", label: "重量", unit: "kg" },
+];
+
+/** 前年との比較（同じ週どうし） */
+function Compare({ year, rows, prev }: { year: number; rows: WeekRow[]; prev: WeekRow[] }) {
+  const [metric, setMetric] = useState<Metric>("amount");
+  const m = METRICS.find((x) => x.key === metric)!;
+  const has = (r?: WeekRow) => !!r && r.packs + r.berries > 0;
+  const n = Math.max(rows.length, prev.length);
+  const all = Array.from({ length: n }, (_, i) => ({ no: i + 1, a: rows[i], b: prev[i] }));
+  const active = all.filter((x) => has(x.a) || has(x.b));
+  if (active.length === 0) return <p className="mt-4 text-gray-500">{year}年・{year - 1}年とも、出荷の記録がありません。</p>;
+  const firstNo = active[0].no;
+  const lastNo = active[active.length - 1].no;
+  const range = all.filter((x) => x.no >= firstNo && x.no <= lastNo);
+  const val = (r: WeekRow | undefined) => (has(r) ? r![metric] : null);
+  const fmt = (v: number) => (metric === "amount" ? `${num(v)}円` : `${num(v)}${m.unit}`);
+  const sa = { key: "a", label: `${year}年`, color: SERIES_COLORS[0] };
+  const sb = { key: "b", label: `${year - 1}年`, color: SERIES_COLORS[1] };
+  const sum = (list: (WeekRow | undefined)[]) => Math.round(list.reduce((t, r) => t + (has(r) ? r![metric] : 0), 0) * 10) / 10;
+  const tA = sum(rows);
+  const tB = sum(prev);
+  const pct = (a: number | null, b: number | null) => (a !== null && b ? `${Math.round((a / b) * 100)}%` : "－");
+  const diff = (a: number | null, b: number | null) => (a === null && b === null ? null : Math.round(((a ?? 0) - (b ?? 0)) * 10) / 10);
+  const signed = (v: number | null) => (v === null ? "" : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${fmt(Math.abs(v))}`);
+  const md2 = (r?: WeekRow) => (r ? `${md(r.from)}〜${md(r.to)}` : "");
+
+  function exportCsv() {
+    downloadCsv(`shipping_weekly_compare_${year}_${year - 1}.csv`, [
+      ["週", `${year}年の期間`, `${year}年 ${m.label}`, `${year - 1}年の期間`, `${year - 1}年 ${m.label}`, "差", "前年比"],
+      ...range.map((x) => [x.no, md2(x.a), val(x.a) ?? "", md2(x.b), val(x.b) ?? "", diff(val(x.a), val(x.b)) ?? "", pct(val(x.a), val(x.b))]),
+      ["合計", "", tA, "", tB, diff(tA, tB) ?? "", pct(tA, tB)],
+    ]);
+  }
+
+  return (
+    <>
+      <div className="mt-4 flex flex-wrap gap-2 print:hidden">
+        {METRICS.map((x) => (
+          <button key={x.key} onClick={() => setMetric(x.key)} className={`rounded-full border px-4 py-1.5 text-sm ${metric === x.key ? "border-emerald-700 bg-emerald-50 font-bold text-emerald-800" : "bg-white"}`}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        <Tile label={`${year}年の${m.label}`} value={fmt(tA)} strong />
+        <Tile label={`${year - 1}年の${m.label}`} value={fmt(tB)} />
+        <Tile label="前年比" value={pct(tA, tB)} sub={signed(diff(tA, tB))} />
+      </div>
+
+      <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">週ごとの{m.label}（{year}年と{year - 1}年）</h2>
+          <Legend series={[sa, sb]} />
+        </div>
+        <p className="text-xs text-gray-500">横の数字は第何週か（日曜〜土曜）です。同じ週どうしを並べています。棒を押すと、その週の数字と前年比が出ます。</p>
+        <div className="mt-2">
+          <PairedColumns
+            rows={range.map((x) => ({ key: String(x.no), label: String(x.no), sub: `第${x.no}週（${md2(x.a)}）`, a: val(x.a), b: val(x.b) }))}
+            a={sa}
+            b={sb}
+            fmt={fmt}
+            axis={(v) => (metric === "amount" ? yenShort(v) : num(v))}
+            ariaLabel={`週ごとの${m.label}の前年との比較`}
+            height={260}
+          />
+        </div>
+      </section>
+
+      <section className="mt-4 overflow-x-auto rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">前年との比較表（{m.label}）</h2>
+          <div className="flex items-center gap-3 print:hidden">
+            <button onClick={exportCsv} className="text-sm text-gray-600 underline">
+              CSVで書き出す
+            </button>
+            <button onClick={() => window.print()} className="text-sm text-gray-600 underline">
+              印刷
+            </button>
+          </div>
+        </div>
+        <table className="mt-2 w-full min-w-[40rem] text-sm tabular-nums">
+          <thead>
+            <tr className="border-b text-xs text-gray-500">
+              <th className="py-1 text-left">週</th>
+              <th className="py-1 text-left">{year}年の期間</th>
+              <th className="py-1 text-right">{year}年</th>
+              <th className="py-1 text-right">{year - 1}年</th>
+              <th className="py-1 text-right">差</th>
+              <th className="py-1 text-right">前年比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {range.map((x) => {
+              const d = diff(val(x.a), val(x.b));
+              return (
+                <tr key={x.no} className="border-b last:border-0">
+                  <td className="py-1">第{x.no}週</td>
+                  <td className="py-1 text-gray-600">{md2(x.a)}</td>
+                  <td className="py-1 text-right font-semibold">{val(x.a) === null ? <span className="text-gray-300">－</span> : fmt(val(x.a)!)}</td>
+                  <td className="py-1 text-right">{val(x.b) === null ? <span className="text-gray-300">－</span> : fmt(val(x.b)!)}</td>
+                  <td className={`py-1 text-right ${d !== null && d < 0 ? "text-red-700" : ""}`}>{signed(d)}</td>
+                  <td className="py-1 text-right">{pct(val(x.a), val(x.b))}</td>
+                </tr>
+              );
+            })}
+            <tr className="border-t-2 font-bold">
+              <td className="py-1">合計</td>
+              <td />
+              <td className="py-1 text-right">{fmt(tA)}</td>
+              <td className="py-1 text-right">{fmt(tB)}</td>
+              <td className="py-1 text-right">{signed(diff(tA, tB))}</td>
+              <td className="py-1 text-right">{pct(tA, tB)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="mt-1 text-xs text-gray-500">「－」はその週に出荷がなかったことを表します。前年比は「今年÷前年」です。</p>
+      </section>
+      <div className="h-8" />
+    </>
   );
 }

@@ -283,7 +283,7 @@ export function PairedColumns({
   height = 240,
   ariaLabel,
 }: {
-  rows: { key: string; label: string; a: number | null; b: number | null }[];
+  rows: { key: string; label: string; sub?: string; a: number | null; b: number | null }[];
   a: Series;
   b: Series;
   fmt: (n: number) => string;
@@ -349,7 +349,7 @@ export function PairedColumns({
       </svg>
       {hover !== null && (
         <Tooltip x={((pad.l + slot * hover + slot / 2) / W) * 100}>
-          <div className="text-xs text-gray-500">{rows[hover].label}</div>
+          <div className="text-xs text-gray-500">{rows[hover].sub ?? rows[hover].label}</div>
           <ul className="mt-1 space-y-0.5">
             {[
               { s: a, v: rows[hover].a },
