@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DEFAULT_PRINTER, alignReceipt, loadPrinter, openDrawerWithSii, printReceipt, printWithSii, savePrinter, testReceipt, type PrinterConfig } from "@/lib/receiptPrinter";
 import { useSettings } from "@/lib/reservations";
+import { errorText } from "@/lib/callFunction";
+import { saveHandlers, useHandlers } from "@/lib/register";
 
 export default function RegisterSettingsPage() {
   const { value: settings } = useSettings();
@@ -153,6 +155,8 @@ export default function RegisterSettingsPage() {
         </p>
       </section>
 
+      <HandlersEditor />
+
       {c.method === "sii" && (
         <section className="mt-4 space-y-2 rounded-2xl bg-white p-4 text-sm shadow-sm">
           <h2 className="font-bold">はじめに（1回だけ）</h2>
@@ -178,5 +182,87 @@ export default function RegisterSettingsPage() {
         </section>
       )}
     </div>
+  );
+}
+
+/** 領収書の「扱者」に選ぶ名前のリスト（どの端末でも共通） */
+function HandlersEditor() {
+  const list = useHandlers();
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save(next: string[]) {
+    setError("");
+    setBusy(true);
+    try {
+      await saveHandlers(next);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-4 space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="font-bold">取扱者（領収書の「扱者」）</h2>
+      <p className="text-sm text-gray-600">領収書を出すときに、ここの名前から選べます。このリストはどの端末でも共通です。</p>
+      {!list ? (
+        <p className="text-sm text-gray-500">読み込み中…</p>
+      ) : (
+        <>
+          {list.length === 0 ? (
+            <p className="text-sm text-gray-500">まだ登録されていません。</p>
+          ) : (
+            <ul className="divide-y rounded-xl border">
+              {list.map((h, i) => (
+                <li key={h} className="flex items-center gap-2 px-3 py-2">
+                  <span className="flex-1">{h}</span>
+                  <button
+                    disabled={busy || i === 0}
+                    onClick={() => save([...list.slice(0, i - 1), h, list[i - 1], ...list.slice(i + 1)])}
+                    className="rounded border px-2 py-1 text-sm disabled:opacity-30"
+                    aria-label={`${h}を上へ`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => window.confirm(`「${h}」をリストから消しますか？`) && save(list.filter((x) => x !== h))}
+                    className="rounded border px-2 py-1 text-sm text-red-700"
+                  >
+                    削除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!name.trim()) return;
+              // 続けて次の名前を入れられるよう、先に入力欄を空にする
+              const added = name;
+              setName("");
+              save([...list, added]);
+            }}
+          >
+            <input
+              value={name}
+              maxLength={20}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="名前（例：平山）"
+              className="flex-1 rounded-lg border px-3 py-2 text-base"
+            />
+            <button disabled={busy || !name.trim()} className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white disabled:opacity-40">
+              追加
+            </button>
+          </form>
+        </>
+      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </section>
   );
 }

@@ -490,7 +490,7 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: Printer
 
 // ---------- 横長の領収書（紙の長さの向きに横向きで印刷する） ----------
 
-export type InvoiceOpts = { addressee: string; note: string; issueDate: string };
+export type InvoiceOpts = { addressee: string; note: string; issueDate: string; handler?: string };
 
 /**
  * 横長の領収書を描く（一般的なお店の領収証と同じ並び）。
@@ -499,7 +499,7 @@ export type InvoiceOpts = { addressee: string; note: string; issueDate: string }
 export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal"): HTMLCanvasElement {
   const H = paper === 80 ? 576 : 384; // 紙の幅（ドット）＝横向きにしたときの高さ
   const k = (H / 384) * (FONT_SCALE[fontSize] / FONT_SCALE.normal); // 大きさの倍率
-  const L = Math.round(H * 2.6); // 紙の長さ（ドット）＝横向きにしたときの幅
+  const L = Math.round(H * 2.9); // 紙の長さ（ドット）＝横向きにしたときの幅
   const land = document.createElement("canvas");
   land.width = L;
   land.height = H;
@@ -517,6 +517,8 @@ export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, 
   const [y, m, d] = o.issueDate.split("-").map(Number);
   const taxes = taxBreakdown(sale.lines, s);
   const M = px(24); // 左右の余白
+  // 下の段（内訳・但し書き・店の情報）は、左に寄りすぎないよう少し内側から書く
+  const LX = Math.round(L * 0.09);
   const yenText = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
   // 番号（右上）と表題
@@ -540,30 +542,32 @@ export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, 
   text(`${yenText(sale.total)}-`, L / 2, by + px(9), 40, { bold: true, align: "center" });
   // 内訳・税・但し書き（枠の下）
   let yy = by + bh + px(10);
-  text(`内訳　${sale.payment === "credit" ? "売掛" : "現金"}　${yenText(sale.total)}`, M, yy, 16);
+  text(`内訳　${sale.payment === "credit" ? "売掛" : "現金"}　${yenText(sale.total)}`, LX, yy, 18);
   const taxText = taxes.map((r) => `${r.rate}%対象 ${yen(r.total)}（内消費税 ${yen(r.tax)}）`).join("　");
-  text(taxText, L - M, yy, 14, { align: "right" });
-  yy += px(24);
-  if (o.note.trim()) text(`但し　${o.note.trim()}`, M, yy, 16);
+  text(taxText, L - LX, yy + px(2), 15, { align: "right" });
+  yy += px(26);
+  if (o.note.trim()) text(`但し　${o.note.trim()}`, LX, yy, 18);
   // 下の段：左に日付と店の情報、右に「上記正に領収しました」と扱者
   yy += px(30);
-  text(`${y}年${String(m).padStart(2, "0")}月${String(d).padStart(2, "0")}日`, M, yy, 15);
-  text("上記正に領収しました。", L / 2 + px(20), yy, 15);
+  text(`${y}年${String(m).padStart(2, "0")}月${String(d).padStart(2, "0")}日`, LX, yy, 16);
+  const RX = Math.round(L * 0.55);
+  text("上記正に領収しました。", RX, yy, 16);
   const info = [
-    { t: s.storeName || "（店名）", size: 17, bold: true },
-    ...(s.storeAddress ? [{ t: s.storeAddress, size: 13, bold: false }] : []),
-    ...(s.storePhone ? [{ t: `TEL ${s.storePhone}`, size: 13, bold: false }] : []),
-    ...(s.invoiceNumber ? [{ t: `登録番号 ${s.invoiceNumber}`, size: 13, bold: false }] : []),
+    { t: s.storeName || "（店名）", size: 20, bold: true },
+    ...(s.storeAddress ? [{ t: s.storeAddress, size: 15, bold: false }] : []),
+    ...(s.storePhone ? [{ t: `TEL ${s.storePhone}`, size: 15, bold: false }] : []),
+    ...(s.invoiceNumber ? [{ t: `登録番号 ${s.invoiceNumber}`, size: 15, bold: false }] : []),
   ];
-  let iy = yy + px(22);
+  let iy = yy + px(24);
   for (const it of info) {
-    text(it.t, M, iy, it.size, { bold: it.bold });
+    text(it.t, LX, iy, it.size, { bold: it.bold });
     iy += px(it.size + 5);
   }
-  // 扱者（手書き用の下線）
-  const sy = yy + px(34);
-  text("扱者", L / 2 + px(20), sy, 15);
-  ctx.fillRect(L / 2 + px(64), sy + px(20), px(150), Math.max(2, px(2)));
+  // 扱者（選んだ名前。空欄なら手書き用の下線だけ）
+  const sy = yy + px(38);
+  text("扱者", RX, sy, 16);
+  if (o.handler?.trim()) text(o.handler.trim(), RX + px(56), sy, 18, { bold: true });
+  ctx.fillRect(RX + px(50), sy + px(24), px(170), Math.max(2, px(2)));
   // 収入印紙が必要な金額のとき
   if (sale.total - taxes.reduce((n, r) => n + r.tax, 0) >= 50000) {
     const sx = L - M - px(80);

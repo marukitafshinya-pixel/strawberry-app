@@ -10,6 +10,7 @@ import { getFirebase } from "@/lib/firebase";
 import { useSettings, yen } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineTaxRate, taxBreakdown, type Sale } from "@/lib/sales";
 import { printInvoice, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { loadLastHandler, saveLastHandler, useHandlers } from "@/lib/register";
 import type { Settings } from "@/lib/settings";
 
 type Kind = "receipt" | "invoice";
@@ -54,6 +55,8 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
   const [addressee, setAddressee] = useState(sale.customerName);
   const [note, setNote] = useState("いちご狩り代として");
   const [issueDate, setIssueDate] = useState(sale.date);
+  const handlers = useHandlers();
+  const [handler, setHandler] = useState(() => (typeof window !== "undefined" ? loadLastHandler() : ""));
   const voided = sale.status === "voided";
   const issued = sale.createdAt?.toDate();
   const time = issued?.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" });
@@ -100,14 +103,42 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
             ))}
           </div>
           {kind === "invoice" && (
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="block text-sm">
                 <span className="text-gray-600">宛名</span>
-                <input value={addressee} maxLength={50} onChange={(e) => setAddressee(e.target.value)} placeholder="空欄なら「上様」" className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+                <input value={addressee} maxLength={50} onChange={(e) => setAddressee(e.target.value)} placeholder="空欄なら「様」だけ" className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
               </label>
               <label className="block text-sm">
                 <span className="text-gray-600">但し書き</span>
                 <input value={note} maxLength={40} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">扱者</span>
+                <select
+                  value={handler}
+                  onChange={(e) => {
+                    setHandler(e.target.value);
+                    saveLastHandler(e.target.value);
+                  }}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+                >
+                  <option value="">（空欄・手書き）</option>
+                  {(handlers ?? []).map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                  {handler && handlers && !handlers.includes(handler) && <option value={handler}>{handler}</option>}
+                </select>
+                {handlers && handlers.length === 0 && (
+                  <span className="mt-1 block text-xs text-gray-500">
+                    名前は
+                    <Link href="/staff/checkout/settings/" className="underline">
+                      レジの設定
+                    </Link>
+                    で登録できます
+                  </span>
+                )}
               </label>
               <label className="block text-sm">
                 <span className="text-gray-600">発行日</span>
@@ -120,7 +151,7 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
               const back = `/staff/receipt/?sale=${sale.id}${fromCheckout ? "&from=checkout" : ""}`;
               // 領収書は横長（お店の領収証の形）で印刷する
               if (kind === "receipt") printReceipt(saleReceipt(s, sale), back);
-              else printInvoice(s, sale, { addressee, note, issueDate }, back);
+              else printInvoice(s, sale, { addressee, note, issueDate, handler }, back);
             }}
             className="w-full rounded-lg bg-emerald-700 py-3 text-lg font-bold text-white"
           >
@@ -252,7 +283,7 @@ function InvoiceBody({
       <div className="mt-1 text-right text-[0.85em]">
         No.{sale.id.slice(0, 6).toUpperCase()}　{formatJa(issueDate, true)}
       </div>
-      <div className="mt-3 border-b border-black pb-1 text-[1.2em]">{addressee.trim() || "上"} 様</div>
+      <div className="mt-3 flex justify-between border-b border-black pb-1 text-[1.2em]"><span>{addressee.trim()}</span><span>様</span></div>
       <div className="mt-4 border-2 border-black py-2 text-center text-[1.8em] font-bold">¥{sale.total.toLocaleString("ja-JP")}-</div>
       <div className="mt-1 text-right text-[0.85em]">（税込）</div>
       <TaxTable s={s} sale={sale} />

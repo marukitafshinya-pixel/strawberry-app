@@ -235,3 +235,16 @@ describe("ルールに書いていない場所", () => {
     await assertFails(setDoc(doc(admin(), "anything/x"), { a: 1 }));
   });
 });
+
+describe("レジの共通設定（扱者のリスト）", () => {
+  it("スタッフは読み書きでき、スタッフ以外はできない", async () => {
+    await assertSucceeds(setDoc(doc(staff(), "config/register"), { handlers: ["山田", "佐藤"] }));
+    await assertSucceeds(getDoc(doc(staff(), "config/register")));
+    await assertFails(setDoc(doc(staff(), "config/register"), { handlers: ["山田"], other: 1 }));
+    await assertFails(setDoc(doc(staff(), "config/register"), { handlers: "山田" }));
+    for (const db of [guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "config/register")));
+      await assertFails(setDoc(doc(db, "config/register"), { handlers: ["x"] }));
+    }
+  });
+});

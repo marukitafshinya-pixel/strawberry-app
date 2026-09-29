@@ -81,6 +81,15 @@ service cloud.firestore {
         && request.resource.data.bankInfo.size() <= 500;
     }
 
+    // レジの共通設定（領収書の「扱者」に選ぶ名前のリスト）：スタッフが見て、直せる
+    match /config/register {
+      allow read: if isStaff();
+      allow write: if isStaff()
+        && request.resource.data.keys().hasOnly(['handlers', 'updatedAt'])
+        && request.resource.data.handlers is list
+        && request.resource.data.handlers.size() <= 30;
+    }
+
     // 去年の商品別の実績（Airレジの商品別CSV）：スタッフは見るだけ、管理者が取り込む
     match /itemReferences/{id} {
       allow read: if isStaff();
