@@ -33,3 +33,19 @@ export function shiftMonth(ym: string, n: number): string {
   const [y, m] = ym.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
 }
+
+/**
+ * 1年を52週（日曜はじまり〜土曜）に分ける。
+ * 第1週は、1月1日を含む週（その前の日曜から）。年末の週が翌年にまたがるときは、その週までを数える（53週になる年もある）。
+ */
+export function weeksOf(year: number): { no: number; from: string; to: string }[] {
+  const jan1 = `${year}-01-01`;
+  const dow = new Date(`${jan1}T00:00:00Z`).getUTCDay();
+  let start = addDays(jan1, -dow);
+  const out: { no: number; from: string; to: string }[] = [];
+  for (let no = 1; start <= `${year}-12-31`; no++) {
+    out.push({ no, from: start, to: addDays(start, 6) });
+    start = addDays(start, 7);
+  }
+  return out;
+}

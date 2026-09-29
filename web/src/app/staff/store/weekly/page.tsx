@@ -3,56 +3,40 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { Legend, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
+import { Legend, NEUTRAL, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
 import { addDays, todayJST, weeksOf } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { STORE_ITEMS, STORE_KEYS, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
 
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 const num = (n: number) => n.toLocaleString("ja-JP");
 
-type WeekRow = {
-  no: number;
-  from: string;
-  to: string;
-  packs: number;
-  berries: number;
-  kg: number;
-  amount: number;
-  byGrade: Record<string, number>;
-  byGroup: Record<string, number>;
-  days: number;
-};
+type WeekRow = { no: number; from: string; to: string; v: Record<StoreKey, number>; days: number };
 
-/** 日ごとの出荷を、週ごとにまとめる */
-function computeRows(weeks: { no: number; from: string; to: string }[], days: Record<string, DayItems>, grades: Grade[]): WeekRow[] {
+/** 日ごとの店舗実績を、週ごとにまとめる */
+function computeRows(weeks: { no: number; from: string; to: string }[], days: Record<string, StoreDay>): WeekRow[] {
   return weeks.map((w) => {
-    const r: WeekRow = { ...w, packs: 0, berries: 0, kg: 0, amount: 0, byGrade: {}, byGroup: {}, days: 0 };
+    const r: WeekRow = { ...w, v: Object.fromEntries(STORE_KEYS.map((k) => [k, 0])) as Record<StoreKey, number>, days: 0 };
     for (let d = w.from; d <= w.to; d = addDays(d, 1)) {
-      const items: DayItems = days[d] ?? {};
+      const day = days[d];
+      if (!day) continue;
       let any = false;
-      for (const g of grades) {
-        const it = items[g.id];
-        if (!it?.qty) continue;
+      for (const k of STORE_KEYS) {
+        if (!day[k]) continue;
+        r.v[k] += day[k]!;
         any = true;
-        const count = g.count || 1;
-        if (count > 1) r.packs += it.qty;
-        r.berries += it.qty * count;
-        r.kg += (it.qty * unitWeight(g)) / 1000;
-        const amt = it.qty * (it.price ?? 0);
-        r.amount += amt;
-        r.byGrade[g.id] = (r.byGrade[g.id] ?? 0) + it.qty;
-        r.byGroup[g.group] = (r.byGroup[g.group] ?? 0) + amt;
       }
       if (any) r.days++;
     }
-    r.kg = Math.round(r.kg * 10) / 10;
     return r;
   });
 }
+const hasData = (r?: WeekRow) => !!r && r.days > 0;
+/** 客単価（売上合計÷客数（合計）） */
+const perCustomer = (sales: number, customers: number) => (customers ? Math.round(sales / customers) : 0);
 
-export default function WeeklyPage() {
+export default function StoreWeeklyPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
       <WeeklyView />
@@ -68,32 +52,26 @@ function WeeklyView() {
   const year = Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : thisYear;
   const weeks = useMemo(() => weeksOf(year), [year]);
   // 第1週は前の年の12月から、最後の週は次の年の1月まで入ることがあるので、その分も読む
-  const days = useShipments(weeks[0].from, weeks[weeks.length - 1].to);
-  const { value: config } = useShippingConfig();
+  const days = useStoreDays(weeks[0].from, weeks[weeks.length - 1].to);
   const [showEmpty, setShowEmpty] = useState(false);
   const years = Array.from({ length: thisYear - 2023 + 2 }, (_, i) => thisYear + 1 - i);
 
   // 前年と比べるときは、前年の同じ週（第〇週）どうしを並べる
   const compare = params.get("view") === "compare";
   const prevWeeks = useMemo(() => weeksOf(year - 1), [year]);
-  const prevDays = useShipments(prevWeeks[0].from, prevWeeks[prevWeeks.length - 1].to);
-  const data = useMemo(() => {
-    if (!days || !config) return null;
-    const grades = config.grades;
-    const groups = [...new Set(grades.map((g) => g.group))];
-    return { rows: computeRows(weeks, days, grades), grades, groups };
-  }, [days, config, weeks]);
-  const prevRows = useMemo(() => (prevDays && config ? computeRows(prevWeeks, prevDays, config.grades) : null), [prevDays, config, prevWeeks]);
-  const go = (yy: number, cmp: boolean) => router.replace(`/staff/shipping/weekly/?year=${yy}${cmp ? "&view=compare" : ""}`);
+  const prevDays = useStoreDays(prevWeeks[0].from, prevWeeks[prevWeeks.length - 1].to);
+  const rows = useMemo(() => (days ? computeRows(weeks, days) : null), [days, weeks]);
+  const prevRows = useMemo(() => (prevDays ? computeRows(prevWeeks, prevDays) : null), [prevDays, prevWeeks]);
+  const go = (yy: number, cmp: boolean) => router.replace(`/staff/store/weekly/?year=${yy}${cmp ? "&view=compare" : ""}`);
 
   return (
     <>
       <p className="text-sm">
-        <Link href={`/staff/shipping/?month=${year === thisYear ? todayJST().slice(0, 7) : `${year}-06`}`} className="text-gray-500 underline">
-          ← 出荷実績
+        <Link href={`/staff/store/?month=${year === thisYear ? todayJST().slice(0, 7) : `${year}-06`}`} className="text-gray-500 underline">
+          ← 店舗実績
         </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">出荷の実績集計（週ごと）</h1>
+      <h1 className="mt-2 text-xl font-bold">店舗の実績集計（週ごと）</h1>
       <div className="mt-3 flex flex-wrap gap-2">
         {years.map((yy) => (
           <button
@@ -113,71 +91,88 @@ function WeeklyView() {
           前年（{year - 1}年）と比較
         </button>
       </div>
-      {!data || (compare && !prevRows) ? (
+      {!rows || (compare && !prevRows) ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : compare ? (
-        <Compare year={year} rows={data.rows} prev={prevRows!} />
+        <Compare year={year} rows={rows} prev={prevRows!} />
       ) : (
-        <Report year={year} {...data} showEmpty={showEmpty} setShowEmpty={setShowEmpty} />
+        <Report year={year} rows={rows} showEmpty={showEmpty} setShowEmpty={setShowEmpty} />
       )}
       <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } body { background: #fff !important; } }`}</style>
     </>
   );
 }
 
-function Report({
-  year,
-  rows,
-  grades,
-  groups,
-  showEmpty,
-  setShowEmpty,
-}: {
-  year: number;
-  rows: WeekRow[];
-  grades: Grade[];
-  groups: string[];
-  showEmpty: boolean;
-  setShowEmpty: (v: boolean) => void;
-}) {
-  const withData = rows.filter((r) => r.packs + r.berries > 0);
-  if (withData.length === 0) return <p className="mt-4 text-gray-500">{year}年の出荷の記録はまだありません。</p>;
-  const tot = (f: (r: WeekRow) => number) => rows.reduce((n, r) => n + f(r), 0);
-  const total = { packs: tot((r) => r.packs), berries: tot((r) => r.berries), kg: Math.round(tot((r) => r.kg) * 10) / 10, amount: tot((r) => r.amount), days: tot((r) => r.days) };
-  // グラフは、出荷があった最初の週から最後の週まで
+// 表の列（売上と客数を組にして並べる）
+const COLS: { key: StoreKey; head: string; sub?: string }[] = [
+  { key: "direct", head: "直売", sub: "売上" },
+  { key: "directCustomers", head: "", sub: "客数" },
+  { key: "cafe", head: "カフェ", sub: "売上" },
+  { key: "cafeCustomers", head: "", sub: "客数" },
+  { key: "ichigo", head: "いちご狩り", sub: "売上" },
+  { key: "ichigoCustomers", head: "", sub: "客数" },
+  { key: "total", head: "合計", sub: "売上" },
+  { key: "totalCustomers", head: "", sub: "客数" },
+];
+
+function Report({ year, rows, showEmpty, setShowEmpty }: { year: number; rows: WeekRow[]; showEmpty: boolean; setShowEmpty: (v: boolean) => void }) {
+  const withData = rows.filter(hasData);
+  if (withData.length === 0) return <p className="mt-4 text-gray-500">{year}年の店舗実績の記録はまだありません。</p>;
+  const tot = (k: StoreKey) => rows.reduce((n, r) => n + r.v[k], 0);
+  const total = Object.fromEntries(STORE_KEYS.map((k) => [k, tot(k)])) as Record<StoreKey, number>;
+  const totalDays = rows.reduce((n, r) => n + r.days, 0);
+  // グラフと表は、記録があった最初の週から最後の週まで
   const first = rows.indexOf(withData[0]);
   const last = rows.indexOf(withData[withData.length - 1]);
-  const chartRows = rows.slice(first, last + 1).map((r) => ({ key: String(r.no), label: `${r.no}`, sub: `第${r.no}週（${md(r.from)}〜${md(r.to)}）`, values: r.byGroup }));
-  const series: Series[] = groups.map((g, i) => ({ key: g, label: g, color: SERIES_COLORS[i % SERIES_COLORS.length] }));
   const shown = showEmpty ? rows : rows.slice(first, last + 1);
-  const best = withData.reduce((a, b) => (b.amount > a.amount ? b : a));
+  const best = withData.reduce((a, b) => (b.v.total > a.v.total ? b : a));
+
+  // 直売・カフェ・いちご狩りを積み上げる。売上合計のほうが多い分は「その他（内訳なし）」として足す
+  const series: Series[] = [
+    { key: "direct", label: "直売", color: SERIES_COLORS[0] },
+    { key: "cafe", label: "カフェ", color: SERIES_COLORS[1] },
+    { key: "ichigo", label: "いちご狩り", color: SERIES_COLORS[2] },
+    { key: "other", label: "その他（内訳なし）", color: NEUTRAL },
+  ];
+  const chartRows = rows.slice(first, last + 1).map((r) => {
+    const parts = r.v.direct + r.v.cafe + r.v.ichigo;
+    return {
+      key: String(r.no),
+      label: `${r.no}`,
+      sub: `第${r.no}週（${md(r.from)}〜${md(r.to)}）`,
+      values: { direct: r.v.direct, cafe: r.v.cafe, ichigo: r.v.ichigo, other: Math.max(0, r.v.total - parts) },
+    };
+  });
+  const usedSeries = series.filter((s) => chartRows.some((r) => (r.values as Record<string, number>)[s.key] > 0));
 
   function exportCsv() {
-    downloadCsv(`shipping_weekly_${year}.csv`, [
-      ["週", "期間", "出荷日数", "パック数量", "粒数", "重量kg", "金額", ...grades.map((g) => `${g.group} ${g.name}`)],
-      ...shown.map((r) => [r.no, `${r.from}〜${r.to}`, r.days, r.packs, r.berries, r.kg, r.amount, ...grades.map((g) => r.byGrade[g.id] ?? "")]),
-      ["合計", "", total.days, total.packs, total.berries, total.kg, total.amount, ...grades.map((g) => tot((r) => r.byGrade[g.id] ?? 0))],
+    downloadCsv(`store_weekly_${year}.csv`, [
+      ["週", "期間", "営業日数", ...STORE_ITEMS.map((i) => i.label), "客単価"],
+      ...shown.map((r) => [r.no, `${r.from}〜${r.to}`, r.days, ...STORE_KEYS.map((k) => r.v[k] || ""), perCustomer(r.v.total, r.v.totalCustomers) || ""]),
+      ["合計", "", totalDays, ...STORE_KEYS.map((k) => total[k]), perCustomer(total.total, total.totalCustomers) || ""],
     ]);
   }
 
   return (
     <>
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Tile label={`${year}年の出荷金額`} value={yen(total.amount)} strong />
-        <Tile label="パック数量" value={num(total.packs)} />
-        <Tile label="粒数" value={`${num(total.berries)}粒`} />
-        <Tile label="出荷重量" value={`${num(total.kg)}kg`} />
-        <Tile label="いちばん多かった週" value={`第${best.no}週`} sub={`${md(best.from)}〜${md(best.to)}・${yen(best.amount)}`} />
+        <Tile label={`${year}年の売上合計`} value={yen(total.total)} strong />
+        <Tile label="客数（合計）" value={`${num(total.totalCustomers)}人`} />
+        <Tile label="客単価" value={total.totalCustomers ? yen(perCustomer(total.total, total.totalCustomers)) : "－"} />
+        <Tile label="値引額" value={yen(total.discount)} />
+        <Tile label="いちばん売れた週" value={`第${best.no}週`} sub={`${md(best.from)}〜${md(best.to)}・${yen(best.v.total)}`} />
       </div>
 
       <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold">週ごとの出荷金額</h2>
-          <Legend series={series} />
+          <h2 className="font-bold">週ごとの売上</h2>
+          <Legend series={usedSeries} />
         </div>
-        <p className="text-xs text-gray-500">横の数字は第何週か（日曜〜土曜）です。棒を押すと、その週の金額と内訳が出ます。</p>
+        <p className="text-xs text-gray-500">
+          横の数字は第何週か（日曜〜土曜）です。棒を押すと、その週の金額と内訳が出ます。売上合計が直売・カフェ・いちご狩りの合計より多い分は「その他（内訳なし）」です。
+        </p>
         <div className="mt-2">
-          <StackedColumns rows={chartRows} series={series} ariaLabel={`${year}年 週ごとの出荷金額`} height={260} />
+          <StackedColumns rows={chartRows} series={usedSeries} ariaLabel={`${year}年 週ごとの店舗の売上`} height={260} />
         </div>
       </section>
 
@@ -197,86 +192,70 @@ function Report({
             </button>
           </div>
         </div>
-        <table className="mt-2 w-full min-w-[40rem] text-sm tabular-nums">
+        <table className="mt-2 w-full min-w-[56rem] text-sm tabular-nums">
           <thead>
+            <tr className="text-xs text-gray-500">
+              <th className="py-1 text-left" rowSpan={2}>
+                週
+              </th>
+              <th className="py-1 text-left" rowSpan={2}>
+                期間
+              </th>
+              <th className="py-1 text-right" rowSpan={2}>
+                営業日数
+              </th>
+              {COLS.filter((c) => c.head).map((c) => (
+                <th key={c.key} colSpan={2} className="border-l py-1 text-center">
+                  {c.head}
+                </th>
+              ))}
+              <th className="border-l py-1 text-right" rowSpan={2}>
+                客単価
+              </th>
+              <th className="border-l py-1 text-right" rowSpan={2}>
+                値引額
+              </th>
+            </tr>
             <tr className="border-b text-xs text-gray-500">
-              <th className="py-1 text-left">週</th>
-              <th className="py-1 text-left">期間</th>
-              <th className="py-1 text-right">出荷日数</th>
-              <th className="py-1 text-right">パック数量</th>
-              <th className="py-1 text-right">粒数</th>
-              <th className="py-1 text-right">重量kg</th>
-              <th className="py-1 text-right">金額</th>
-              <th className="py-1 text-right">1パック平均</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.no} className={`border-b last:border-0 ${r.no === best.no ? "bg-berry/5" : ""}`}>
-                <td className="py-1">第{r.no}週</td>
-                <td className="py-1 text-gray-600">
-                  {md(r.from)}〜{md(r.to)}
-                </td>
-                <td className="py-1 text-right">{r.days || ""}</td>
-                <td className="py-1 text-right">{r.packs ? num(r.packs) : ""}</td>
-                <td className="py-1 text-right">{r.berries ? num(r.berries) : ""}</td>
-                <td className="py-1 text-right">{r.kg ? num(r.kg) : ""}</td>
-                <td className="py-1 text-right font-semibold">{r.amount ? num(r.amount) : ""}</td>
-                <td className="py-1 text-right text-gray-600">{r.packs ? num(Math.round(r.amount / r.packs)) : ""}</td>
-              </tr>
-            ))}
-            <tr className="border-t-2 font-bold">
-              <td className="py-1">合計</td>
-              <td />
-              <td className="py-1 text-right">{total.days}</td>
-              <td className="py-1 text-right">{num(total.packs)}</td>
-              <td className="py-1 text-right">{num(total.berries)}</td>
-              <td className="py-1 text-right">{num(total.kg)}</td>
-              <td className="py-1 text-right">{num(total.amount)}</td>
-              <td className="py-1 text-right">{total.packs ? num(Math.round(total.amount / total.packs)) : ""}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p className="mt-1 text-xs text-gray-500">1パック平均は「金額÷パック数量」です（粒売りの金額も含みます）。</p>
-      </section>
-
-      <section className="mt-4 overflow-x-auto rounded-2xl bg-white p-4 shadow-sm print:break-before-page print:shadow-none">
-        <h2 className="font-bold">規格ごとの数量（週ごと）</h2>
-        <table className="mt-2 min-w-max text-xs tabular-nums">
-          <thead>
-            <tr className="border-b text-gray-500">
-              <th className="sticky left-0 bg-white px-2 py-1 text-left">週</th>
-              {grades.map((g) => (
-                <th key={g.id} className="px-2 py-1 text-right">
-                  <div className="font-normal">{g.group}</div>
-                  {g.name}
+              {COLS.map((c) => (
+                <th key={c.key} className={`py-1 text-right ${c.head ? "border-l" : ""}`}>
+                  {c.sub}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => (
-              <tr key={r.no} className="border-b last:border-0">
-                <td className="sticky left-0 whitespace-nowrap bg-white px-2 py-1">
-                  第{r.no}週 <span className="text-gray-500">{md(r.from)}〜</span>
+              <tr key={r.no} className={`border-b last:border-0 ${r.no === best.no ? "bg-berry/5" : ""}`}>
+                <td className="whitespace-nowrap py-1">第{r.no}週</td>
+                <td className="whitespace-nowrap py-1 text-gray-600">
+                  {md(r.from)}〜{md(r.to)}
                 </td>
-                {grades.map((g) => (
-                  <td key={g.id} className="px-2 py-1 text-right">
-                    {r.byGrade[g.id] ? num(r.byGrade[g.id]) : ""}
+                <td className="py-1 text-right">{r.days || ""}</td>
+                {COLS.map((c) => (
+                  <td key={c.key} className={`py-1 pl-2 text-right ${c.head ? "border-l" : "text-gray-600"} ${c.key === "total" ? "font-semibold" : ""}`}>
+                    {r.v[c.key] ? num(r.v[c.key]) : ""}
                   </td>
                 ))}
+                <td className="border-l py-1 pl-2 text-right text-gray-600">{r.v.totalCustomers ? num(perCustomer(r.v.total, r.v.totalCustomers)) : ""}</td>
+                <td className="border-l py-1 pl-2 text-right">{r.v.discount ? num(r.v.discount) : ""}</td>
               </tr>
             ))}
             <tr className="border-t-2 font-bold">
-              <td className="sticky left-0 bg-white px-2 py-1">合計</td>
-              {grades.map((g) => (
-                <td key={g.id} className="px-2 py-1 text-right">
-                  {num(tot((r) => r.byGrade[g.id] ?? 0))}
+              <td className="py-1">合計</td>
+              <td />
+              <td className="py-1 text-right">{totalDays}</td>
+              {COLS.map((c) => (
+                <td key={c.key} className={`py-1 pl-2 text-right ${c.head ? "border-l" : ""}`}>
+                  {num(total[c.key])}
                 </td>
               ))}
+              <td className="border-l py-1 pl-2 text-right">{total.totalCustomers ? num(perCustomer(total.total, total.totalCustomers)) : ""}</td>
+              <td className="border-l py-1 pl-2 text-right">{num(total.discount)}</td>
             </tr>
           </tbody>
         </table>
+        <p className="mt-1 text-xs text-gray-500">金額は円です。営業日数は、その週に数字が入っている日の数です。客単価は「売上合計÷客数（合計）」です。</p>
       </section>
       <div className="h-8" />
     </>
@@ -293,40 +272,44 @@ function Tile({ label, value, sub, strong }: { label: string; value: string; sub
   );
 }
 
-type Metric = "amount" | "packs" | "berries" | "kg";
-const METRICS: { key: Metric; label: string; unit: string }[] = [
-  { key: "amount", label: "金額", unit: "円" },
-  { key: "packs", label: "パック数量", unit: "" },
-  { key: "berries", label: "粒数", unit: "粒" },
-  { key: "kg", label: "重量", unit: "kg" },
+// 比べる項目（売上合計を先頭に）
+const METRICS: { key: StoreKey; label: string; unit: "円" | "人" }[] = [
+  { key: "total", label: "売上合計", unit: "円" },
+  { key: "totalCustomers", label: "客数（合計）", unit: "人" },
+  { key: "direct", label: "直売売上", unit: "円" },
+  { key: "directCustomers", label: "客数（直売）", unit: "人" },
+  { key: "cafe", label: "カフェ売上", unit: "円" },
+  { key: "cafeCustomers", label: "客数（カフェ）", unit: "人" },
+  { key: "ichigo", label: "いちご狩り売上", unit: "円" },
+  { key: "ichigoCustomers", label: "客数（いちご狩り）", unit: "人" },
+  { key: "discount", label: "値引額", unit: "円" },
 ];
 
 /** 前年との比較（同じ週どうし） */
 function Compare({ year, rows, prev }: { year: number; rows: WeekRow[]; prev: WeekRow[] }) {
-  const [metric, setMetric] = useState<Metric>("amount");
+  const [metric, setMetric] = useState<StoreKey>("total");
   const m = METRICS.find((x) => x.key === metric)!;
-  const has = (r?: WeekRow) => !!r && r.packs + r.berries > 0;
   const n = Math.max(rows.length, prev.length);
   const all = Array.from({ length: n }, (_, i) => ({ no: i + 1, a: rows[i], b: prev[i] }));
-  const active = all.filter((x) => has(x.a) || has(x.b));
-  if (active.length === 0) return <p className="mt-4 text-gray-500">{year}年・{year - 1}年とも、出荷の記録がありません。</p>;
+  const active = all.filter((x) => hasData(x.a) || hasData(x.b));
+  if (active.length === 0) return <p className="mt-4 text-gray-500">{year}年・{year - 1}年とも、店舗実績の記録がありません。</p>;
   const firstNo = active[0].no;
   const lastNo = active[active.length - 1].no;
   const range = all.filter((x) => x.no >= firstNo && x.no <= lastNo);
-  const val = (r: WeekRow | undefined) => (has(r) ? r![metric] : null);
-  const fmt = (v: number) => (metric === "amount" ? `${num(v)}円` : `${num(v)}${m.unit}`);
+  const val = (r: WeekRow | undefined) => (hasData(r) ? r!.v[metric] : null);
+  const fmt = (v: number) => `${num(v)}${m.unit}`;
   const sa = { key: "a", label: `${year}年`, color: SERIES_COLORS[0] };
   const sb = { key: "b", label: `${year - 1}年`, color: SERIES_COLORS[1] };
-  const sum = (list: (WeekRow | undefined)[]) => Math.round(list.reduce((t, r) => t + (has(r) ? r![metric] : 0), 0) * 10) / 10;
+  const sum = (list: (WeekRow | undefined)[]) => list.reduce((t, r) => t + (val(r) ?? 0), 0);
   const tA = sum(rows);
   const tB = sum(prev);
   const pct = (a: number | null, b: number | null) => (a !== null && b ? `${Math.round((a / b) * 100)}%` : "－");
-  const diff = (a: number | null, b: number | null) => (a === null && b === null ? null : Math.round(((a ?? 0) - (b ?? 0)) * 10) / 10);
+  const diff = (a: number | null, b: number | null) => (a === null && b === null ? null : (a ?? 0) - (b ?? 0));
   const signed = (v: number | null) => (v === null ? "" : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${fmt(Math.abs(v))}`);
   const md2 = (r?: WeekRow) => (r ? `${md(r.from)}〜${md(r.to)}` : "");
 
   function exportCsv() {
-    downloadCsv(`shipping_weekly_compare_${year}_${year - 1}.csv`, [
+    downloadCsv(`store_weekly_compare_${year}_${year - 1}.csv`, [
       ["週", `${year}年の期間`, `${year}年 ${m.label}`, `${year - 1}年の期間`, `${year - 1}年 ${m.label}`, "差", "前年比"],
       ...range.map((x) => [x.no, md2(x.a), val(x.a) ?? "", md2(x.b), val(x.b) ?? "", diff(val(x.a), val(x.b)) ?? "", pct(val(x.a), val(x.b))]),
       ["合計", "", tA, "", tB, diff(tA, tB) ?? "", pct(tA, tB)],
@@ -350,7 +333,9 @@ function Compare({ year, rows, prev }: { year: number; rows: WeekRow[]; prev: We
 
       <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-bold">週ごとの{m.label}（{year}年と{year - 1}年）</h2>
+          <h2 className="font-bold">
+            週ごとの{m.label}（{year}年と{year - 1}年）
+          </h2>
           <Legend series={[sa, sb]} />
         </div>
         <p className="text-xs text-gray-500">横の数字は第何週か（日曜〜土曜）です。同じ週どうしを並べています。棒を押すと、その週の数字と前年比が出ます。</p>
@@ -360,7 +345,7 @@ function Compare({ year, rows, prev }: { year: number; rows: WeekRow[]; prev: We
             a={sa}
             b={sb}
             fmt={fmt}
-            axis={(v) => (metric === "amount" ? yenShort(v) : num(v))}
+            axis={(v) => (m.unit === "円" ? yenShort(v) : num(v))}
             ariaLabel={`週ごとの${m.label}の前年との比較`}
             height={260}
           />
@@ -414,7 +399,7 @@ function Compare({ year, rows, prev }: { year: number; rows: WeekRow[]; prev: We
             </tr>
           </tbody>
         </table>
-        <p className="mt-1 text-xs text-gray-500">「－」はその週に出荷がなかったことを表します。前年比は「今年÷前年」です。</p>
+        <p className="mt-1 text-xs text-gray-500">「－」はその週に記録がなかったことを表します。前年比は「今年÷前年」です。</p>
       </section>
       <div className="h-8" />
     </>
