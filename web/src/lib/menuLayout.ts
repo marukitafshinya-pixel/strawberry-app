@@ -49,28 +49,45 @@ export async function saveMenuLayout(l: MenuLayout) {
   await setDoc(doc(db, "config/menu"), { slots: l.slots, cols: l.cols, updatedAt: serverTimestamp() });
 }
 
+/** 横幅（マスの数）を考えた置き場所：右にはみ出すときは左へずらす */
+export function fitSlot(slot: number, w: number, cols: number): number {
+  const over = (slot % cols) + w - cols;
+  return over > 0 ? slot - over : slot;
+}
+/** そのタイルが使うマスの番号 */
+export const cellsOf = (slot: number, w: number) => Array.from({ length: w }, (_, i) => slot + i);
+
 /**
  * タイルごとのマスの番号を決める。保存した番号を使い、ないタイル（新しく増えたメニューなど）や
- * 重なったタイルは、空いている後ろのマスに置く。
+ * 重なったタイルは、空いている後ろのマスに置く。大きいタイル（横2マス）は隣のマスも使う。
  */
-export function assignMenuSlots(keys: string[], saved?: Record<string, number>): Map<string, number> {
+export function assignMenuSlots(keys: string[], saved: Record<string, number> | undefined, cols: number, widthOf: (k: string) => number): Map<string, number> {
   const result = new Map<string, number>();
   const used = new Set<number>();
+  const fits = (s: number, w: number) => (s % cols) + w <= cols && cellsOf(s, w).every((c) => !used.has(c));
+  const take = (k: string, s: number, w: number) => {
+    result.set(k, s);
+    for (const c of cellsOf(s, w)) used.add(c);
+  };
   const rest: string[] = [];
   for (const k of keys) {
-    const s = saved?.[k];
-    if (typeof s === "number" && Number.isInteger(s) && s >= 0 && s < 200 && !used.has(s)) {
-      result.set(k, s);
-      used.add(s);
-    } else rest.push(k);
+    const w = Math.min(widthOf(k), cols);
+    const raw = saved?.[k];
+    if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw < 200) {
+      const s = fitSlot(raw, w, cols);
+      if (fits(s, w)) {
+        take(k, s, w);
+        continue;
+      }
+    }
+    rest.push(k);
   }
   for (const k of rest) {
-    let s = used.size === 0 ? 0 : Math.max(...used) + 1;
+    const w = Math.min(widthOf(k), cols);
     // 保存がないときは、上から順に詰めて並べる
-    if (!saved) s = 0;
-    while (used.has(s)) s++;
-    result.set(k, s);
-    used.add(s);
+    let s = !saved || used.size === 0 ? 0 : Math.max(...used) + 1;
+    while (!fits(s, w)) s++;
+    take(k, s, w);
   }
   return result;
 }

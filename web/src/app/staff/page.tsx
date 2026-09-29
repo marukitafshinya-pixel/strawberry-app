@@ -3,17 +3,17 @@
 import Link from "next/link";
 import { useState } from "react";
 import { errorText } from "@/lib/callFunction";
-import { assignMenuSlots, MENU_COLS, saveMenuLayout, useMenuLayout, type MenuLayout } from "@/lib/menuLayout";
+import { assignMenuSlots, cellsOf, fitSlot, MENU_COLS, saveMenuLayout, useMenuLayout, type MenuLayout } from "@/lib/menuLayout";
 import { useAuth } from "@/lib/auth";
 import { formatJa, todayJST } from "@/lib/date";
 import { countsTowardCapacity, usePendingRequests, useReservations, yen } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
-type MenuItem = { label: string; href: string; adminOnly?: boolean };
+type MenuItem = { label: string; href: string; adminOnly?: boolean; big?: boolean; color?: string };
 
 const MENU: MenuItem[] = [
-  { label: "予約管理", href: "/staff/reservations/" },
-  { label: "会計", href: "/staff/checkout/" },
+  { label: "予約管理", href: "/staff/reservations/", big: true, color: "border-berry bg-berry text-white" },
+  { label: "会計（レジ）", href: "/staff/checkout/", big: true, color: "border-emerald-700 bg-emerald-700 text-white" },
   { label: "売掛管理", href: "/staff/receivables/" },
   { label: "顧客リスト", href: "/staff/customers/" },
   { label: "日次締め", href: "/staff/sales/" },
@@ -50,13 +50,18 @@ export default function StaffHome() {
   const allKeys = MENU.map(keyOf);
   const layout = arrange ?? saved ?? null;
   const cols = layout?.cols ?? 3;
-  const slots = assignMenuSlots(allKeys, layout?.slots);
+  const widthOf = (k: string) => Math.min(MENU.find((m) => keyOf(m) === k)?.big ? 2 : 1, cols);
+  const slots = assignMenuSlots(allKeys, layout?.slots, cols, widthOf);
   const shown = arrange ? MENU : items;
-  const used = shown.map((m) => slots.get(keyOf(m)) ?? 0);
+  const used = shown.flatMap((m) => cellsOf(slots.get(keyOf(m)) ?? 0, widthOf(keyOf(m))));
   const rows = (used.length ? Math.floor(Math.max(...used) / cols) + 1 : 1) + (arrange ? 2 : 0);
   const usedSet = new Set(used);
   const empties = arrange ? Array.from({ length: rows * cols }, (_, i) => i).filter((i) => !usedSet.has(i)) : [];
-  const pos = (slot: number) => ({ gridColumnStart: (slot % cols) + 1, gridRowStart: Math.floor(slot / cols) + 1 });
+  const pos = (slot: number, k?: string) => ({
+    gridColumnStart: (slot % cols) + 1,
+    gridRowStart: Math.floor(slot / cols) + 1,
+    ...(k && widthOf(k) > 1 ? { gridColumnEnd: `span ${widthOf(k)}` } : {}),
+  });
 
   function start() {
     setArrange({ cols, slots: Object.fromEntries(allKeys.map((k) => [k, slots.get(k) ?? 0])) });
@@ -66,25 +71,46 @@ export default function StaffHome() {
   /** 選んだタイルを、押したマスへ移す（ほかのタイルがあれば入れ替える） */
   function moveTo(slot: number) {
     if (!arrange || !picked) return;
-    const next = { ...arrange.slots };
-    const other = allKeys.find((k) => k !== picked && next[k] === slot);
-    if (other) next[other] = next[picked];
-    next[picked] = slot;
+    const from = slots.get(picked) ?? 0;
+    const to = fitSlot(slot, widthOf(picked), cols);
+    const cells = new Set(cellsOf(to, widthOf(picked)));
+    // 移した先にあったタイルは、元の場所へ（入れ替え）。入りきらなければ、元の場所にいちばん近い空きへ
+    const others = allKeys.filter((k) => k !== picked && cellsOf(slots.get(k) ?? 0, widthOf(k)).some((c) => cells.has(c)));
+    const next: Record<string, number> = {};
+    const occupied = new Set<number>();
+    for (const k of allKeys) {
+      if (k === picked || others.includes(k)) continue;
+      next[k] = slots.get(k) ?? 0;
+      for (const c of cellsOf(next[k], widthOf(k))) occupied.add(c);
+    }
+    next[picked] = to;
+    for (const c of cells) occupied.add(c);
+    const fits = (s: number, w: number) => s >= 0 && (s % cols) + w <= cols && cellsOf(s, w).every((c) => !occupied.has(c));
+    for (const o of others) {
+      const w = widthOf(o);
+      const want = fitSlot(from, w, cols);
+      let best = -1;
+      for (let d = 0; best < 0 && d < 400; d++) for (const s of [want - d, want + d]) if (best < 0 && fits(s, w)) best = s;
+      next[o] = best;
+      for (const c of cellsOf(best, w)) occupied.add(c);
+    }
     setArrange({ ...arrange, slots: next });
     setPicked(null);
   }
   function tapTile(k: string) {
     if (picked === k) return setPicked(null);
-    if (picked) return moveTo(arrange!.slots[k]);
+    if (picked) return moveTo(slots.get(k) ?? 0);
     setPicked(k);
   }
   /** 横のマスの数を変える（並びの順番はそのまま、上から詰めなおす） */
   function changeCols(n: number) {
     if (!arrange) return;
-    setArrange({ ...arrange, cols: n });
+    const w = (k: string) => Math.min(MENU.find((m) => keyOf(m) === k)?.big ? 2 : 1, n);
+    setArrange({ cols: n, slots: Object.fromEntries(assignMenuSlots(allKeys, arrange.slots, n, w)) });
   }
   function reset() {
-    setArrange({ cols: 3, slots: Object.fromEntries(allKeys.map((k, i) => [k, i])) });
+    const w = (k: string) => (MENU.find((m) => keyOf(m) === k)?.big ? 2 : 1);
+    setArrange({ cols: 3, slots: Object.fromEntries(assignMenuSlots(allKeys, undefined, 3, w)) });
     setPicked(null);
   }
   async function save() {
@@ -104,13 +130,14 @@ export default function StaffHome() {
 
   const tileBody = (m: MenuItem) => (
     <>
-      <div className="text-lg font-semibold">{m.label}</div>
+      <div className={m.big ? "text-2xl font-bold" : "text-lg font-semibold"}>{m.label}</div>
       {m.href === "/staff/reservations/" && requests && requests.length > 0 && (
-        <div className="mt-1 inline-block rounded-full bg-purple-700 px-2 py-0.5 text-xs text-white">リクエスト {requests.length}件</div>
+        <div className="mt-1 inline-block rounded-full bg-white px-2 py-0.5 text-xs font-bold text-purple-700">リクエスト {requests.length}件</div>
       )}
     </>
   );
-  const tileClass = "flex h-full flex-col items-center justify-center rounded-xl border border-berry/30 bg-white p-4 text-center shadow-sm";
+  const tileClass = (m: MenuItem) =>
+    `flex h-full flex-col items-center justify-center rounded-xl border p-4 text-center shadow-sm ${m.color ?? "border-berry/30 bg-white"}`;
 
   return (
     <>
@@ -167,7 +194,7 @@ export default function StaffHome() {
               const slot = slots.get(k) ?? 0;
               if (!arrange)
                 return (
-                  <Link key={k} href={m.href} style={pos(slot)} className={`${tileClass} active:bg-berry/5`}>
+                  <Link key={k} href={m.href} style={pos(slot, k)} className={`${tileClass(m)} ${m.color ? "active:opacity-80" : "active:bg-berry/5"}`}>
                     {tileBody(m)}
                   </Link>
                 );
@@ -175,11 +202,12 @@ export default function StaffHome() {
                 <button
                   key={k}
                   onClick={() => tapTile(k)}
-                  style={pos(slot)}
-                  className={`${tileClass} ${picked === k ? "ring-4 ring-sky-500" : picked ? "opacity-80" : ""}`}
+                  style={pos(slot, k)}
+                  className={`${tileClass(m)} ${picked === k ? "ring-4 ring-sky-500" : picked ? "opacity-80" : ""}`}
                 >
                   {tileBody(m)}
                   {m.adminOnly && <div className="mt-1 text-xs text-gray-500">管理者だけ</div>}
+                  {m.big && <div className="mt-1 text-xs opacity-80">横2マス</div>}
                 </button>
               );
             })}
@@ -201,8 +229,8 @@ export default function StaffHome() {
               {[...items]
                 .sort((x, y) => (slots.get(keyOf(x)) ?? 0) - (slots.get(keyOf(y)) ?? 0))
                 .map((m) => (
-                  <li key={keyOf(m)}>
-                    <Link href={m.href} className={`${tileClass} min-h-[5.5rem] active:bg-berry/5`}>
+                  <li key={keyOf(m)} className={m.big ? "col-span-2" : ""}>
+                    <Link href={m.href} className={`${tileClass(m)} min-h-[5.5rem] ${m.color ? "active:opacity-80" : "active:bg-berry/5"}`}>
                       {tileBody(m)}
                     </Link>
                   </li>
