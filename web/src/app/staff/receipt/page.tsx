@@ -9,7 +9,7 @@ import { formatJa } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { useSettings, yen } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineTaxRate, taxBreakdown, type Sale } from "@/lib/sales";
-import { invoiceReceipt, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { printInvoice, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import type { Settings } from "@/lib/settings";
 
 type Kind = "receipt" | "invoice";
@@ -116,12 +116,12 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
             </div>
           )}
           <button
-            onClick={() =>
-              printReceipt(
-                kind === "receipt" ? saleReceipt(s, sale) : invoiceReceipt(s, sale, { addressee, note, issueDate }),
-                `/staff/receipt/?sale=${sale.id}${fromCheckout ? "&from=checkout" : ""}`,
-              )
-            }
+            onClick={() => {
+              const back = `/staff/receipt/?sale=${sale.id}${fromCheckout ? "&from=checkout" : ""}`;
+              // 領収書は横長（お店の領収証の形）で印刷する
+              if (kind === "receipt") printReceipt(saleReceipt(s, sale), back);
+              else printInvoice(s, sale, { addressee, note, issueDate }, back);
+            }}
             className="w-full rounded-lg bg-emerald-700 py-3 text-lg font-bold text-white"
           >
             {kind === "receipt" ? "レシート" : "領収書"}をレシートプリンターで印刷

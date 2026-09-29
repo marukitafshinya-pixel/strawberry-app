@@ -488,6 +488,155 @@ export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: Printer
   else img2.onload = go;
 }
 
+// ---------- 横長の領収書（紙の長さの向きに横向きで印刷する） ----------
+
+export type InvoiceOpts = { addressee: string; note: string; issueDate: string };
+
+/**
+ * 横長の領収書を描く（一般的なお店の領収証と同じ並び）。
+ * 横向きに描いてから90度回して、紙の幅に合わせた縦長の画像にする。
+ */
+export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal"): HTMLCanvasElement {
+  const H = paper === 80 ? 576 : 384; // 紙の幅（ドット）＝横向きにしたときの高さ
+  const k = (H / 384) * (FONT_SCALE[fontSize] / FONT_SCALE.normal); // 大きさの倍率
+  const L = Math.round(H * 2.6); // 紙の長さ（ドット）＝横向きにしたときの幅
+  const land = document.createElement("canvas");
+  land.width = L;
+  land.height = H;
+  const ctx = land.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, L, H);
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "top";
+  const px = (n: number) => Math.round(n * k);
+  const text = (t: string, x: number, y: number, size: number, opts: { bold?: boolean; align?: CanvasTextAlign } = {}) => {
+    ctx.font = `${opts.bold ? "bold " : ""}${px(size)}px ${FONT}`;
+    ctx.textAlign = opts.align ?? "left";
+    ctx.fillText(t, x, y);
+  };
+  const [y, m, d] = o.issueDate.split("-").map(Number);
+  const taxes = taxBreakdown(sale.lines, s);
+  const M = px(24); // 左右の余白
+  const yenText = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+
+  // 番号（右上）と表題
+  text(`No.${sale.id.slice(0, 6).toUpperCase()}`, L - M, px(6), 14, { align: "right" });
+  text(sale.status === "voided" ? "【取消】" : "領 収 証", L / 2, px(14), 38, { bold: true, align: "center" });
+  // 宛名（空欄なら手書きできるよう「様」だけ）と下線
+  const nameY = px(70);
+  text(o.addressee.trim(), M + px(10), nameY, 24);
+  text("様", L - M - px(10), nameY, 24, { align: "right" });
+  ctx.fillRect(M, nameY + px(32), L - M * 2, Math.max(2, px(2)));
+  // 金額（太い枠）
+  const bw = Math.round(L * 0.56);
+  const bx = Math.round((L - bw) / 2);
+  const by = px(116);
+  const bh = px(58);
+  const t = Math.max(3, px(3));
+  ctx.fillRect(bx, by, bw, t);
+  ctx.fillRect(bx, by + bh - t, bw, t);
+  ctx.fillRect(bx, by, t, bh);
+  ctx.fillRect(bx + bw - t, by, t, bh);
+  text(`${yenText(sale.total)}-`, L / 2, by + px(9), 40, { bold: true, align: "center" });
+  // 内訳・税・但し書き（枠の下）
+  let yy = by + bh + px(10);
+  text(`内訳　${sale.payment === "credit" ? "売掛" : "現金"}　${yenText(sale.total)}`, M, yy, 16);
+  const taxText = taxes.map((r) => `${r.rate}%対象 ${yen(r.total)}（内消費税 ${yen(r.tax)}）`).join("　");
+  text(taxText, L - M, yy, 14, { align: "right" });
+  yy += px(24);
+  if (o.note.trim()) text(`但し　${o.note.trim()}`, M, yy, 16);
+  // 下の段：左に日付と店の情報、右に「上記正に領収しました」と扱者
+  yy += px(30);
+  text(`${y}年${String(m).padStart(2, "0")}月${String(d).padStart(2, "0")}日`, M, yy, 15);
+  text("上記正に領収しました。", L / 2 + px(20), yy, 15);
+  const info = [
+    { t: s.storeName || "（店名）", size: 17, bold: true },
+    ...(s.storeAddress ? [{ t: s.storeAddress, size: 13, bold: false }] : []),
+    ...(s.storePhone ? [{ t: `TEL ${s.storePhone}`, size: 13, bold: false }] : []),
+    ...(s.invoiceNumber ? [{ t: `登録番号 ${s.invoiceNumber}`, size: 13, bold: false }] : []),
+  ];
+  let iy = yy + px(22);
+  for (const it of info) {
+    text(it.t, M, iy, it.size, { bold: it.bold });
+    iy += px(it.size + 5);
+  }
+  // 扱者（手書き用の下線）
+  const sy = yy + px(34);
+  text("扱者", L / 2 + px(20), sy, 15);
+  ctx.fillRect(L / 2 + px(64), sy + px(20), px(150), Math.max(2, px(2)));
+  // 収入印紙が必要な金額のとき
+  if (sale.total - taxes.reduce((n, r) => n + r.tax, 0) >= 50000) {
+    const sx = L - M - px(80);
+    ctx.strokeStyle = "#000";
+    ctx.setLineDash([px(4), px(4)]);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy - px(4), px(80), px(80));
+    ctx.setLineDash([]);
+    text("収入印紙", sx + px(40), sy + px(30), 12, { align: "center" });
+  }
+
+  // 90度回して、紙の幅（H）×紙の長さ（L）の縦長にする（文字の上が紙の右側になる）
+  const out = document.createElement("canvas");
+  out.width = H;
+  out.height = L;
+  const o2 = out.getContext("2d")!;
+  o2.translate(H, 0);
+  o2.rotate(Math.PI / 2);
+  o2.drawImage(land, 0, 0);
+  return out;
+}
+
+/** 中身の画像を、プリンターの印字幅いっぱいの画像の真ん中に置く（位置の調整つき） */
+function frameForHead(content: HTMLCanvasElement, shiftMm: number): HTMLCanvasElement {
+  const W = HEAD_DOTS;
+  const shift = Math.round(Math.max(-10, Math.min(10, shiftMm)) * 8);
+  const start = Math.max(0, Math.min(W - content.width, Math.round((W - content.width) / 2) + shift));
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = content.height + 16;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, c.height);
+  ctx.drawImage(content, start, 8);
+  ctx.fillStyle = "#000";
+  for (const [x, yy] of [
+    [0, 0],
+    [W - 2, 0],
+    [0, c.height - 2],
+    [W - 2, c.height - 2],
+  ])
+    ctx.fillRect(x, yy, 2, 2);
+  return c;
+}
+
+/** 横長の領収書を、設定に合わせて印刷する */
+export function printInvoice(s: Settings, sale: Sale, o: InvoiceOpts, returnUrl: string) {
+  const c = loadPrinter();
+  const img = renderInvoiceLandscape(s, sale, o, c.paper, c.fontSize);
+  if (c.method === "sii") {
+    const pdf = canvasToPdfBase64(frameForHead(img, c.shiftMm));
+    const params = [...callbackParams(returnUrl), `BtKeepConnect=${c.keepConnect ? "always" : "no"}`, "Format=pdf", `Data=${encodeURIComponent(pdf)}`];
+    window.location.href = `siiprintagent://1.0/print?${params.join("&")}`;
+    return;
+  }
+  const box = document.createElement("div");
+  box.id = "receipt-print-box";
+  box.innerHTML = `<img src="${img.toDataURL("image/png")}" style="width:${c.paper === 80 ? 72 : 48}mm" alt="">`;
+  const style = document.createElement("style");
+  style.textContent = `#receipt-print-box{display:none}@media print{body>*:not(#receipt-print-box){display:none!important}#receipt-print-box{display:block}@page{margin:3mm}}`;
+  document.body.append(box, style);
+  const im = box.querySelector("img")!;
+  const go = () => {
+    window.print();
+    setTimeout(() => {
+      box.remove();
+      style.remove();
+    }, 500);
+  };
+  if (im.complete) go();
+  else im.onload = go;
+}
+
 /** 設定に合わせて印刷する。kind でドロアーを開けるかを決める */
 export function printReceipt(lines: RLine[], returnUrl: string, kind: "sale-cash" | "settle" | "other" = "other") {
   const c = loadPrinter();
