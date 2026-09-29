@@ -59,9 +59,14 @@ function ShippingView() {
         <h1 className="text-xl font-bold">
           出荷実績{config?.destination && <span className="ml-2 text-base font-normal text-gray-600">（{config.destination}）</span>}
         </h1>
+        <div className="flex flex-wrap gap-2">
         <Link href={`/staff/shipping/weekly/?year=${year}`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
           実績集計（週ごと）
         </Link>
+        <Link href={`/staff/shipping/weekly/?year=${year}&unit=month`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
+          実績集計（月ごと）
+        </Link>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
