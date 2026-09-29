@@ -127,6 +127,29 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
   const anyCounted = [...BILLS, ...COINS].some((d) => counts[String(d)] !== "");
   const digits = (v: string) => v.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, "");
 
+  const creditCount = done.filter((s) => s.payment === "credit").length;
+  /** 精算レシートを印刷する（保存したときと、印刷ボタン） */
+  function printSettle() {
+    if (!settings) return;
+    printReceipt(
+      settleReceipt(settings, {
+        date,
+        float: floatN,
+        cashSales,
+        cashCount,
+        creditSales,
+        creditCount,
+        handlers: handlerRows,
+        counts: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, num(v)])),
+        counted,
+        diff,
+        memo: memo.trim(),
+      }),
+      `/staff/checkout/settle/?date=${date}`,
+      "settle",
+    );
+  }
+
   async function save() {
     if (!user) return;
     setError("");
@@ -144,6 +167,8 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
         updatedBy: user.uid,
       });
       setMessage("精算を保存しました");
+      // 保存したら、そのまま精算レシートを出す
+      printSettle();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -239,7 +264,7 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
             {anyCounted && diff !== 0 && <div className="text-sm">{diff > 0 ? "現金が多いです（過剰）" : "現金が足りません（不足）"}</div>}
           </div>
           <dl className="mt-3 space-y-1 border-t pt-2 text-xs text-gray-500">
-            <Row label="売掛の売上（現金ではない）" value={yen(creditSales)} />
+            <Row label={`売掛金（${creditCount}件・現金ではない）`} value={yen(creditSales)} />
             {voided > 0 && <Row label="取り消した会計" value={`${voided}件`} />}
             <Row label="おつりを除いて銀行に入れる額" value={yen(Math.max(0, counted - floatN))} />
           </dl>
@@ -255,7 +280,7 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
                   <th className="py-1 text-left font-semibold">取扱者</th>
                   <th className="py-1 text-right font-semibold">件数</th>
                   <th className="py-1 text-right font-semibold">現金</th>
-                  <th className="py-1 text-right font-semibold">売掛</th>
+                  <th className="py-1 text-right font-semibold">売掛金</th>
                 </tr>
               </thead>
               <tbody>
@@ -278,32 +303,14 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
             <textarea value={memo} maxLength={500} rows={2} onChange={(e) => setMemo(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
           </label>
           <button onClick={save} disabled={saving} className="mt-3 w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
-            {saving ? "保存中…" : saved ? "精算を保存し直す" : "精算を保存"}
+            {saving ? "保存中…" : saved ? "精算を保存し直してレシートを印刷" : "精算を保存してレシートを印刷"}
           </button>
           <button
-            onClick={() =>
-              settings &&
-              printReceipt(
-                settleReceipt(settings, {
-                  date,
-                  float: floatN,
-                  cashSales,
-                  cashCount,
-                  creditSales,
-                  handlers: handlerRows,
-                  counts: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, num(v)])),
-                  counted,
-                  diff,
-                  memo: memo.trim(),
-                }),
-                `/staff/checkout/settle/?date=${date}`,
-                "settle",
-              )
-            }
+            onClick={printSettle}
             disabled={!settings}
             className="mt-2 w-full rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-40"
           >
-            精算レシートを印刷
+            精算レシートだけもう一度印刷
           </button>
           {message && <p className="mt-2 text-sm text-green-700">{message}</p>}
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

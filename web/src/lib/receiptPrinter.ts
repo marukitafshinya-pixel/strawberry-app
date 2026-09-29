@@ -142,6 +142,7 @@ export type SettleData = {
   cashSales: number;
   cashCount: number;
   creditSales: number;
+  creditCount?: number;
   counts: Record<string, number>;
   counted: number;
   diff: number;
@@ -171,14 +172,14 @@ export function settleReceipt(s: Settings, d: SettleData): RLine[] {
   out.push({ t: "row", left: "あるはずの現金", right: yen(d.float + d.cashSales) });
   out.push({ t: "rule" });
   out.push({ t: "row", left: "過不足", right: d.diff === 0 ? "なし" : `${d.diff > 0 ? "+" : "−"}${yen(Math.abs(d.diff))}`, size: 1.4, bold: true });
-  out.push({ t: "row", left: "売掛の売上", right: yen(d.creditSales), size: 0.9 });
+  out.push({ t: "row", left: `売掛金${d.creditCount != null ? `（${d.creditCount}件）` : ""}`, right: yen(d.creditSales), size: 1.05, bold: true });
   out.push({ t: "row", left: "銀行へ入れる額", right: yen(Math.max(0, d.counted - d.float)), size: 0.9 });
   if (d.handlers && d.handlers.length > 0) {
     out.push({ t: "rule" });
     out.push({ t: "text", text: "取扱者ごと", bold: true, size: 0.95 });
     for (const h of d.handlers) {
       out.push({ t: "row", left: `${h.handler}（${h.count}件）`, right: `現金 ${yen(h.cash)}`, size: 0.9 });
-      if (h.credit > 0) out.push({ t: "row", left: "", right: `売掛 ${yen(h.credit)}`, size: 0.85 });
+      out.push({ t: "row", left: "", right: `売掛金 ${yen(h.credit)}`, size: 0.9 });
     }
   }
   if (d.memo) {

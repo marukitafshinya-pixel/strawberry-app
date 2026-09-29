@@ -72,7 +72,7 @@ function History() {
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label={`${formatJa(date)}の売上`} value={yen(total)} sub={`${done.length}件`} />
         <Tile label="現金" value={yen(cash)} />
-        <Tile label="売掛" value={yen(credit)} />
+        <Tile label="売掛金" value={yen(credit)} />
         <Tile label="取り消した会計" value={`${voidedCount}件`} />
       </div>
 
@@ -85,7 +85,7 @@ function History() {
                 <th className="py-1 text-left font-semibold">取扱者</th>
                 <th className="py-1 text-right font-semibold">件数</th>
                 <th className="py-1 text-right font-semibold">現金</th>
-                <th className="py-1 text-right font-semibold">売掛</th>
+                <th className="py-1 text-right font-semibold">売掛金</th>
                 <th className="py-1 text-right font-semibold">合計</th>
               </tr>
             </thead>
