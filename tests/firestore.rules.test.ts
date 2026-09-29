@@ -270,3 +270,14 @@ describe("AIの鍵 (secrets)", () => {
     }
   });
 });
+
+describe("メニューのタイルの配置 (config/menu)", () => {
+  it("スタッフは読めて、変えられるのは管理者だけ", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "config/menu"), { slots: { reservations: 0, checkout: 4 }, cols: 3 }));
+    await assertSucceeds(getDoc(doc(staff(), "config/menu")));
+    await assertFails(setDoc(doc(staff(), "config/menu"), { slots: {}, cols: 3 }));
+    await assertFails(setDoc(doc(admin(), "config/menu"), { slots: {}, cols: 9 }));
+    await assertFails(setDoc(doc(admin(), "config/menu"), { slots: {}, cols: 3, other: 1 }));
+    await assertFails(getDoc(doc(guest(), "config/menu")));
+  });
+});

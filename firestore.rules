@@ -82,6 +82,16 @@ service cloud.firestore {
     }
 
     // レジの共通設定（領収書の「扱者」に選ぶ名前のリスト）：スタッフが見て、直せる
+    // メニューのタイルの配置：スタッフが読み、管理者が変える
+    match /config/menu {
+      allow read: if isStaff();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['slots', 'cols', 'updatedAt'])
+        && request.resource.data.slots is map
+        && request.resource.data.slots.size() <= 60
+        && request.resource.data.cols is int
+        && request.resource.data.cols >= 2 && request.resource.data.cols <= 6;
+    }
     match /config/register {
       allow read: if isStaff();
       allow write: if isStaff()
