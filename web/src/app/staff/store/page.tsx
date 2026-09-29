@@ -10,7 +10,8 @@ import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear } from "@/lib/shipping";
-import { STORE_ITEMS, STORE_KEYS, parseStoreSheet, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
+import { decodeCsv, parseCsv } from "@/lib/csv";
+import { STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 const lastDayOf = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
@@ -209,7 +210,9 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
 /** Excel の「日別実績」タブから、店舗実績をまとめて取り込む */
 function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<{ name: string; book: Workbook } | null>(null);
+  const [file, setFile] = useState<{ name: string; book: Workbook | null } | null>(null);
+  /** エアレジの日別売上CSV（何か月分でもまとめて）から読んだ日ごとの数字 */
+  const [csv, setCsv] = useState<Record<string, StoreDay> | null>(null);
   const [sheet, setSheet] = useState("");
   const [table, setTable] = useState<string[][] | null>(null);
   const [year, setYear] = useState(defaultYear);
@@ -226,10 +229,34 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
     if (y) setYear(y);
   }
 
+  async function pickCsv(files: File[]) {
+    setError("");
+    setMessage("");
+    setBusy(true);
+    try {
+      const days: Record<string, StoreDay> = {};
+      for (const f of files) {
+        const r = parseAirregiDailyCsv(parseCsv(decodeCsv(await f.arrayBuffer()).text));
+        if (r.error) throw new Error(`${f.name}：${r.error}`);
+        for (const [d, v] of Object.entries(r.days)) days[d] = { ...(days[d] ?? {}), ...v };
+      }
+      setCsv(days);
+      setTable(null);
+      setFile({ name: files.length === 1 ? files[0].name : `${files.length}個のCSV`, book: null });
+    } catch (e) {
+      setError(`読み込めませんでした：${e instanceof Error ? e.message : String(e)}`);
+      setFile(null);
+      setCsv(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pick(f: File) {
     setError("");
     setMessage("");
     setBusy(true);
+    setCsv(null);
     try {
       const book = await openWorkbook(await f.arrayBuffer());
       setFile({ name: f.name, book });
@@ -245,7 +272,19 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
     }
   }
 
-  const parsed = table ? parseStoreSheet(table, year) : null;
+  const csvDates = csv ? Object.keys(csv).sort() : [];
+  const parsed = csv
+    ? {
+        error: "",
+        days: csv,
+        found: ["売上合計", "客数（合計）", "値引額"],
+        missing: ["直売・カフェ・いちご狩りの売上と客数（エアレジの日別CSVには入っていないので、今の数字のまま）"],
+        from: csvDates[0] ?? "",
+        to: csvDates[csvDates.length - 1] ?? "",
+      }
+    : table
+      ? parseStoreSheet(table, year)
+      : null;
   const ok = parsed && !parsed.error ? parsed : null;
   const dayCount = ok ? Object.keys(ok.days!).length : 0;
 
@@ -273,6 +312,7 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       setMessage(writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。");
       setFile(null);
       setTable(null);
+      setCsv(null);
       onDone();
     } catch (e) {
       setError(errorText(e));
@@ -288,17 +328,21 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       <input
         ref={fileRef}
         type="file"
-        accept=".xlsx,.xlsb"
+        accept=".xlsx,.xlsb,.csv"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const fs = Array.from(e.target.files ?? []);
           e.target.value = "";
-          if (f) pick(f);
+          if (fs.length === 0) return;
+          // エアレジのCSVはまとめて選べる。Excelは1つだけ
+          if (fs.every((f) => /\.csv$/i.test(f.name))) pickCsv(fs);
+          else pick(fs.find((f) => !/\.csv$/i.test(f.name))!);
         }}
       />
       {!file && (
         <button disabled={busy} onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-4 py-2 text-sm disabled:opacity-50">
-          {busy ? "読み込み中…" : "Excelの店舗実績を取り込む"}
+          {busy ? "読み込み中…" : "Excel・エアレジのCSVから取り込む"}
         </button>
       )}
       {message && <p className="mt-2 text-sm text-green-700">{message}</p>}
@@ -306,11 +350,12 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       {file && (
         <section className="mt-2 rounded-2xl border border-berry/40 bg-white p-4 text-sm shadow-sm">
           <h2 className="font-bold">店舗実績の取り込み（{file.name}）</h2>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
+          {file.book && (
+<div className="mt-2 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
               <span className="text-gray-600">タブ</span>
-              <select value={sheet} disabled={busy} onChange={(e) => openSheet(file.book, e.target.value, file.name).catch((er) => setError(String(er)))} className="rounded-lg border px-2 py-1 text-base">
-                {file.book.sheetNames.map((n) => (
+              <select value={sheet} disabled={busy} onChange={(e) => openSheet(file.book!, e.target.value, file.name).catch((er) => setError(String(er)))} className="rounded-lg border px-2 py-1 text-base">
+                {file.book!.sheetNames.map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>
@@ -328,7 +373,8 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
               </select>
             </label>
           </div>
-          {!table ? (
+          )}
+          {!table && !csv ? (
             <p className="mt-2 text-gray-500">読み込み中…</p>
           ) : parsed?.error ? (
             <p className="mt-2 text-red-600">{parsed.error}</p>
@@ -356,6 +402,7 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
               onClick={() => {
                 setFile(null);
                 setTable(null);
+                setCsv(null);
               }}
               className="rounded-lg border px-4 py-2"
             >

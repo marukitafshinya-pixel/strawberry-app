@@ -122,3 +122,34 @@ export function parseStoreSheet(table: string[][], year: number) {
     to: dates[dates.length - 1] ?? "",
   };
 }
+
+/**
+ * エアレジの「日別」売上CSV（集計期間,売上,会計数,会計単価,客数,客単価,商品数,…,割引額）を読む。
+ * 入るのは 売上合計・客数（合計）・値引額 だけ（直売・カフェ・いちご狩りの分けはこのCSVにない）。
+ * 割引額はマイナスで書かれているので、プラスにして値引額にする。
+ */
+export function parseAirregiDailyCsv(rows: string[][]): { days: Record<string, StoreDay>; error: string } {
+  const head = (rows[0] ?? []).map((h) => h.trim());
+  const col = (name: string) => head.indexOf(name);
+  const cDate = col("集計期間");
+  const cSales = col("売上");
+  const cCust = col("客数");
+  const cDisc = col("割引額");
+  if (cDate < 0 || cSales < 0) return { days: {}, error: "エアレジの日別売上のCSV（「集計期間」「売上」の列があるもの）ではないようです" };
+  const days: Record<string, StoreDay> = {};
+  for (const r of rows.slice(1)) {
+    const d = (r[cDate] ?? "").trim().replace(/[/-]/g, "");
+    if (!/^\d{8}$/.test(d)) continue;
+    const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+    const n = (c: number) => (c >= 0 && (r[c] ?? "").trim() !== "" ? Number((r[c] ?? "").replace(/[,¥円]/g, "")) : NaN);
+    const day: StoreDay = {};
+    const sales = n(cSales);
+    const cust = n(cCust);
+    const disc = n(cDisc);
+    if (Number.isFinite(sales) && sales > 0) day.total = Math.round(sales);
+    if (Number.isFinite(cust) && cust > 0) day.totalCustomers = Math.round(cust);
+    if (Number.isFinite(disc) && disc !== 0) day.discount = Math.abs(Math.round(disc));
+    if (Object.keys(day).length > 0) days[date] = day;
+  }
+  return { days, error: Object.keys(days).length === 0 ? "取り込める日がありませんでした" : "" };
+}
