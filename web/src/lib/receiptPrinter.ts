@@ -57,6 +57,8 @@ export type RLine =
   | { t: "text"; text: string; align?: "left" | "center" | "right"; size?: number; bold?: boolean }
   | { t: "row"; left: string; right: string; size?: number; bold?: boolean }
   | { t: "rule" }
+  /** 枠で囲んだ文字（領収書の金額など） */
+  | { t: "box"; text: string; size?: number }
   | { t: "space"; h?: number }
   /** 位置合わせ用のものさし（紙の端から何mmかを印刷する） */
   | { t: "ruler" };
@@ -102,29 +104,34 @@ export function saleReceipt(s: Settings, sale: Sale, opts?: { received?: number 
   return out;
 }
 
-/** 宛名つきの領収書（レシートプリンター用） */
+/** 宛名つきの領収書（レシートプリンター用）。一般的なお店の「領収証」の形 */
 export function invoiceReceipt(s: Settings, sale: Sale, opts: { addressee: string; note: string; issueDate: string }): RLine[] {
   const [y, m, d] = opts.issueDate.split("-").map(Number);
   const taxes = taxBreakdown(sale.lines, s);
+  const name = opts.addressee.trim();
   const out: RLine[] = [
-    { t: "text", text: sale.status === "voided" ? "【取消】" : "領 収 書", align: "center", size: 1.6, bold: true },
-    { t: "row", left: `No.${sale.id.slice(0, 6).toUpperCase()}`, right: `${y}年${m}月${d}日`, size: 0.85 },
-    { t: "space", h: 0.5 },
-    { t: "text", text: `${opts.addressee.trim() || "上"} 様`, size: 1.25, bold: true },
+    { t: "text", text: `No.${sale.id.slice(0, 6).toUpperCase()}`, align: "right", size: 0.85 },
+    { t: "text", text: sale.status === "voided" ? "【取消】" : "領 収 証", align: "center", size: 1.7, bold: true },
+    { t: "space", h: 0.6 },
+    // 宛名（空欄なら手書きできるよう「様」だけ）
+    { t: "row", left: name, right: "様", size: 1.2 },
     { t: "rule" },
-    { t: "space", h: 0.3 },
-    { t: "text", text: `¥${sale.total.toLocaleString("ja-JP")}-`, align: "center", size: 1.9, bold: true },
-    { t: "text", text: "（税込）", align: "right", size: 0.85 },
-    ...taxes.map((r) => ({ t: "row", left: `${r.rate}%対象 ${yen(r.total)}`, right: `内消費税 ${yen(r.tax)}`, size: 0.85 }) as RLine),
     { t: "space", h: 0.4 },
-    { t: "text", text: `但し　${opts.note}` },
-    { t: "text", text: "上記正に領収いたしました", size: 0.9 },
-    { t: "space" },
-    ...(sale.total - taxes.reduce((n, r) => n + r.tax, 0) >= 50000 ? [{ t: "text", text: "（収入印紙）", align: "left", size: 0.85 } as RLine, { t: "space" } as RLine] : []),
-    { t: "text", text: s.storeName || "（店名）", align: "center", size: 1.2, bold: true },
-    ...(s.storeAddress ? [{ t: "text", text: s.storeAddress, align: "center", size: 0.85 } as RLine] : []),
-    ...(s.storePhone ? [{ t: "text", text: `TEL ${s.storePhone}`, align: "center", size: 0.85 } as RLine] : []),
-    ...(s.invoiceNumber ? [{ t: "text", text: `登録番号 ${s.invoiceNumber}`, align: "center", size: 0.85 } as RLine] : []),
+    { t: "box", text: `¥${sale.total.toLocaleString("ja-JP")}-`, size: 1.9 },
+    { t: "row", left: `内訳　${sale.payment === "credit" ? "売掛" : "現金"}`, right: `¥${sale.total.toLocaleString("ja-JP")}`, size: 0.9 },
+    ...taxes.map((r) => ({ t: "row", left: `　（${r.rate}%対象 ${yen(r.total)}`, right: `内消費税 ${yen(r.tax)}）`, size: 0.8 }) as RLine),
+    ...(opts.note.trim() ? [{ t: "text", text: `但し　${opts.note.trim()}`, size: 0.9 } as RLine] : []),
+    { t: "space", h: 0.8 },
+    { t: "text", text: `${y}年${String(m).padStart(2, "0")}月${String(d).padStart(2, "0")}日`, size: 0.9 },
+    { t: "text", text: "上記正に領収しました。", align: "right", size: 0.9 },
+    { t: "space", h: 0.6 },
+    { t: "row", left: "", right: "扱者　＿＿＿＿＿＿", size: 0.9 },
+    { t: "space", h: 0.8 },
+    ...(sale.total - taxes.reduce((n, r) => n + r.tax, 0) >= 50000 ? [{ t: "text", text: "（収入印紙）", size: 0.85 } as RLine, { t: "space" } as RLine] : []),
+    { t: "text", text: s.storeName || "（店名）", size: 1.05, bold: true },
+    ...(s.storeAddress ? [{ t: "text", text: s.storeAddress, size: 0.85 } as RLine] : []),
+    ...(s.storePhone ? [{ t: "text", text: `TEL ${s.storePhone}`, size: 0.85 } as RLine] : []),
+    ...(s.invoiceNumber ? [{ t: "text", text: `登録番号 ${s.invoiceNumber}`, size: 0.85 } as RLine] : []),
   ];
   return out;
 }
@@ -224,7 +231,11 @@ export function renderReceipt(
   const font = (size = 1, bold = false) => `${bold ? "bold " : ""}${Math.round(base * size)}px ${FONT}`;
 
   // 1回目：長い文字を折り返して、高さを決める
-  type Op = { kind: "text"; x: number; y: number; text: string; font: string; align: CanvasTextAlign } | { kind: "rule"; y: number } | { kind: "ruler"; y: number };
+  type Op =
+    | { kind: "text"; x: number; y: number; text: string; font: string; align: CanvasTextAlign }
+    | { kind: "rule"; y: number }
+    | { kind: "ruler"; y: number }
+    | { kind: "box"; y: number; h: number };
   const ops: Op[] = [];
   let y = pad;
   const wrap = (text: string, f: string, maxW: number) => {
@@ -255,6 +266,15 @@ export function renderReceipt(
     }
     if (l.t === "space") {
       y += base * (l.h ?? 0.8);
+      continue;
+    }
+    if (l.t === "box") {
+      const f = font(l.size, true);
+      const lh = Math.round(base * (l.size ?? 1) * 1.35);
+      const padY = Math.round(base * 0.45);
+      ops.push({ kind: "box", y, h: lh + padY * 2 });
+      ops.push({ kind: "text", x: (pad + W - right) / 2, y: y + padY + Math.round(base * 0.1), text: l.text, font: f, align: "center" });
+      y += lh + padY * 2 + base * 0.3;
       continue;
     }
     const f = font(l.size, l.bold);
@@ -288,6 +308,16 @@ export function renderReceipt(
   for (const op of ops) {
     if (op.kind === "rule") {
       ctx.fillRect(pad, Math.round(op.y), W - pad - right, 2);
+    } else if (op.kind === "box") {
+      // 太さ3ドットの枠
+      const x0 = pad + 6;
+      const x1 = W - right - 6;
+      const y0 = Math.round(op.y);
+      const y1 = Math.round(op.y + op.h);
+      ctx.fillRect(x0, y0, x1 - x0, 3);
+      ctx.fillRect(x0, y1 - 3, x1 - x0, 3);
+      ctx.fillRect(x0, y0, 3, y1 - y0);
+      ctx.fillRect(x1 - 3, y0, 3, y1 - y0);
     } else if (op.kind === "ruler") {
       // 紙の左はし（0mm）から、1mmごとの目もりと5mmごとの数字
       const top = Math.round(op.y);
