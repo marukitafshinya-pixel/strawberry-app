@@ -407,7 +407,9 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
         setFile({ name: f.name, book, csv: null });
         // 「日別実績」のシートを先に選ぶ（年の新しいものを優先）
         const names = book.sheetNames;
-        const daily = names.filter((n) => /日別実績/.test(n)).sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0));
+        const daily = names.filter((n) => /日別実績/.test(n))
+          // 年の新しいものを先に。同じ年なら「集計」のタブ（週ごとのまとめ）は後にする
+          .sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0) || Number(/集計/.test(x)) - Number(/集計/.test(y)));
         await openSheet(book, daily[0] ?? names[0], f.name);
       }
     } catch (e) {

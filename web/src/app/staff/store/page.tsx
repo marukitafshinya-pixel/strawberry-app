@@ -233,7 +233,9 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
     try {
       const book = await openWorkbook(await f.arrayBuffer());
       setFile({ name: f.name, book });
-      const daily = book.sheetNames.filter((n) => /日別実績/.test(n)).sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0));
+      const daily = book.sheetNames.filter((n) => /日別実績/.test(n))
+          // 年の新しいものを先に。同じ年なら「集計」のタブ（週ごとのまとめ）は後にする
+          .sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0) || Number(/集計/.test(x)) - Number(/集計/.test(y)));
       await openSheet(book, daily[0] ?? book.sheetNames[0], f.name);
     } catch (e) {
       setError(`読み込めませんでした：${e instanceof Error ? e.message : String(e)}`);

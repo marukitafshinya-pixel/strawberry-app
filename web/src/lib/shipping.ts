@@ -146,20 +146,35 @@ export function parseShipmentTable(table: string[][], grades: Grade[], year: num
   const unmatched = new Set<string>();
   let blocks = 0;
 
+  // 1回目：表（「〇月」の行＋日の行）を探し、数量の表か単価の表かを見出しで決める
+  type Block = { r: number; starts: { col: number; month: number }[]; kind: "qty" | "price" | null };
+  const found0: Block[] = [];
   for (let r = 1; r < table.length; r++) {
     const row = table[r] ?? [];
     // 日の行：1〜31の数字が20個以上
     if (row.filter((c) => isDay((c ?? "").trim())).length < 20) continue;
     // 月の行：すぐ上の行の「〇月」
-    const monthRow = table[r - 1] ?? [];
     const starts: { col: number; month: number }[] = [];
-    monthRow.forEach((c, i) => {
+    (table[r - 1] ?? []).forEach((c, i) => {
       const m = monthOf((c ?? "").trim());
       if (m) starts.push({ col: i, month: m });
     });
     if (starts.length === 0) continue;
     const label = [cell(r - 1, 0), cell(r, 0), cell(r - 2, 0)].join(" ");
-    const kind: "qty" | "price" = /数量|個数|パック数/.test(label) ? "qty" : "price";
+    found0.push({ r, starts, kind: /数量|個数|パック数/.test(label) ? "qty" : /単価|価格/.test(label) ? "price" : null });
+  }
+  // 見出しがない表：2つ以上あれば上を数量・下を単価、1つだけなら単価の表（単価表のExcel）
+  const labeled = new Set(found0.map((b) => b.kind).filter(Boolean));
+  found0.forEach((b, i) => {
+    if (b.kind) return;
+    if (found0.length === 1) b.kind = "price";
+    else if (!labeled.has("qty") && i === 0) b.kind = "qty";
+    else b.kind = labeled.has("price") && !labeled.has("qty") ? "qty" : "price";
+  });
+
+  for (const { r, starts, kind: k } of found0) {
+    const row = table[r] ?? [];
+    const kind = k ?? "price";
     const target = kind === "qty" ? qty : price;
     blocks++;
     // 列 → 日付（月の列から順に数える）
