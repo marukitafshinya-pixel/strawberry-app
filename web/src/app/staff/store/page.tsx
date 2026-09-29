@@ -69,6 +69,8 @@ function StoreView() {
         </>
       )}
       {yearData && <YearSummary year={year} data={yearData} />}
+      {/* 下に固定した「保存する」の帯に、いちばん下の合計が隠れないようにすき間を空ける */}
+      <div className="h-28" />
     </>
   );
 }
