@@ -76,6 +76,7 @@
         "node_modules",
         ".git",
         "*.log",
+        "test-fixtures",
         "src"
       ],
       "predeploy": [

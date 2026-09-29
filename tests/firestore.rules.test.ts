@@ -261,3 +261,12 @@ describe("店舗実績", () => {
     }
   });
 });
+
+describe("AIの鍵 (secrets)", () => {
+  it("管理者もスタッフも読み書きできない（サーバーだけが使う）", async () => {
+    for (const db of [admin(), staff(), guest()]) {
+      await assertFails(getDoc(doc(db, "secrets/anthropic")));
+      await assertFails(setDoc(doc(db, "secrets/anthropic"), { apiKey: "sk-ant-x" }));
+    }
+  });
+});

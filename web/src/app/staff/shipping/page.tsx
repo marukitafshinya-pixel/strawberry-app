@@ -12,6 +12,7 @@ import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear, parseShipmentTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { ShikiriImport } from "./Shikiri";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 type Mode = "qty" | "price";
@@ -99,6 +100,7 @@ function ShippingView() {
       ) : (
         <>
           <PriceImport grades={config.grades} defaultYear={Number(year)} onDone={() => setVersion((v) => v + 1)} />
+          <ShikiriImport grades={config.grades} onDone={() => setVersion((v) => v + 1)} />
           <Grid key={`${month}_${version}`} month={month} grades={config.grades} loaded={loaded} />
         </>
       )}

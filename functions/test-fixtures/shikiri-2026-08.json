@@ -1,0 +1,228 @@
+{
+ "sheets": [
+  {
+   "year": 2026,
+   "month": 8,
+   "blocks": [
+    {
+     "variety": "なつみずき",
+     "rank": "秀品",
+     "rows": [
+      {
+       "size": "16入り",
+       "entries": [
+        {
+         "day": 29,
+         "qty": 1,
+         "price": 450
+        }
+       ],
+       "qtyTotal": 1
+      },
+      {
+       "size": "20入り",
+       "entries": [
+        {
+         "day": 15,
+         "qty": 2,
+         "price": 700
+        },
+        {
+         "day": 17,
+         "qty": 6,
+         "price": 800
+        },
+        {
+         "day": 18,
+         "qty": 7,
+         "price": 800
+        },
+        {
+         "day": 22,
+         "qty": 7,
+         "price": 800
+        },
+        {
+         "day": 27,
+         "qty": 2,
+         "price": 850
+        },
+        {
+         "day": 29,
+         "qty": 17,
+         "price": 850
+        },
+        {
+         "day": 30,
+         "qty": 6,
+         "price": 900
+        }
+       ],
+       "qtyTotal": 47
+      },
+      {
+       "size": "24入り",
+       "entries": [
+        {
+         "day": 15,
+         "qty": 3,
+         "price": 850
+        },
+        {
+         "day": 17,
+         "qty": 11,
+         "price": 950
+        },
+        {
+         "day": 18,
+         "qty": 14,
+         "price": 950
+        },
+        {
+         "day": 20,
+         "qty": 4,
+         "price": 950
+        },
+        {
+         "day": 22,
+         "qty": 20,
+         "price": 950
+        },
+        {
+         "day": 26,
+         "qty": 13,
+         "price": 1000
+        },
+        {
+         "day": 27,
+         "qty": 7,
+         "price": 1000
+        },
+        {
+         "day": 29,
+         "qty": 39,
+         "price": 1000
+        },
+        {
+         "day": 30,
+         "qty": 27,
+         "price": 1100
+        }
+       ],
+       "qtyTotal": 138
+      },
+      {
+       "size": "30入り",
+       "entries": [
+        {
+         "day": 15,
+         "qty": 7,
+         "price": 750
+        },
+        {
+         "day": 17,
+         "qty": 19,
+         "price": 850
+        },
+        {
+         "day": 18,
+         "qty": 22,
+         "price": 850
+        },
+        {
+         "day": 20,
+         "qty": 6,
+         "price": 850
+        },
+        {
+         "day": 22,
+         "qty": 32,
+         "price": 850
+        },
+        {
+         "day": 26,
+         "qty": 24,
+         "price": 950
+        },
+        {
+         "day": 27,
+         "qty": 14,
+         "price": 950
+        },
+        {
+         "day": 29,
+         "qty": 71,
+         "price": 950
+        },
+        {
+         "day": 30,
+         "qty": 50,
+         "price": 1000
+        }
+       ],
+       "qtyTotal": 245
+      },
+      {
+       "size": "35入り",
+       "entries": [
+        {
+         "day": 15,
+         "qty": 14,
+         "price": 500
+        },
+        {
+         "day": 17,
+         "qty": 26,
+         "price": 600
+        },
+        {
+         "day": 18,
+         "qty": 31,
+         "price": 600
+        },
+        {
+         "day": 20,
+         "qty": 19,
+         "price": 600
+        },
+        {
+         "day": 22,
+         "qty": 28,
+         "price": 600
+        },
+        {
+         "day": 26,
+         "qty": 28,
+         "price": 650
+        },
+        {
+         "day": 27,
+         "qty": 19,
+         "price": 650
+        },
+        {
+         "day": 29,
+         "qty": 100,
+         "price": 650
+        },
+        {
+         "day": 30,
+         "qty": 77,
+         "price": 650
+        }
+       ],
+       "qtyTotal": 342
+      }
+     ],
+     "amountTotal": 618150
+    }
+   ],
+   "subtotal": 618150,
+   "tax": 49452,
+   "total": 667602,
+   "fee": 0,
+   "paid": 667602
+  }
+ ],
+ "notes": ""
+}

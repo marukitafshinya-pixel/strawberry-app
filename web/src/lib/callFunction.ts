@@ -3,9 +3,9 @@ import { httpsCallable } from "firebase/functions";
 import { getFirebase } from "./firebase";
 
 /** サーバー側の処理（Cloud Functions）を呼び出す */
-export async function callFunction<Req, Res = unknown>(name: string, data: Req): Promise<Res> {
+export async function callFunction<Req, Res = unknown>(name: string, data: Req, timeoutMs?: number): Promise<Res> {
   const { functions } = await getFirebase();
-  const res = await httpsCallable<Req, Res>(functions, name)(data);
+  const res = await httpsCallable<Req, Res>(functions, name, timeoutMs ? { timeout: timeoutMs } : undefined)(data);
   return res.data;
 }
 
