@@ -212,6 +212,8 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
     payment,
     dueDate: payment === "credit" ? dueDate || null : null,
     memo,
+    // レジで選んでいる取扱者を、会計の担当として記録する
+    handler: loadLastHandler(),
     lines: lines.map(({ kind, refId, name, category, unitPrice, qty, discountRate, taxRate }) => ({
       taxRate,
       kind,
@@ -236,6 +238,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
     status: "completed",
     receivableId: null,
     memo,
+    handler: loadLastHandler(),
   });
 
   /** 控えておいた会計を送り、確定したら完了の画面にする（同じ番号なので2回送っても1回分） */

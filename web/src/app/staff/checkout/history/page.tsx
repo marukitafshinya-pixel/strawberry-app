@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { yen } from "@/lib/reservations";
-import { PAYMENT_LABEL, useSales, type Sale } from "@/lib/sales";
+import { NO_HANDLER, PAYMENT_LABEL, byHandler, useSales, type Sale } from "@/lib/sales";
 
 export default function HistoryPage() {
   return (
@@ -24,10 +24,12 @@ function History() {
   const setDate = (d: string) => router.replace(`/staff/checkout/history/?date=${d}`);
   const { value: sales, error } = useSales(date, date);
   const [showVoided, setShowVoided] = useState(false);
+  const [handlerFilter, setHandlerFilter] = useState("");
 
   const list = [...(sales ?? [])].sort((a, b) => (b.createdAt?.toDate().getTime() ?? 0) - (a.createdAt?.toDate().getTime() ?? 0));
   const done = list.filter((s) => s.status === "completed");
-  const shown = showVoided ? list : done;
+  const handlerRows = byHandler(list);
+  const shown = (showVoided ? list : done).filter((s) => !handlerFilter || (s.handler?.trim() || NO_HANDLER) === handlerFilter);
   const total = done.reduce((n, s) => n + s.total, 0);
   const cash = done.filter((s) => s.payment === "cash").reduce((n, s) => n + s.total, 0);
   const credit = total - cash;
@@ -74,9 +76,47 @@ function History() {
         <Tile label="取り消した会計" value={`${voidedCount}件`} />
       </div>
 
+      {handlerRows.length > 0 && (
+        <div className="mt-3 overflow-x-auto rounded-2xl bg-white p-3 shadow-sm">
+          <h2 className="text-sm font-bold">取扱者ごと</h2>
+          <table className="mt-1 w-full text-sm tabular-nums">
+            <thead>
+              <tr className="border-b text-xs text-gray-500">
+                <th className="py-1 text-left font-semibold">取扱者</th>
+                <th className="py-1 text-right font-semibold">件数</th>
+                <th className="py-1 text-right font-semibold">現金</th>
+                <th className="py-1 text-right font-semibold">売掛</th>
+                <th className="py-1 text-right font-semibold">合計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {handlerRows.map((h) => (
+                <tr
+                  key={h.handler}
+                  onClick={() => setHandlerFilter(handlerFilter === h.handler ? "" : h.handler)}
+                  className={`cursor-pointer border-b last:border-0 ${handlerFilter === h.handler ? "bg-emerald-50 font-semibold" : ""}`}
+                >
+                  <td className="py-1.5">{h.handler}</td>
+                  <td className="py-1.5 text-right">{h.count}件</td>
+                  <td className="py-1.5 text-right">{yen(h.cash)}</td>
+                  <td className="py-1.5 text-right">{yen(h.credit)}</td>
+                  <td className="py-1.5 text-right">{yen(h.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1 text-xs text-gray-500">名前を押すと、その人の会計だけを下に表示します（もう一度押すと全員に戻ります）。</p>
+        </div>
+      )}
+
       <label className="mt-3 flex items-center gap-2 text-sm">
         <input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} />
         取り消した会計も表示する
+        {handlerFilter && (
+          <button onClick={() => setHandlerFilter("")} className="ml-3 rounded-full border border-emerald-700 px-3 py-0.5 text-xs text-emerald-800">
+            {handlerFilter} だけ表示中 ×
+          </button>
+        )}
       </label>
 
       {error ? <p className="mt-3 text-red-600">{errorText(error)}</p> : null}
@@ -121,6 +161,7 @@ function SaleRow({ s }: { s: Sale }) {
         <span className="text-xs text-gray-400">No.{s.id.slice(0, 6).toUpperCase()}</span>
         {s.customerName && <span className="font-semibold">{s.customerName} 様</span>}
         <span className={`rounded px-1.5 text-xs ${s.payment === "credit" ? "bg-amber-50 text-amber-800" : "bg-gray-100 text-gray-600"}`}>{PAYMENT_LABEL[s.payment]}</span>
+        <span className="rounded bg-emerald-50 px-1.5 text-xs text-emerald-800">担当：{s.handler?.trim() || "未選択"}</span>
         {voided && <span className="rounded bg-gray-200 px-1.5 text-xs">取消</span>}
         <span className={`ml-auto text-lg font-bold tabular-nums ${voided ? "line-through" : ""}`}>{yen(s.total)}</span>
       </div>

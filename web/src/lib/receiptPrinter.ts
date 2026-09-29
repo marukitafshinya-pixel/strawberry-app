@@ -146,6 +146,8 @@ export type SettleData = {
   counted: number;
   diff: number;
   memo: string;
+  /** 取扱者ごとの売上 */
+  handlers?: { handler: string; count: number; cash: number; credit: number }[];
 };
 
 /** 精算レシート */
@@ -171,6 +173,14 @@ export function settleReceipt(s: Settings, d: SettleData): RLine[] {
   out.push({ t: "row", left: "過不足", right: d.diff === 0 ? "なし" : `${d.diff > 0 ? "+" : "−"}${yen(Math.abs(d.diff))}`, size: 1.4, bold: true });
   out.push({ t: "row", left: "売掛の売上", right: yen(d.creditSales), size: 0.9 });
   out.push({ t: "row", left: "銀行へ入れる額", right: yen(Math.max(0, d.counted - d.float)), size: 0.9 });
+  if (d.handlers && d.handlers.length > 0) {
+    out.push({ t: "rule" });
+    out.push({ t: "text", text: "取扱者ごと", bold: true, size: 0.95 });
+    for (const h of d.handlers) {
+      out.push({ t: "row", left: `${h.handler}（${h.count}件）`, right: `現金 ${yen(h.cash)}`, size: 0.9 });
+      if (h.credit > 0) out.push({ t: "row", left: "", right: `売掛 ${yen(h.credit)}`, size: 0.85 });
+    }
+  }
   if (d.memo) {
     out.push({ t: "space", h: 0.4 });
     out.push({ t: "text", text: `メモ：${d.memo}`, size: 0.9 });

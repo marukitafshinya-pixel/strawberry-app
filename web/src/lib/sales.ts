@@ -55,6 +55,8 @@ export type Sale = {
   status: "completed" | "voided";
   receivableId: string | null;
   memo: string;
+  /** 会計を担当した人（レジで選んだ取扱者） */
+  handler?: string;
   createdAt?: { toDate: () => Date };
   voidReason?: string;
 };
@@ -140,3 +142,23 @@ export function byCategory(sales: Sale[]): { category: string; amount: number }[
   return [...m.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
 }
 
+
+/** 取扱者ごとの集計（取消は除く）。取扱者が空の会計は「（未選択）」にまとめる */
+export const NO_HANDLER = "（未選択）";
+export function byHandler(sales: Sale[]): { handler: string; count: number; cash: number; cashCount: number; credit: number; total: number }[] {
+  const m = new Map<string, { handler: string; count: number; cash: number; cashCount: number; credit: number; total: number }>();
+  for (const s of sales) {
+    if (s.status !== "completed") continue;
+    const h = s.handler?.trim() || NO_HANDLER;
+    const r = m.get(h) ?? { handler: h, count: 0, cash: 0, cashCount: 0, credit: 0, total: 0 };
+    r.count++;
+    r.total += s.total;
+    if (s.payment === "cash") {
+      r.cash += s.total;
+      r.cashCount++;
+    } else r.credit += s.total;
+    m.set(h, r);
+  }
+  // 未選択は最後に
+  return [...m.values()].sort((a, b) => (a.handler === NO_HANDLER ? 1 : b.handler === NO_HANDLER ? -1 : b.total - a.total));
+}

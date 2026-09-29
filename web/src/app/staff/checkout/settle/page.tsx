@@ -10,7 +10,7 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { printReceipt, settleReceipt } from "@/lib/receiptPrinter";
 import { useSettings, yen } from "@/lib/reservations";
-import { useSales } from "@/lib/sales";
+import { byHandler, useSales } from "@/lib/sales";
 
 /** 紙幣・硬貨 */
 const BILLS = [10000, 5000, 2000, 1000];
@@ -117,6 +117,7 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
   const creditSales = done.filter((s) => s.payment === "credit").reduce((n, s) => n + s.total, 0);
   const cashCount = done.filter((s) => s.payment === "cash").length;
   const voided = (sales ?? []).filter((s) => s.status === "voided").length;
+  const handlerRows = byHandler(sales ?? []);
 
   const num = (v: string) => Number(v || 0);
   const counted = [...BILLS, ...COINS].reduce((n, d) => n + d * num(counts[String(d)]), 0);
@@ -245,6 +246,32 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
           <p className="mt-2 text-xs text-gray-400">現金売上は、このアプリの会計だけで計算しています。</p>
         </section>
 
+        {handlerRows.length > 0 && (
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="font-bold">取扱者ごとの売上</h2>
+            <table className="mt-2 w-full text-sm tabular-nums">
+              <thead>
+                <tr className="border-b text-xs text-gray-500">
+                  <th className="py-1 text-left font-semibold">取扱者</th>
+                  <th className="py-1 text-right font-semibold">件数</th>
+                  <th className="py-1 text-right font-semibold">現金</th>
+                  <th className="py-1 text-right font-semibold">売掛</th>
+                </tr>
+              </thead>
+              <tbody>
+                {handlerRows.map((h) => (
+                  <tr key={h.handler} className="border-b last:border-0">
+                    <td className="py-1.5">{h.handler}</td>
+                    <td className="py-1.5 text-right">{h.count}件</td>
+                    <td className="py-1.5 text-right">{yen(h.cash)}</td>
+                    <td className="py-1.5 text-right">{yen(h.credit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
         <section className="rounded-2xl bg-white p-4 shadow-sm">
           <label className="block text-sm">
             <span className="text-gray-600">メモ（過不足の理由など）</span>
@@ -263,6 +290,7 @@ function Settle({ date, saved, lastFloat }: { date: string; saved: CashCount | n
                   cashSales,
                   cashCount,
                   creditSales,
+                  handlers: handlerRows,
                   counts: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, num(v)])),
                   counted,
                   diff,

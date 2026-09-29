@@ -42,6 +42,8 @@ export type SaleDoc = {
   status: "completed" | "voided";
   receivableId: string | null;
   memo: string;
+  /** 会計を担当した人（レジで選んだ取扱者。空なら未選択） */
+  handler?: string;
 };
 
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -90,6 +92,7 @@ export const checkout = onCall(async (req) => {
   const customerName = typeof req.data?.customerName === "string" ? req.data.customerName.trim().slice(0, 50) : "";
   if (payment === "credit" && !customerName) throw new HttpsError("invalid-argument", "売掛のときは、お客様名が必要です");
   const memo = typeof req.data?.memo === "string" ? req.data.memo.trim().slice(0, 200) : "";
+  const handler = typeof req.data?.handler === "string" ? req.data.handler.trim().slice(0, 20) : "";
   let date = typeof req.data?.date === "string" && DATE_RE.test(req.data.date) ? req.data.date : todayJST();
   let reservationId = typeof req.data?.reservationId === "string" && req.data.reservationId ? req.data.reservationId : null;
   // 取引の修正：元の会計を取り消して、この会計に置き換える（日付と予約は元のまま）
@@ -144,6 +147,7 @@ export const checkout = onCall(async (req) => {
       status: "completed",
       receivableId: recRef?.id ?? null,
       memo,
+      handler,
     };
     tx.set(saleRef, { ...sale, ...(replaceSaleId ? { replaces: replaceSaleId } : {}), createdAt: now, createdBy: uid });
     if (recRef) {
