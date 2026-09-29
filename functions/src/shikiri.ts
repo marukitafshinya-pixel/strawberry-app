@@ -4,6 +4,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { applicationDefault } from "firebase-admin/app";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertAdmin, assertStaff, db } from "./common.js";
@@ -193,4 +194,78 @@ export const readShikiri = onCall({ timeoutSeconds: 540, memory: "512MiB" }, asy
     console.error("readShikiri parse", text.slice(0, 500));
     throw new HttpsError("internal", "読み取った結果の形が正しくありませんでした。もう一度お試しください");
   }
+});
+
+// ---------- Google の文字読み取り（Cloud Vision）----------
+// Firebase と同じ Google Cloud のプロジェクトで「Cloud Vision API」をオンにすると使える（新しい登録や鍵はいらない）。
+// サーバーの権限（サービスアカウント）で呼ぶ。返すのは「どの文字が、画像のどこにあったか」だけで、表の組み立ては画面側で行う。
+
+type Vertex = { x?: number; y?: number };
+type VisionWord = { boundingBox?: { vertices?: Vertex[] }; symbols?: { text?: string }[] };
+type VisionResponse = {
+  responses?: {
+    error?: { code?: number; message?: string };
+    fullTextAnnotation?: { pages?: { width?: number; height?: number; blocks?: { paragraphs?: { words?: VisionWord[] }[] }[] }[] };
+  }[];
+  error?: { code?: number; message?: string; status?: string };
+};
+
+/** 仕切書の画像を、Google の文字読み取りで読む（スタッフ） */
+export const readShikiriOcr = onCall({ timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
+  await assertStaff(req);
+  const files = (req.data as { files?: unknown })?.files;
+  if (!Array.isArray(files) || files.length === 0) throw new HttpsError("invalid-argument", "仕切書のファイルを選んでください");
+  if (files.length > MAX_FILES) throw new HttpsError("invalid-argument", `一度に読めるのは${MAX_FILES}ページまでです`);
+  let size = 0;
+  for (const f of files as Upload[]) {
+    if (typeof f?.data !== "string" || !/^[A-Za-z0-9+/=]+$/.test(f.data) || (f.mediaType !== "image/jpeg" && f.mediaType !== "image/png")) {
+      throw new HttpsError("invalid-argument", "ファイルが読めません");
+    }
+    size += f.data.length;
+  }
+  if (size > MAX_TOTAL) throw new HttpsError("invalid-argument", "ファイルが大きすぎます");
+
+  // 手元での動作確認（エミュレーター）では、見本の読み取り結果を返す
+  if (process.env.FUNCTIONS_EMULATOR === "true") {
+    return { pages: JSON.parse(readFileSync(join(__dirname, "../test-fixtures/ocr-2026-07.json"), "utf8")) as unknown };
+  }
+
+  const token = (await applicationDefault().getAccessToken()).access_token;
+  const res = await fetch("https://vision.googleapis.com/v1/images:annotate", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requests: (files as Upload[]).map((f) => ({
+        image: { content: f.data },
+        features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+        imageContext: { languageHints: ["ja"] },
+      })),
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as VisionResponse;
+  if (!res.ok || body.error) {
+    const msg = body.error?.message ?? `HTTP ${res.status}`;
+    console.error("readShikiriOcr", res.status, msg);
+    if (/has not been used|is disabled|SERVICE_DISABLED/i.test(msg))
+      throw new HttpsError("failed-precondition", "Googleの文字読み取り（Cloud Vision API）がまだオンになっていません。管理者がオンにしてください");
+    if (/billing/i.test(msg)) throw new HttpsError("failed-precondition", "Google Cloud の支払いの設定が必要です");
+    throw new HttpsError("unavailable", "文字の読み取りに失敗しました。時間をおいてもう一度お試しください");
+  }
+  const pages = (body.responses ?? []).map((r, i) => {
+    if (r.error) console.error("readShikiriOcr page", i, r.error.message);
+    const p = r.fullTextAnnotation?.pages?.[0];
+    const words: { t: string; x0: number; y0: number; x1: number; y1: number }[] = [];
+    for (const b of p?.blocks ?? [])
+      for (const para of b.paragraphs ?? [])
+        for (const w of para.words ?? []) {
+          const t = (w.symbols ?? []).map((s) => s.text ?? "").join("");
+          const vs = w.boundingBox?.vertices ?? [];
+          if (!t || vs.length === 0) continue;
+          const xs = vs.map((v) => v.x ?? 0);
+          const ys = vs.map((v) => v.y ?? 0);
+          words.push({ t, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+        }
+    return { width: p?.width ?? 0, height: p?.height ?? 0, words };
+  });
+  return { pages };
 });

@@ -98,7 +98,10 @@ export function pagesToUploads(pages: Page[]): Upload[] {
 export function guessGrade(block: ShikiriBlock, row: ShikiriRow, grades: Grade[]): string {
   const size = row.size.replace(/\s/g, "");
   // 粒売り（プレミアム・ロイヤル）は名前で探す
-  const byName = grades.find((g) => g.name && (size.includes(g.name) || g.name.includes(size)));
+  // 読み違い（例：「プレミミアム」）があっても、名前の最初の2文字が合えば同じとみなす
+  const byName =
+    grades.find((g) => g.name && (size.includes(g.name) || g.name.includes(size))) ??
+    grades.find((g) => g.name.length >= 2 && !/\d/.test(g.name) && size.includes(g.name.slice(0, 2)));
   if (byName && !/\d/.test(size)) return byName.id;
   const n = Number(size.match(/\d+/)?.[0] ?? NaN);
   if (!Number.isFinite(n)) return byName?.id ?? "";
@@ -122,12 +125,12 @@ export function checkSheet(s: ShikiriSheet): { rows: Map<ShikiriRow, Check>; blo
     for (const r of b.rows) {
       const q = r.entries.reduce((n, e) => n + e.qty, 0);
       bAmt += r.entries.reduce((n, e) => n + e.qty * e.price, 0);
-      rows.set(r, { label: `${r.size}の数量計`, read: q, printed: r.qtyTotal, ok: r.qtyTotal === null || r.qtyTotal === q });
+      rows.set(r, { label: `${r.size}の数量計`, read: q, printed: r.qtyTotal, ok: r.qtyTotal === q });
     }
     amount += bAmt;
-    blocks.set(b, { label: `${b.variety} ${b.rank}の品種合計額`, read: bAmt, printed: b.amountTotal, ok: b.amountTotal === null || b.amountTotal === bAmt });
+    blocks.set(b, { label: `${b.variety} ${b.rank}の品種合計額`, read: bAmt, printed: b.amountTotal, ok: b.amountTotal === bAmt });
   }
-  const sheet: Check[] = [{ label: "8%軽対象合計額（税抜）", read: amount, printed: s.subtotal, ok: s.subtotal === null || s.subtotal === amount }];
+  const sheet: Check[] = [{ label: "8%軽対象合計額（税抜）", read: amount, printed: s.subtotal, ok: s.subtotal === amount }];
   if (s.subtotal !== null && s.tax !== null && s.total !== null)
     sheet.push({ label: "税込金額（合計額＋消費税）", read: s.subtotal + s.tax, printed: s.total, ok: s.subtotal + s.tax === s.total });
   return { rows, blocks, sheet };

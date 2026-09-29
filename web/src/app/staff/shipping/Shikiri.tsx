@@ -19,7 +19,9 @@ import {
   type ShikiriRow,
   type ShikiriSheet,
 } from "@/lib/shikiri";
+import { parseOcrPage, type OcrPage } from "@/lib/shikiriOcr";
 import { useShipments, type Grade } from "@/lib/shipping";
+import { todayJST } from "@/lib/date";
 
 const num = (n: number) => n.toLocaleString("ja-JP");
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
@@ -36,12 +38,13 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
   const [started, setStarted] = useState(0);
   const [now, setNow] = useState(0);
 
+  const [aiOpen, setAiOpen] = useState(false);
   useEffect(() => {
-    if (!open || key) return;
+    if (!aiOpen || key) return;
     callFunction<object, { set: boolean; last4: string }>("aiKeyStatus", {})
       .then(setKey)
       .catch((e) => setError(errorText(e)));
-  }, [open, key]);
+  }, [aiOpen, key]);
   // 読み取り中は、かかっている時間を出す（1〜3分かかるので）
   useEffect(() => {
     if (!started) return;
@@ -60,6 +63,33 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
       setError(e instanceof Error && /[ぁ-ん]/.test(e.message) ? e.message : "ファイルを開けませんでした。PDFか写真を選んでください");
     } finally {
       setBusy("");
+    }
+  }
+
+  /** Google の文字読み取りで読み、表を組み立てる */
+  async function readOcr() {
+    setError("");
+    setBusy("文字を読み取っています…");
+    setStarted(Date.now());
+    setNow(Date.now());
+    try {
+      const files = pagesToUploads(pages);
+      const res = await callFunction<{ files: typeof files }, { pages: OcrPage[] }>("readShikiriOcr", { files }, 150_000);
+      const year = Number(todayJST().slice(0, 4));
+      const sheets: ShikiriSheet[] = [];
+      const notes: string[] = [];
+      res.pages.forEach((pg, i) => {
+        const r = parseOcrPage(pg, year);
+        if (r.sheet) sheets.push(r.sheet);
+        notes.push(...r.notes.map((n) => (res.pages.length > 1 ? `${i + 1}ページ目：${n}` : n)));
+      });
+      if (!sheets.length) throw new Error(notes.join(" ") || "仕切書の表が見つかりませんでした");
+      setResult({ sheets, notes: notes.join("\n") });
+    } catch (e) {
+      setError(e instanceof Error && !("code" in e) ? e.message : errorText(e));
+    } finally {
+      setBusy("");
+      setStarted(0);
     }
   }
 
@@ -91,7 +121,7 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
   if (!open)
     return (
       <button onClick={() => setOpen(true)} className="mt-3 rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
-        仕切書で正確な数字に直す（AIで読み取り）
+        仕切書で正確な数字に直す（読み取り）
       </button>
     );
 
@@ -104,10 +134,8 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
         </button>
       </div>
       <p className="mt-1 text-gray-600">
-        出荷先から届いた仕切書（支払明細書）のPDFか写真を選ぶと、AIが表の数字を読み取ります。読み取った数字はすぐには保存しません。今の数字（概算）と並べて確かめてから直します。
+        出荷先から届いた仕切書（支払明細書）のPDFか写真を選ぶと、表の数字を読み取ります。読み取った数字はすぐには保存しません。仕切書の合計と照らし合わせ、今の数字（概算）と並べて確かめてから直します。
       </p>
-
-      {key && (role === "admin" || !key.set) && <KeyBox status={key} admin={role === "admin"} onChange={setKey} />}
 
       <input
         ref={fileRef}
@@ -127,8 +155,8 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
             {pages.length ? "ファイルを選びなおす" : "仕切書のファイルを選ぶ（PDF・写真）"}
           </button>
           {pages.length > 0 && (
-            <button disabled={!!busy || !key?.set} onClick={read} className="rounded-lg bg-emerald-700 px-5 py-2 font-bold text-white disabled:opacity-50">
-              AIで読み取る
+            <button disabled={!!busy} onClick={readOcr} className="rounded-lg bg-emerald-700 px-5 py-2 font-bold text-white disabled:opacity-50">
+              読み取る
             </button>
           )}
         </div>
@@ -136,7 +164,7 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
       {busy && (
         <p className="mt-2 text-gray-600">
           {busy}
-          {started > 0 && `（${Math.max(0, Math.floor((now - started) / 1000))}秒。1〜3分ほどかかります）`}
+          {started > 0 && `（${Math.max(0, Math.floor((now - started) / 1000))}秒）`}
         </p>
       )}
       {error && <p className="mt-2 text-red-600">{error}</p>}
@@ -165,12 +193,19 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
               </figure>
             ))}
           </div>
+          <details className="mt-4 text-gray-600" open={aiOpen} onToggle={(e) => setAiOpen((e.target as HTMLDetailsElement).open)}>
+            <summary className="cursor-pointer">うまく読めないとき：AIで読み取る（Anthropic の鍵が必要）</summary>
+            {key && <KeyBox status={key} admin={role === "admin"} onChange={setKey} />}
+            <button disabled={!!busy || !key?.set} onClick={read} className="mt-2 rounded-lg border border-emerald-700 bg-white px-4 py-2 font-bold text-emerald-800 disabled:opacity-50">
+              AIで読み取る（1〜3分）
+            </button>
+          </details>
         </>
       )}
 
       {result && (
         <>
-          {result.notes && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-amber-900">AIからのメモ：{result.notes}</p>}
+          {result.notes && <p className="mt-3 whitespace-pre-line rounded-lg bg-amber-50 p-3 text-amber-900">読み取りのメモ：{result.notes}</p>}
           {result.sheets.map((s, i) => (
             <SheetPanel key={i} sheet={s} grades={grades} onDone={onDone} />
           ))}
@@ -261,15 +296,26 @@ function KeyBox({ status, admin, onChange }: { status: { set: boolean; last4: st
 }
 
 /** 仕切書1か月分：読み取った数字の確かめ → 規格の当てはめ → 今の数字との違い → 直す */
-function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Grade[]; onDone: () => void }) {
+function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; grades: Grade[]; onDone: () => void }) {
+  // 読み違いを画面で直せるように、読み取り結果を手元に持つ
+  const [sheet, setSheet] = useState(initial);
+  const [editing, setEditing] = useState("");
   const ym = `${sheet.year}-${String(sheet.month).padStart(2, "0")}`;
   const current = useShipments(`${ym}-01`, `${ym}-${String(monthDays(sheet.year, sheet.month)).padStart(2, "0")}`);
   const checks = useMemo(() => checkSheet(sheet), [sheet]);
-  const [mapping, setMapping] = useState(() => {
-    const m = new Map<ShikiriRow, string>();
-    for (const b of sheet.blocks) for (const r of b.rows) m.set(r, guessGrade(b, r, grades));
+  // 仕切書の行（「まとまり番号-行番号」）→ アプリの規格
+  const [byKey, setByKey] = useState(() => {
+    const m = new Map<string, string>();
+    initial.blocks.forEach((b, bi) => b.rows.forEach((r, ri) => m.set(`${bi}-${ri}`, guessGrade(b, r, grades))));
     return m;
   });
+  const mapping = useMemo(() => {
+    const m = new Map<ShikiriRow, string>();
+    sheet.blocks.forEach((b, bi) => b.rows.forEach((r, ri) => m.set(r, byKey.get(`${bi}-${ri}`) ?? "")));
+    return m;
+  }, [sheet, byKey]);
+  const setRow = (bi: number, ri: number, row: ShikiriRow) =>
+    setSheet({ ...sheet, blocks: sheet.blocks.map((b, i) => (i === bi ? { ...b, rows: b.rows.map((r, j) => (j === ri ? row : r)) } : b)) });
   const [clearMissing, setClearMissing] = useState(true);
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -364,21 +410,23 @@ function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Gr
               <th className="py-1 pr-3 text-left">仕切書の行</th>
               <th className="py-1 pr-3 text-left">アプリの規格</th>
               <th className="py-1 pr-3 text-right">数量計（読み取り／仕切書）</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {sheet.blocks.flatMap((b, bi) =>
               b.rows.map((r, ri) => {
                 const c = checks.rows.get(r)!;
+                const k = `${bi}-${ri}`;
                 return (
-                  <tr key={`${bi}-${ri}`} className="border-b last:border-0">
+                  <tr key={k} className={`border-b last:border-0 ${editing === k ? "bg-emerald-50" : ""}`}>
                     <td className="py-1 pr-3">
                       {b.variety} {b.rank} {r.size}
                     </td>
                     <td className="py-1 pr-3">
                       <select
                         value={mapping.get(r) ?? ""}
-                        onChange={(e) => setMapping(new Map(mapping).set(r, e.target.value))}
+                        onChange={(e) => setByKey(new Map(byKey).set(k, e.target.value))}
                         className={`rounded border px-2 py-1 text-base ${mapping.get(r) ? "" : "border-amber-500 bg-amber-50"}`}
                       >
                         <option value="">取り込まない</option>
@@ -392,6 +440,11 @@ function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Gr
                     <td className={`py-1 pr-3 text-right ${c.ok ? "" : "font-bold text-red-600"}`}>
                       {num(c.read)}／{c.printed === null ? "－" : num(c.printed)}
                     </td>
+                    <td className="py-1">
+                      <button onClick={() => setEditing(editing === k ? "" : k)} className={`rounded border px-2 py-0.5 text-xs ${c.ok ? "" : "border-red-500 font-bold text-red-700"}`}>
+                        {editing === k ? "閉じる" : c.ok ? "数字を見る" : "数字を直す"}
+                      </button>
+                    </td>
                   </tr>
                 );
               }),
@@ -399,6 +452,22 @@ function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Gr
           </tbody>
         </table>
       </div>
+      {editing &&
+        (() => {
+          const [bi, ri] = editing.split("-").map(Number);
+          const b = sheet.blocks[bi];
+          const r = b?.rows[ri];
+          return (
+            r && (
+              <div className="mt-2">
+                <p className="font-bold">
+                  {b.variety} {b.rank} {r.size} の数字
+                </p>
+                <RowEditor row={r} year={sheet.year} month={sheet.month} onChange={(row) => setRow(bi, ri, row)} />
+              </div>
+            )
+          );
+        })()}
       {unmapped > 0 && <p className="mt-1 text-amber-800">当てはまる規格がない行は取り込みません（{unmapped}行）。必要なら規格を選んでください。</p>}
 
       <h4 className="mt-3 font-bold">③ 今の数字（概算）との違い</h4>
@@ -450,7 +519,7 @@ function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Gr
           <div className="mt-3">
             {!allOk && (
               <>
-                <p className="text-red-600">読み取った数字の合計が、仕切書の合計と合わないところがあります。仕切書を見て、AIの読み違いがないか確かめてください。</p>
+                <p className="text-red-600">読み取った数字の合計が、仕切書の合計と合わないところがあります。「数字を直す」で仕切書と見比べて、読み違いを直してください。</p>
                 <label className="mt-1 flex items-center gap-2">
                   <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
                   合わないところがあっても直す
@@ -464,6 +533,60 @@ function SheetPanel({ sheet, grades, onDone }: { sheet: ShikiriSheet; grades: Gr
         )
       )}
       {error && <p className="mt-2 text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+/** 仕切書1行分の数字を、紙と見比べて直す（数量・単価・数量計） */
+function RowEditor({ row, year, month, onChange }: { row: ShikiriRow; year: number; month: number; onChange: (r: ShikiriRow) => void }) {
+  const days = Array.from({ length: monthDays(year, month) }, (_, i) => i + 1);
+  const get = (d: number) => row.entries.find((e) => e.day === d);
+  const set = (d: number, f: "qty" | "price", v: string) => {
+    const n = v === "" ? 0 : Math.max(0, Math.round(Number(v)));
+    if (!Number.isFinite(n)) return;
+    const cur = get(d) ?? { day: d, qty: 0, price: 0 };
+    const next = { ...cur, [f]: n };
+    const entries = row.entries.filter((e) => e.day !== d);
+    if (next.qty > 0 || next.price > 0) entries.push(next);
+    onChange({ ...row, entries: entries.sort((a, b) => a.day - b.day) });
+  };
+  const cell = "w-14 rounded border px-1 py-0.5 text-right text-sm tabular-nums";
+  return (
+    <div className="rounded-lg bg-gray-50 p-2">
+      <p className="text-xs text-gray-600">仕切書と見比べて、違うところを直してください。0の日は空のままで大丈夫です。</p>
+      <div className="mt-1 overflow-x-auto">
+        <table className="text-xs">
+          <tbody>
+            <tr>
+              <th className="pr-2 text-left font-normal text-gray-500">日</th>
+              {days.map((d) => (
+                <th key={d} className="px-0.5 font-normal text-gray-500">
+                  {d}
+                </th>
+              ))}
+            </tr>
+            {(["qty", "price"] as const).map((f) => (
+              <tr key={f}>
+                <th className="whitespace-nowrap pr-2 text-left font-normal">{f === "qty" ? "数量" : "単価"}</th>
+                {days.map((d) => (
+                  <td key={d} className="px-0.5">
+                    <input inputMode="numeric" value={get(d)?.[f] || ""} onChange={(e) => set(d, f, e.target.value)} className={cell} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        仕切書の数量計
+        <input
+          inputMode="numeric"
+          value={row.qtyTotal ?? ""}
+          onChange={(e) => onChange({ ...row, qtyTotal: e.target.value === "" ? null : Math.max(0, Math.round(Number(e.target.value)) || 0) })}
+          className={cell}
+        />
+      </label>
     </div>
   );
 }
