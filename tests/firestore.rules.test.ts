@@ -248,3 +248,16 @@ describe("レジの共通設定（扱者のリスト）", () => {
     }
   });
 });
+
+describe("店舗実績", () => {
+  it("スタッフは読み書きでき、決めた項目以外は保存できない", async () => {
+    await assertSucceeds(setDoc(doc(staff(), "storeDaily/2026-06-02"), { direct: 17600, directCustomers: 27, total: 79500 }));
+    await assertSucceeds(getDoc(doc(staff(), "storeDaily/2026-06-02")));
+    await assertFails(setDoc(doc(staff(), "storeDaily/2026-06-02"), { direct: 1, secret: 1 }));
+    await assertFails(setDoc(doc(staff(), "storeDaily/2026-6-2"), { direct: 1 }));
+    for (const db of [guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "storeDaily/2026-06-02")));
+      await assertFails(setDoc(doc(db, "storeDaily/2026-06-02"), { direct: 1 }));
+    }
+  });
+});

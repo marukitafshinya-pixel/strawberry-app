@@ -20,6 +20,7 @@ const MENU: MenuItem[] = [
   { label: "商品別の実績（去年と今年）", href: "/staff/report/items/" },
   { label: "年ごとの比較", href: "/staff/report/yearly/" },
   { label: "出荷実績", href: "/staff/shipping/" },
+  { label: "店舗実績", href: "/staff/store/" },
   { label: "給与", href: "/staff/payroll/", adminOnly: true },
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
