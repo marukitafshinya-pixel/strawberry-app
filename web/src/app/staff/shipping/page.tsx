@@ -316,7 +316,7 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
               <td colSpan={4} />
             </tr>
             <tr className="border-t">
-              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額・円）</td>
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額）</td>
               {days.map((d) => (
                 <td key={d} className="whitespace-nowrap px-1 text-right tabular-nums">
                   {dayTotal(d) ? dayTotal(d).toLocaleString("ja-JP") : ""}
