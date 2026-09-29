@@ -225,6 +225,8 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  // アプリで直した数字を守るため、最初は「空いているところだけ入れる」
+  const [onlyEmpty, setOnlyEmpty] = useState(true);
 
   async function openSheet(book: Workbook, name: string, fileName: string) {
     setSheet(name);
@@ -314,6 +316,11 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
           for (const k of AIRREGI_KEYS) if (k in add) delete add[k];
           kept++;
         }
+        // 空いているところだけ入れるときは、今入っている項目は変えない
+        if (onlyEmpty) for (const k of STORE_KEYS) if (k in add && cur[k] !== undefined && cur[k] !== add[k]) {
+          delete add[k];
+          kept++;
+        }
         const next = { ...cur, ...add };
         const air = !!csv || fromAirregi.has(date);
         if (STORE_KEYS.every((k) => cur[k] === next[k]) && air === fromAirregi.has(date)) continue;
@@ -324,7 +331,7 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
         for (const [date, day, air] of writes.slice(i, i + 400)) batch.set(doc(db, `storeDaily/${date}`), { ...day, ...(air ? { airregi: true } : {}), updatedAt: serverTimestamp() });
         await batch.commit();
       }
-      if (kept > 0) setMessage(`（${kept}日分は、売上合計・客数・値引額をエアレジの数字のまま残しました）`);
+      if (kept > 0) setMessage(`（アプリに入っている数字・エアレジの数字は、${kept}か所そのまま残しました）`);
       setMessage((m) => `${writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。"}${m.startsWith("（") ? m : ""}`);
       setFile(null);
       setTable(null);
@@ -405,6 +412,13 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
                 </p>
                 <p className="mt-1 text-xs text-gray-700">読み取る項目：{ok.found!.join("・")}</p>
                 {ok.missing!.length > 0 && <p className="mt-1 text-xs text-amber-800">見つからなかった項目：{ok.missing!.join("・")}</p>}
+                <label className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-2">
+                  <input type="checkbox" className="mt-1" checked={onlyEmpty} onChange={(e) => setOnlyEmpty(e.target.checked)} />
+                  <span>
+                    <b>アプリに入っている数字は変えない</b>（空いているところだけ入れる）
+                    <span className="block text-xs text-gray-600">チェックを外すと、取り込むファイルの数字で上書きします（アプリで直した数字も元に戻ります）。</span>
+                  </span>
+                </label>
                 <p className="mt-1 text-xs text-gray-500">表が空欄（0）の日・項目は、今入っている内容のままです。</p>
               </>
             )

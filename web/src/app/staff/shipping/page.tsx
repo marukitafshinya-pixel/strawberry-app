@@ -382,6 +382,8 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
   const [year, setYear] = useState(defaultYear);
   const [useQty, setUseQty] = useState(true);
   const [usePrice, setUsePrice] = useState(true);
+  // アプリで直した数字を守るため、最初は「空いているところだけ入れる」
+  const [onlyEmpty, setOnlyEmpty] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -441,11 +443,16 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
       const current = new Map(snap.docs.map((d) => [d.id, (d.get("items") as DayItems) ?? {}]));
       const dates = [...new Set([...(willQty ? Object.keys(ok.qty!) : []), ...(willPrice ? Object.keys(ok.price!) : [])])].sort();
       const writes: [string, DayItems][] = [];
+      let skip = 0;
       for (const date of dates) {
         const items: DayItems = { ...(current.get(date) ?? {}) };
         let changed = false;
         const put = (gid: string, field: "qty" | "price", v: number) => {
           if (items[gid]?.[field] === v) return;
+          if (onlyEmpty && items[gid]?.[field] !== undefined) {
+            skip++;
+            return;
+          }
           items[gid] = { ...(items[gid] ?? {}), [field]: v };
           changed = true;
         };
@@ -459,7 +466,9 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
         for (const [date, items] of writes.slice(i, i + 400)) batch.set(doc(db, `shipments/${date}`), { items, updatedAt: serverTimestamp() });
         await batch.commit();
       }
-      setMessage(writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。");
+      setMessage(
+        `${writes.length > 0 ? `${writes.length}日分を保存しました。` : "新しく入れる数字はありませんでした（変更なし）。"}${skip > 0 ? `アプリに入っている${skip}か所は、そのまま残しました。` : ""}`,
+      );
       setFile(null);
       setTable(null);
       onDone();
@@ -555,6 +564,13 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
                 {ok.unmatched!.length > 0 && (
                   <p className="mt-2 text-xs text-amber-800">規格が見つからず入れないもの：{ok.unmatched!.join("、")}（規格の設定に追加すると入れられます）</p>
                 )}
+                <label className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-2">
+                  <input type="checkbox" className="mt-1" checked={onlyEmpty} onChange={(e) => setOnlyEmpty(e.target.checked)} />
+                  <span>
+                    <b>アプリに入っている数字は変えない</b>（空いているところだけ入れる）
+                    <span className="block text-xs text-gray-600">チェックを外すと、Excelの数字で上書きします（アプリで直した数字も元に戻ります）。</span>
+                  </span>
+                </label>
                 <p className="mt-2 text-xs text-gray-500">表が空欄の日・規格は、今入っている内容のままです。</p>
               </>
             )
