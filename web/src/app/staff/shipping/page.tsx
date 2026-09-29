@@ -212,6 +212,8 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
   // 粒数：粒売り（プレミアム・ロイヤル）はそのまま、パックは 数量×1パックの粒数
   const dayBerries = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * (g.count || 1), 0);
   const totalBerries = days.reduce((n, d) => n + dayBerries(d), 0);
+  // 重さ（kg）：数量×1パックの重さ（粒数×1粒の平均）
+  const dayKg = (d: string) => Math.round(grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * unitWeight(g), 0) / 100) / 10;
   const today = todayJST();
 
   return (
@@ -314,6 +316,17 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
               ))}
               <td className="px-2 text-right tabular-nums">{totalBerries.toLocaleString("ja-JP")}粒</td>
               <td colSpan={4} />
+            </tr>
+            <tr className="border-t">
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（重量kg）</td>
+              {days.map((d) => (
+                <td key={d} className="px-1 text-right tabular-nums">
+                  {dayKg(d) ? dayKg(d).toLocaleString("ja-JP", { minimumFractionDigits: 1 }) : ""}
+                </td>
+              ))}
+              <td colSpan={1} />
+              <td className="px-2 text-right tabular-nums">{totalWeight.toLocaleString("ja-JP")}kg</td>
+              <td colSpan={3} />
             </tr>
             <tr className="border-t">
               <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額）</td>
