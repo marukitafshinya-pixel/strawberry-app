@@ -524,14 +524,14 @@ export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, 
   // 番号（右上）と表題
   text(`No.${sale.id.slice(0, 6).toUpperCase()}`, L - M, px(6), 14, { align: "right" });
   text(sale.status === "voided" ? "【取消】" : "領 収 証", L / 2, px(14), 38, { bold: true, align: "center" });
-  // 宛名（空欄なら手書きできるよう「様」だけ）と下線
-  const nameY = px(70);
-  text(o.addressee.trim(), M + px(10), nameY, 24);
-  text("様", L - M - px(10), nameY, 24, { align: "right" });
-  ctx.fillRect(M, nameY + px(32), L - M * 2, Math.max(2, px(2)));
-  // 金額（太い枠）
+  // 金額の枠の位置（宛名の下線も同じ幅にする）
   const bw = Math.round(L * 0.56);
   const bx = Math.round((L - bw) / 2);
+  // 宛名（空欄なら手書きできるよう「様」だけ）と下線
+  const nameY = px(70);
+  text(o.addressee.trim(), bx + px(8), nameY, 24);
+  text("様", bx + bw - px(8), nameY, 24, { align: "right" });
+  ctx.fillRect(bx, nameY + px(32), bw, Math.max(2, px(2)));
   const by = px(116);
   const bh = px(58);
   const t = Math.max(3, px(3));
@@ -550,19 +550,35 @@ export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, 
   // 下の段：左に日付と店の情報、右に「上記正に領収しました」と扱者
   yy += px(30);
   text(`${y}年${String(m).padStart(2, "0")}月${String(d).padStart(2, "0")}日`, LX, yy, 16);
-  const RX = Math.round(L * 0.55);
+  const RX = Math.round(L * 0.66);
   text("上記正に領収しました。", RX, yy, 16);
+  // 住所・電話・登録番号を左に並べ、その右に店名を大きく
   const info = [
-    { t: s.storeName || "（店名）", size: 20, bold: true },
-    ...(s.storeAddress ? [{ t: s.storeAddress, size: 15, bold: false }] : []),
-    ...(s.storePhone ? [{ t: `TEL ${s.storePhone}`, size: 15, bold: false }] : []),
-    ...(s.invoiceNumber ? [{ t: `登録番号 ${s.invoiceNumber}`, size: 15, bold: false }] : []),
+    ...(s.storeAddress ? [s.storeAddress] : []),
+    ...(s.storePhone ? [`TEL ${s.storePhone}`] : []),
+    ...(s.invoiceNumber ? [`登録番号 ${s.invoiceNumber}`] : []),
   ];
-  let iy = yy + px(24);
-  for (const it of info) {
-    text(it.t, LX, iy, it.size, { bold: it.bold });
-    iy += px(it.size + 5);
+  const iy0 = yy + px(26);
+  let iy = iy0;
+  let infoW = 0;
+  ctx.font = `${px(15)}px ${FONT}`;
+  for (const t of info) {
+    text(t, LX, iy, 15);
+    ctx.font = `${px(15)}px ${FONT}`;
+    infoW = Math.max(infoW, ctx.measureText(t).width);
+    iy += px(20);
   }
+  // 店名は住所の段の高さの真ん中に（長いときは入る大きさまで小さくする）
+  const nameX = LX + Math.round(infoW) + px(22);
+  const room = RX - px(16) - nameX;
+  let nameSize = 30;
+  ctx.font = `bold ${px(nameSize)}px ${FONT}`;
+  while (nameSize > 16 && ctx.measureText(s.storeName || "（店名）").width > room) {
+    nameSize -= 1;
+    ctx.font = `bold ${px(nameSize)}px ${FONT}`;
+  }
+  const blockH = Math.max(px(20) * info.length, px(nameSize));
+  text(s.storeName || "（店名）", nameX, iy0 + Math.round((blockH - px(nameSize)) / 2) - px(2), nameSize, { bold: true });
   // 扱者（選んだ名前。空欄なら手書き用の下線だけ）
   const sy = yy + px(38);
   text("扱者", RX, sy, 16);
