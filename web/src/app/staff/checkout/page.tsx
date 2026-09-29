@@ -9,6 +9,7 @@ import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
 import { isHomeScreenApp, loadPrinter, openDrawerWithSii, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
+import { loadLastHandler, saveLastHandler, useHandlers } from "@/lib/register";
 import { getFirebase } from "@/lib/firebase";
 import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
@@ -433,9 +434,12 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           </Link>
           <span className="ml-3 text-lg font-bold text-gray-900">{step === "pay" ? "お支払い" : "注文入力"}</span>
         </p>
-        <Link href={`/staff/checkout/history/?date=${todayJST()}`} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
-          取引履歴
-        </Link>
+        <div className="flex items-center gap-2">
+          <HandlerPicker />
+          <Link href={`/staff/checkout/history/?date=${todayJST()}`} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+            取引履歴
+          </Link>
+        </div>
       </div>
       {r ? (
         <p className="mt-1 text-sm text-gray-600">
@@ -1166,4 +1170,38 @@ function orderGroups(tiles: Tile[], saved?: string[]): string[] {
 /** 全角数字を半角にして、数字以外を取り除く */
 function toDigits(v: string): string {
   return v.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, "");
+}
+
+/** レジの取扱者（この端末で選んだ人。領収書の「扱者」に最初から入る） */
+function HandlerPicker() {
+  const handlers = useHandlers();
+  const [handler, setHandler] = useState(() => (typeof window !== "undefined" ? loadLastHandler() : ""));
+  if (!handlers) return null;
+  if (handlers.length === 0)
+    return (
+      <Link href="/staff/checkout/settings/" className="text-xs text-gray-500 underline">
+        取扱者を登録
+      </Link>
+    );
+  return (
+    <label className="flex items-center gap-1 text-sm">
+      <span className="text-gray-600">取扱者</span>
+      <select
+        value={handler}
+        onChange={(e) => {
+          setHandler(e.target.value);
+          saveLastHandler(e.target.value);
+        }}
+        className={`rounded-lg border px-2 py-1.5 text-base ${handler ? "border-emerald-700 font-semibold" : "border-amber-500 bg-amber-50"}`}
+      >
+        <option value="">（選ぶ）</option>
+        {handlers.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+        {handler && !handlers.includes(handler) && <option value={handler}>{handler}</option>}
+      </select>
+    </label>
+  );
 }
