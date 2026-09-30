@@ -176,7 +176,8 @@ export const createWebReservation = onCall(
 
       const ref = db.collection("reservations").doc();
       const now = FieldValue.serverTimestamp();
-      tx.set(ref, { ...next, code: reservationCode(ref.id), createdAt: now, updatedAt: now, createdBy: "web" });
+      // unseen：お店がまだ確認していない新しい予約（ホームに知らせる）
+      tx.set(ref, { ...next, code: reservationCode(ref.id), createdAt: now, updatedAt: now, createdBy: "web", unseen: true });
       tx.set(db.doc(`reservationContacts/${ref.id}`), { date: next.date, phone: input.phone, email: input.email });
       if (next.status === "confirmed") tx.set(aRef, { slots, updatedAt: now });
       tx.set(phoneRef, {

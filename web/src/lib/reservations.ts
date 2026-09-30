@@ -43,6 +43,9 @@ export type Reservation = {
   code?: string;
   /** 会計済みなら、その会計のID */
   saleId?: string;
+  /** Web予約で、お店がまだ確認していない（ホームに知らせる） */
+  unseen?: boolean;
+  createdAt?: { toMillis: () => number };
 };
 
 export type Contact = { phone: string; email: string };
@@ -137,6 +140,23 @@ export function usePendingRequests(fromDate: string) {
       fail,
     );
   }, [fromDate]);
+}
+
+/** お店がまだ確認していない新しい予約（Web予約）。受け付けた順 */
+export function useUnseenReservations() {
+  return useLive<Reservation[]>(async (set, fail) => {
+    const { db } = await getFirebase();
+    return onSnapshot(
+      query(collection(db, "reservations"), where("unseen", "==", true)),
+      (snap) =>
+        set(
+          snap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))
+            .sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0)),
+        ),
+      fail,
+    );
+  }, []);
 }
 
 /** 時間枠ごとの予約人数（空き状況） */

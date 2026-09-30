@@ -5,7 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertAdmin, db, requireEmail, requirePassword, requireRole, requireString } from "./common.js";
 
-export { deleteReservation, saveReservation, setReservationStatus } from "./reservations.js";
+export { deleteReservation, markReservationsSeen, saveReservation, setReservationStatus } from "./reservations.js";
 export { createWebReservation } from "./web.js";
 export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";

@@ -6,7 +6,8 @@ import { errorText } from "@/lib/callFunction";
 import { assignMenuSlots, cellsOf, fitSlot, MENU_COLS, saveMenuLayout, useMenuLayout, type MenuLayout } from "@/lib/menuLayout";
 import { useAuth } from "@/lib/auth";
 import { formatJa, todayJST } from "@/lib/date";
-import { countsTowardCapacity, usePendingRequests, useReservations, yen } from "@/lib/reservations";
+import { callFunction } from "@/lib/callFunction";
+import { countsTowardCapacity, STATUS_LABEL, STATUS_STYLE, usePendingRequests, useReservations, useUnseenReservations, yen, type Reservation } from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
 type MenuItem = { label: string; href: string; adminOnly?: boolean; big?: boolean; color?: string };
@@ -39,6 +40,7 @@ export default function StaffHome() {
   const isAdmin = role === "admin";
   const items = MENU.filter((m) => !m.adminOnly || isAdmin);
   const { value: requests } = usePendingRequests(todayJST());
+  const { value: unseen } = useUnseenReservations();
   const saved = useMenuLayout();
   // 並べ替え中の配置（null＝並べ替えていない）
   const [arrange, setArrange] = useState<MenuLayout | null>(null);
@@ -131,8 +133,11 @@ export default function StaffHome() {
   const tileBody = (m: MenuItem) => (
     <>
       <div className={m.big ? "text-2xl font-bold" : "text-lg font-semibold"}>{m.label}</div>
-      {m.href === "/staff/reservations/" && requests && requests.length > 0 && (
-        <div className="mt-1 inline-block rounded-full bg-white px-2 py-0.5 text-xs font-bold text-purple-700">リクエスト {requests.length}件</div>
+      {m.href === "/staff/reservations/" && (
+        <div className="mt-1 flex flex-wrap justify-center gap-1">
+          {unseen && unseen.length > 0 && <span className="rounded-full bg-amber-300 px-2 py-0.5 text-xs font-bold text-amber-950">未確認 {unseen.length}件</span>}
+          {requests && requests.length > 0 && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-purple-700">リクエスト {requests.length}件</span>}
+        </div>
       )}
     </>
   );
@@ -141,6 +146,7 @@ export default function StaffHome() {
 
   return (
     <>
+      {unseen && unseen.length > 0 && <UnseenNotice list={unseen} />}
       <Today requestCount={requests?.length ?? 0} />
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
@@ -240,6 +246,65 @@ export default function StaffHome() {
         </>
       )}
     </>
+  );
+}
+
+/** まだ確認していない新しい予約（Web予約）のお知らせ */
+function UnseenNotice({ list }: { list: Reservation[] }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  async function mark(ids: string[] | "all") {
+    setBusy(ids === "all" ? "all" : ids[0]);
+    setError("");
+    try {
+      await callFunction("markReservationsSeen", ids === "all" ? { all: true } : { ids });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  const shown = open ? list : list.slice(0, 5);
+  const received = (r: Reservation) => {
+    const ms = r.createdAt?.toMillis();
+    if (!ms) return "";
+    const d = new Date(ms + 9 * 3600_000);
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}受付`;
+  };
+  return (
+    <section className="mb-6 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold text-amber-950">🔔 新しい予約があります（未確認 {list.length}件）</h2>
+        <button onClick={() => mark("all")} disabled={!!busy} className="rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-sm font-bold text-amber-900 disabled:opacity-50">
+          {busy === "all" ? "…" : "すべて確認した"}
+        </button>
+      </div>
+      <ul className="mt-2 divide-y divide-amber-200">
+        {shown.map((r) => (
+          <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
+            <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+            <Link href={`/staff/reservations/?date=${r.date}`} className="font-semibold underline">
+              {formatJa(r.date)} {r.slotTime}
+            </Link>
+            <span>
+              {r.customerName} 様 {r.people}人
+            </span>
+            <span className="text-sm text-gray-600">{r.planName}</span>
+            <span className="text-xs text-gray-500">{received(r)}</span>
+            <button onClick={() => mark([r.id])} disabled={!!busy} className="ml-auto rounded-lg bg-amber-600 px-3 py-1 text-sm font-bold text-white disabled:opacity-50">
+              {busy === r.id ? "…" : "確認した"}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {list.length > 5 && (
+        <button onClick={() => setOpen(!open)} className="mt-1 text-sm text-amber-900 underline">
+          {open ? "少なく表示" : `ほか${list.length - 5}件も見る`}
+        </button>
+      )}
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </section>
   );
 }
 

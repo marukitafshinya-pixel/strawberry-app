@@ -497,6 +497,18 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
     }
   }
 
+  async function markSeen() {
+    setBusy(true);
+    setError("");
+    try {
+      await callFunction("markReservationsSeen", { ids: [r.id] });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const cancelled = r.status === "cancelled";
   return (
     <li className={`py-2 ${cancelled ? "opacity-50" : ""}`}>
@@ -505,7 +517,13 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
         <span className={`font-semibold ${cancelled ? "line-through" : ""}`}>{r.customerName} 様</span>
         <span className="text-sm">{r.people}人</span>
         {r.source === "web" && <span className="rounded bg-berry/10 px-1.5 text-xs text-berry-dark">Web {r.code}</span>}
+        {r.unseen && <span className="rounded-full bg-amber-300 px-2 py-0.5 text-xs font-bold text-amber-950">未確認</span>}
         <div className="ml-auto flex gap-2 print:hidden">
+          {r.unseen && (
+            <button onClick={markSeen} disabled={busy} className="rounded-lg border border-amber-600 px-3 py-1.5 text-sm font-bold text-amber-900 disabled:opacity-50">
+              確認した
+            </button>
+          )}
           {r.status === "request" ? (
             <button
               onClick={() => changeStatus("confirmed")}

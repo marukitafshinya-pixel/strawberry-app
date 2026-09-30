@@ -190,6 +190,8 @@ export const saveReservation = onCall(async (req) => {
       updatedAt: now,
       updatedBy: uid,
       ...(before ? {} : { createdAt: now, createdBy: uid }),
+      // スタッフが開いて保存したので、確認済みにする
+      unseen: FieldValue.delete(),
     }, { merge: true });
     // 連絡先はスタッフだけが読める別の場所に保存する
     tx.set(db.doc(`reservationContacts/${ref.id}`), { date: next.date, phone: input.phone, email: input.email });
@@ -256,7 +258,28 @@ export const setReservationStatus = onCall(async (req) => {
       }
       tx.set(aRef, { slots, updatedAt: FieldValue.serverTimestamp() });
     }
-    tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp(), updatedBy: uid });
+    tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp(), updatedBy: uid, unseen: FieldValue.delete() });
   });
   return { ok: true };
+});
+
+// ---------- スタッフ用：新しい予約を「確認した」にする ----------
+
+export const markReservationsSeen = onCall(async (req) => {
+  const uid = await assertStaff(req);
+  const all = req.data?.all === true;
+  let refs;
+  if (all) {
+    refs = (await db.collection("reservations").where("unseen", "==", true).limit(300).get()).docs.map((d) => d.ref);
+  } else {
+    const ids = req.data?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) throw new HttpsError("invalid-argument", "予約を選んでください");
+    // 消された予約は飛ばす（ない予約を作ってしまわないように）
+    const snaps = await db.getAll(...ids.map((id) => db.doc(`reservations/${requireString(id, "予約", 64)}`)));
+    refs = snaps.filter((d) => d.exists).map((d) => d.ref);
+  }
+  const batch = db.batch();
+  for (const ref of refs) batch.update(ref, { unseen: FieldValue.delete(), seenBy: uid });
+  if (refs.length) await batch.commit();
+  return { count: refs.length };
 });
