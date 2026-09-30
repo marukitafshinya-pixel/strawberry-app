@@ -6,7 +6,8 @@ import { Suspense, useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { yen } from "@/lib/reservations";
-import { PAYMENT_LABEL, byCategory, useImportedSales, useReceivables, useSales, type Sale } from "@/lib/sales";
+import { PAYMENT_LABEL, byCategory, useReceivables, useSales, type Sale } from "@/lib/sales";
+import { usePastSales } from "@/lib/store";
 
 export default function SalesPage() {
   return (
@@ -24,7 +25,7 @@ function DailyClose() {
 
   const { value: sales, error } = useSales(date, date);
   const { value: collected } = useReceivables("collected");
-  const { value: imported } = useImportedSales(date, date);
+  const { value: imported } = usePastSales(date, date);
 
   const done = (sales ?? []).filter((s) => s.status === "completed");
   const cash = done.filter((s) => s.payment === "cash").reduce((n, s) => n + s.total, 0);

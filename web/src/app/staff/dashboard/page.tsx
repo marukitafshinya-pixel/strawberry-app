@@ -15,7 +15,8 @@ import {
   useSettings,
   yen,
 } from "@/lib/reservations";
-import { useImportedSales, useReceivables, useSales } from "@/lib/sales";
+import { useReceivables, useSales } from "@/lib/sales";
+import { usePastSales } from "@/lib/store";
 
 /** "YYYY-MM" を n か月ずらす */
 function shiftMonth(ym: string, n: number): string {
@@ -50,7 +51,7 @@ function Dashboard() {
 
   const { value: settings } = useSettings();
   const { value: sales } = useSales(from, to);
-  const { value: imported } = useImportedSales(from, to);
+  const { value: imported } = usePastSales(from, to);
   const { value: openReceivables } = useReceivables("open");
   const { value: todayReservations } = useReservations(today);
   const { value: todayCapacity } = useDailyCapacity(today);

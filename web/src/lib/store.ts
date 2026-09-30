@@ -2,8 +2,9 @@
 
 // 店舗実績（直売・カフェ・いちご狩りの売上と客数）。1日1件、storeDaily/{YYYY-MM-DD} に保存する
 import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getFirebase } from "./firebase";
+import { useImportedSales } from "./sales";
 
 /** 集計項目（表の並び順）。label は Excel の「日別実績」の見出しに合わせて探す */
 export const STORE_ITEMS = [
@@ -154,4 +155,20 @@ export function parseAirregiDailyCsv(rows: string[][]): { days: Record<string, S
     if (Object.keys(day).length > 0) days[date] = day;
   }
   return { days, error: Object.keys(days).length === 0 ? "取り込める日がありませんでした" : "" };
+}
+
+/**
+ * アプリの会計より前の売上（日付 → 売上合計）。ダッシュボードや集計で使う。
+ * 店舗実績（エアレジ・Excelから取り込んだ売上合計）を優先し、ない日は「過去売上の取り込み」の金額を使う。
+ */
+export function usePastSales(from: string, to: string): { value: { id: string; amount: number }[] | null } {
+  const store = useStoreDays(from, to);
+  const { value: imported } = useImportedSales(from, to);
+  const value = useMemo(() => {
+    if (!store || !imported) return null;
+    const m = new Map(imported.map((x) => [x.id, x.amount]));
+    for (const [d, v] of Object.entries(store)) if (v.total) m.set(d, v.total);
+    return [...m.entries()].map(([id, amount]) => ({ id, amount }));
+  }, [store, imported]);
+  return { value };
 }

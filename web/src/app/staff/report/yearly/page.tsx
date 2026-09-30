@@ -9,7 +9,8 @@ import { todayJST } from "@/lib/date";
 import { EMPLOYER_ITEMS, computeRow, usePayrollsRange, type Payroll } from "@/lib/payroll";
 import { buildDailySales, downloadCsv, sumValues } from "@/lib/report";
 import { countsTowardCapacity, useReservationsRange, useSettings } from "@/lib/reservations";
-import { useImportedSales, useSales } from "@/lib/sales";
+import { useSales } from "@/lib/sales";
+import { usePastSales } from "@/lib/store";
 import type { Settings } from "@/lib/settings";
 import { unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
 
@@ -157,7 +158,7 @@ const span = (a: number, b: number) => ({ from: `${Math.min(a, b)}-01-01`, to: `
 function SalesYears({ metric, yearA, yearB, settings }: Props) {
   const { from, to } = span(yearA, yearB);
   const { value: sales } = useSales(from, to);
-  const { value: imported } = useImportedSales(from, to);
+  const { value: imported } = usePastSales(from, to);
   const data = useMemo(() => {
     if (!sales || !imported) return null;
     const { byDay } = buildDailySales(settings, sales, imported);

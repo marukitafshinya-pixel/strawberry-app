@@ -7,7 +7,8 @@ import { MAX_DAYS, RangePicker, daysBetween, useRangeParams } from "@/components
 import { addDays, formatJa, weekday } from "@/lib/date";
 import { buildDailySales, downloadCsv, sumValues } from "@/lib/report";
 import { STATUS_LABEL, countsTowardCapacity, useReservationsRange, useSettings, yen, type ReservationStatus } from "@/lib/reservations";
-import { PAYMENT_LABEL, useImportedSales, useSales } from "@/lib/sales";
+import { PAYMENT_LABEL, useSales } from "@/lib/sales";
+import { usePastSales } from "@/lib/store";
 import type { Settings } from "@/lib/settings";
 
 
@@ -26,7 +27,7 @@ function ReportView() {
   const qf = tooLong ? "9999-12-31" : from;
   const { value: reservations } = useReservationsRange(qf, to);
   const { value: sales } = useSales(qf, to);
-  const { value: imported } = useImportedSales(qf, to);
+  const { value: imported } = usePastSales(qf, to);
 
   if (!settings) return <p className="text-gray-500">読み込み中…</p>;
 
