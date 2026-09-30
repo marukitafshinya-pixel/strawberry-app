@@ -132,7 +132,7 @@ export default function StaffHome() {
 
   const tileBody = (m: MenuItem) => (
     <>
-      <div className={m.big ? "text-2xl font-bold" : "text-lg font-semibold"}>{m.label}</div>
+      <div className={m.href === "/staff/checkout/" ? "text-3xl font-bold" : m.big ? "text-2xl font-bold" : "text-lg font-semibold"}>{m.label}</div>
       {m.href === "/staff/reservations/" && (
         <div className="mt-1 flex flex-wrap justify-center gap-1">
           {unseen && unseen.length > 0 && <span className="rounded-full bg-amber-300 px-2 py-0.5 text-xs font-bold text-amber-950">未確認 {unseen.length}件</span>}
