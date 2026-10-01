@@ -546,9 +546,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         </p>
       )}
 
-      <div className="mt-3 grid gap-4 lg:grid-cols-[24rem_1fr] 2xl:grid-cols-[30rem_1fr]">
+      <div className={`mt-3 grid gap-4 ${step === "pay" ? "" : "lg:grid-cols-[24rem_1fr] 2xl:grid-cols-[30rem_1fr]"}`}>
         {/* 左：注文リスト */}
-        <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-9.5rem)] ${step === "pay" ? "hidden lg:flex" : ""}`}>
+        <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-9.5rem)] ${step === "pay" ? "hidden" : ""}`}>
           <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
             <h2 className="font-bold">注文リスト</h2>
             {customer ? (
@@ -901,7 +901,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           </section>
         ) : (
           // 1画面に収まるよう、左に合計・支払い方法・確定、右にお預かり・テンキー・おつりを並べる
-          <section className="grid gap-4 rounded-2xl bg-white p-4 shadow-sm md:grid-cols-2">
+          <section className="mx-auto grid w-full max-w-6xl gap-6 rounded-2xl bg-white p-5 shadow-sm md:grid-cols-2">
             <div className="flex flex-col gap-3">
               <div className="flex items-baseline justify-between gap-2 text-sm">
                 <button onClick={() => setStep("order")} className="text-gray-600 underline">
@@ -915,7 +915,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
               {/* お客様に見せる合計 */}
               <div className="rounded-2xl border-2 border-berry bg-berry/5 px-3 py-3 text-center">
                 <div className="text-base font-bold text-gray-700">お会計（税込）</div>
-                <div className="text-5xl font-bold tabular-nums text-berry-dark xl:text-6xl">{yen(total)}</div>
+                <div className="text-6xl font-bold tabular-nums text-berry-dark xl:text-7xl">{yen(total)}</div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {(["cash", "credit"] as const).map((m) => (
@@ -994,7 +994,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                   className={`mt-2 rounded-2xl px-3 py-2 text-center ${change === null ? "bg-gray-50 text-gray-400" : change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}
                 >
                   <div className="text-base font-bold">{change !== null && change < 0 ? "足りません" : "おつり"}</div>
-                  <div className="text-5xl font-bold tabular-nums xl:text-6xl">{change === null ? "－" : yen(Math.abs(change))}</div>
+                  <div className="text-6xl font-bold tabular-nums xl:text-7xl">{change === null ? "－" : yen(Math.abs(change))}</div>
                 </div>
               </div>
             ) : (
@@ -1212,7 +1212,7 @@ function Keypad({ onKey, quick, onQuick }: { onKey: (k: string) => void; quick: 
   const keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "00", "⌫"];
   const btn = "rounded-xl border bg-white text-3xl font-bold tabular-nums shadow-sm active:bg-gray-200 select-none";
   return (
-    <div className="mt-2 grid grid-cols-4 gap-1.5" style={{ gridAutoRows: "3.4rem" }}>
+    <div className="mt-2 grid grid-cols-4 gap-1.5" style={{ gridAutoRows: "3.8rem" }}>
       {keys.map((k, i) => (
         <button
           key={k}
