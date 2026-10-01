@@ -484,7 +484,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
           </div>
         </div>
       )}
-      {lastPaid && (
+      {lastPaid && step === "order" && (
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-green-50 p-3 text-green-900">
           <span className="text-sm font-bold">前回の会計</span>
           <span className="flex flex-wrap items-baseline gap-x-5 gap-y-1 tabular-nums">
@@ -548,7 +548,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
 
       <div className="mt-3 grid gap-4 lg:grid-cols-[24rem_1fr] 2xl:grid-cols-[30rem_1fr]">
         {/* 左：注文リスト */}
-        <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100vh-7rem)] ${step === "pay" ? "hidden lg:flex" : ""}`}>
+        <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-9.5rem)] ${step === "pay" ? "hidden lg:flex" : ""}`}>
           <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
             <h2 className="font-bold">注文リスト</h2>
             {customer ? (
@@ -900,56 +900,71 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
             )}
           </section>
         ) : (
-          <section className="space-y-4 rounded-2xl bg-white p-4 shadow-sm">
-            <button onClick={() => setStep("order")} className="text-sm text-gray-600 underline">
-              ← 注文入力に戻る
-            </button>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt>小計（{count}点）</dt>
-                <dd>{yen(subtotal)}</dd>
+          // 1画面に収まるよう、左に合計・支払い方法・確定、右にお預かり・テンキー・おつりを並べる
+          <section className="grid gap-4 rounded-2xl bg-white p-4 shadow-sm md:grid-cols-2">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-baseline justify-between gap-2 text-sm">
+                <button onClick={() => setStep("order")} className="text-gray-600 underline">
+                  ← 注文入力に戻る
+                </button>
+                <span className="text-gray-600">
+                  小計（{count}点）{yen(subtotal)}
+                  {subtotal !== total && <span className="ml-2 text-red-700">値引き −{yen(subtotal - total)}</span>}
+                </span>
               </div>
-              {subtotal !== total && (
-                <div className="flex justify-between text-red-700">
-                  <dt>値引き</dt>
-                  <dd>−{yen(subtotal - total)}</dd>
-                </div>
+              {/* お客様に見せる合計 */}
+              <div className="rounded-2xl border-2 border-berry bg-berry/5 px-3 py-3 text-center">
+                <div className="text-base font-bold text-gray-700">お会計（税込）</div>
+                <div className="text-5xl font-bold tabular-nums text-berry-dark xl:text-6xl">{yen(total)}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {(["cash", "credit"] as const).map((m) => (
+                  <button key={m} onClick={() => setPayment(m)} className={`rounded-lg border py-2.5 font-bold ${payment === m ? "border-berry bg-berry text-white" : ""}`}>
+                    {PAYMENT_LABEL[m]}
+                  </button>
+                ))}
+              </div>
+              <label className="block text-sm">
+                <span className="text-gray-600">お客様名{payment === "credit" && <span className="text-red-600">（売掛は必須）</span>}</span>
+                <input value={customerName} maxLength={50} onChange={(e) => setCustomerName(e.target.value)} className="mt-0.5 w-full rounded-lg border px-3 py-1.5 text-base" />
+              </label>
+              {payment === "credit" && (
+                <label className="block text-sm">
+                  <span className="text-gray-600">回収予定日（任意）</span>
+                  <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="mt-0.5 w-full rounded-lg border px-3 py-1.5 text-base" />
+                </label>
               )}
-            </dl>
-            {/* お客様に見せる合計 */}
-            <div className="rounded-2xl border-2 border-berry bg-berry/5 px-4 py-5 text-center">
-              <div className="text-lg font-bold text-gray-700">お会計（税込）</div>
-              <div className="mt-1 text-6xl font-bold tabular-nums text-berry-dark sm:text-7xl">{yen(total)}</div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              全部に
-              <input
-                inputMode="numeric"
-                value={allRate}
-                onChange={(e) => setAllRate(toDigits(e.target.value).slice(0, 3))}
-                className="w-16 rounded border px-2 py-1 text-right"
-                aria-label="全体の割引率"
-              />
-              %引きを
-              <button onClick={() => setLines(lines.map((l) => ({ ...l, discountRate: Math.min(100, Number(allRate) || 0) })))} className="rounded border px-3 py-1">
-                かける
+              <label className="block text-sm">
+                <span className="text-gray-600">メモ（任意）</span>
+                <input value={memo} maxLength={200} onChange={(e) => setMemo(e.target.value)} className="mt-0.5 w-full rounded-lg border px-3 py-1.5 text-base" />
+              </label>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                全部に
+                <input
+                  inputMode="numeric"
+                  value={allRate}
+                  onChange={(e) => setAllRate(toDigits(e.target.value).slice(0, 3))}
+                  className="w-14 rounded border px-2 py-1 text-right"
+                  aria-label="全体の割引率"
+                />
+                %引きを
+                <button onClick={() => setLines(lines.map((l) => ({ ...l, discountRate: Math.min(100, Number(allRate) || 0) })))} className="rounded border px-3 py-1">
+                  かける
+                </button>
+              </div>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <button
+                onClick={confirm}
+                disabled={saving || alreadyPaid || lines.length === 0}
+                className="mt-auto w-full rounded-lg bg-berry py-4 text-lg font-bold text-white disabled:opacity-40"
+              >
+                {saving ? "処理中…" : `${PAYMENT_LABEL[payment]}で確定（${yen(total)}）`}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {(["cash", "credit"] as const).map((m) => (
-                <button key={m} onClick={() => setPayment(m)} className={`rounded-lg border py-3 font-bold ${payment === m ? "border-berry bg-berry text-white" : ""}`}>
-                  {PAYMENT_LABEL[m]}
-                </button>
-              ))}
-            </div>
-            <label className="block text-sm">
-              <span className="text-gray-600">お客様名{payment === "credit" && <span className="text-red-600">（売掛は必須）</span>}</span>
-              <input value={customerName} maxLength={50} onChange={(e) => setCustomerName(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
-            </label>
             {payment === "cash" ? (
-              <div>
+              <div className="flex flex-col">
                 <label className="block">
-                  <span className="text-lg font-bold text-gray-700">お預かり</span>
+                  <span className="text-base font-bold text-gray-700">お預かり</span>
                   <span className="ml-2 text-xs text-gray-500">（おつりの計算用・任意）</span>
                   {/* iPadではキーボードを出さず、下のテンキーで入れる（つないだキーボードでも打てる） */}
                   <input
@@ -957,7 +972,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                     value={received === "" ? "" : Number(received).toLocaleString("ja-JP")}
                     onChange={(e) => setReceived(toDigits(e.target.value).slice(0, 9))}
                     placeholder="0"
-                    className="mt-1 w-full rounded-xl border-2 px-4 py-3 text-right text-5xl font-bold tabular-nums"
+                    className="mt-0.5 w-full rounded-xl border-2 px-3 py-1.5 text-right text-4xl font-bold tabular-nums"
                   />
                 </label>
                 <Keypad
@@ -975,31 +990,16 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                   ]}
                   onQuick={(v) => setReceived(String(v))}
                 />
-                {change !== null && (
-                  <div className={`mt-3 rounded-2xl px-4 py-4 text-center ${change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}>
-                    <div className="text-lg font-bold">{change < 0 ? "足りません" : "おつり"}</div>
-                    <div className="mt-1 text-6xl font-bold tabular-nums sm:text-7xl">{yen(Math.abs(change))}</div>
-                  </div>
-                )}
+                <div
+                  className={`mt-2 rounded-2xl px-3 py-2 text-center ${change === null ? "bg-gray-50 text-gray-400" : change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}
+                >
+                  <div className="text-base font-bold">{change !== null && change < 0 ? "足りません" : "おつり"}</div>
+                  <div className="text-5xl font-bold tabular-nums xl:text-6xl">{change === null ? "－" : yen(Math.abs(change))}</div>
+                </div>
               </div>
             ) : (
-              <label className="block text-sm">
-                <span className="text-gray-600">回収予定日（任意）</span>
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
-              </label>
+              <div className="hidden rounded-2xl bg-gray-50 p-4 text-sm text-gray-500 md:block">売掛のときは、お預かりの入力はいりません。</div>
             )}
-            <label className="block text-sm">
-              <span className="text-gray-600">メモ（任意）</span>
-              <input value={memo} maxLength={200} onChange={(e) => setMemo(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
-            </label>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <button
-              onClick={confirm}
-              disabled={saving || alreadyPaid || lines.length === 0}
-              className="w-full rounded-lg bg-berry py-4 text-lg font-bold text-white disabled:opacity-40"
-            >
-              {saving ? "処理中…" : `${PAYMENT_LABEL[payment]}で確定（${yen(total)}）`}
-            </button>
           </section>
         )}
       </div>
@@ -1212,7 +1212,7 @@ function Keypad({ onKey, quick, onQuick }: { onKey: (k: string) => void; quick: 
   const keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "00", "⌫"];
   const btn = "rounded-xl border bg-white text-3xl font-bold tabular-nums shadow-sm active:bg-gray-200 select-none";
   return (
-    <div className="mt-2 grid grid-cols-4 gap-2" style={{ gridAutoRows: "4rem" }}>
+    <div className="mt-2 grid grid-cols-4 gap-1.5" style={{ gridAutoRows: "3.4rem" }}>
       {keys.map((k, i) => (
         <button
           key={k}
@@ -1236,7 +1236,7 @@ function Keypad({ onKey, quick, onQuick }: { onKey: (k: string) => void; quick: 
           {q.label}
         </button>
       ))}
-      <button type="button" onClick={() => onKey("C")} className="col-span-4 rounded-xl border bg-gray-50 text-lg font-bold text-gray-700 active:bg-gray-200" style={{ gridRowStart: 5 }}>
+      <button type="button" onClick={() => onKey("C")} className="col-span-4 h-10 self-end rounded-xl border bg-gray-50 text-base font-bold text-gray-700 active:bg-gray-200" style={{ gridRowStart: 5 }}>
         クリア
       </button>
     </div>
