@@ -953,13 +953,14 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 </button>
               </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
-              <button
-                onClick={confirm}
-                disabled={saving || alreadyPaid || lines.length === 0}
-                className="mt-auto w-full rounded-lg bg-berry py-4 text-lg font-bold text-white disabled:opacity-40"
-              >
-                {saving ? "処理中…" : `${PAYMENT_LABEL[payment]}で確定（${yen(total)}）`}
-              </button>
+              {payment === "cash" && (
+                <div
+                  className={`mt-auto rounded-2xl px-3 py-2 text-center ${change === null ? "bg-gray-50 text-gray-400" : change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}
+                >
+                  <div className="text-base font-bold">{change !== null && change < 0 ? "足りません" : "おつり"}</div>
+                  <div className="text-6xl font-bold tabular-nums xl:text-7xl">{change === null ? "－" : yen(Math.abs(change))}</div>
+                </div>
+              )}
             </div>
             {payment === "cash" ? (
               <div className="flex flex-col">
@@ -990,15 +991,25 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                   ]}
                   onQuick={(v) => setReceived(String(v))}
                 />
-                <div
-                  className={`mt-2 rounded-2xl px-3 py-2 text-center ${change === null ? "bg-gray-50 text-gray-400" : change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}
+                <button
+                  onClick={confirm}
+                  disabled={saving || alreadyPaid || lines.length === 0}
+                  className="mt-auto w-full rounded-lg bg-berry py-4 text-lg font-bold text-white disabled:opacity-40"
                 >
-                  <div className="text-base font-bold">{change !== null && change < 0 ? "足りません" : "おつり"}</div>
-                  <div className="text-6xl font-bold tabular-nums xl:text-7xl">{change === null ? "－" : yen(Math.abs(change))}</div>
-                </div>
+                  {saving ? "処理中…" : `${PAYMENT_LABEL[payment]}で確定（${yen(total)}）`}
+                </button>
               </div>
             ) : (
-              <div className="hidden rounded-2xl bg-gray-50 p-4 text-sm text-gray-500 md:block">売掛のときは、お預かりの入力はいりません。</div>
+              <div className="flex flex-col">
+                <div className="hidden rounded-2xl bg-gray-50 p-4 text-sm text-gray-500 md:block">売掛のときは、お預かりの入力はいりません。</div>
+                <button
+                  onClick={confirm}
+                  disabled={saving || alreadyPaid || lines.length === 0}
+                  className="mt-auto w-full rounded-lg bg-berry py-4 text-lg font-bold text-white disabled:opacity-40"
+                >
+                  {saving ? "処理中…" : `${PAYMENT_LABEL[payment]}で確定（${yen(total)}）`}
+                </button>
+              </div>
             )}
           </section>
         )}
@@ -1212,7 +1223,7 @@ function Keypad({ onKey, quick, onQuick }: { onKey: (k: string) => void; quick: 
   const keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "00", "⌫"];
   const btn = "rounded-xl border bg-white text-3xl font-bold tabular-nums shadow-sm active:bg-gray-200 select-none";
   return (
-    <div className="mt-2 grid grid-cols-4 gap-1.5" style={{ gridAutoRows: "3.8rem" }}>
+    <div className="mt-2 mb-3 grid grid-cols-4 gap-1.5" style={{ gridAutoRows: "3.8rem" }}>
       {keys.map((k, i) => (
         <button
           key={k}
