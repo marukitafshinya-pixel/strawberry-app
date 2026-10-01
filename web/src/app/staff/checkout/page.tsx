@@ -165,7 +165,12 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
     const q = new URLSearchParams(window.location.search);
     const id = q.get("lastId");
     return q.has("lastTotal")
-      ? { total: Number(q.get("lastTotal")) || 0, change: q.has("lastChange") ? Number(q.get("lastChange")) || 0 : null, id: id && /^[A-Za-z0-9]{1,40}$/.test(id) ? id : null }
+      ? {
+          total: Number(q.get("lastTotal")) || 0,
+          received: q.has("lastReceived") ? Number(q.get("lastReceived")) || 0 : null,
+          change: q.has("lastChange") ? Number(q.get("lastChange")) || 0 : null,
+          id: id && /^[A-Za-z0-9]{1,40}$/.test(id) ? id : null,
+        }
       : null;
   });
   const [custom, setCustom] = useState({ name: "", price: "" });
@@ -257,7 +262,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         } catch {
           // 控えられなくても会計は確定している
         }
-        window.location.replace(`/staff/checkout/?lastTotal=${p.sale.total}${change !== null && change >= 0 ? `&lastChange=${change}` : ""}&lastId=${res.id}`);
+        window.location.replace(
+          `/staff/checkout/?lastTotal=${p.sale.total}${change !== null && change >= 0 ? `&lastReceived=${Number(p.received)}&lastChange=${change}` : ""}&lastId=${res.id}`,
+        );
         return;
       }
       setDone(res);
@@ -479,12 +486,20 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       )}
       {lastPaid && (
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-green-50 p-3 text-green-900">
-          <span>
-            前回の会計：<b>{yen(lastPaid.total)}</b>
+          <span className="text-sm font-bold">前回の会計</span>
+          <span className="flex flex-wrap items-baseline gap-x-5 gap-y-1 tabular-nums">
+            <span>
+              金額 <b className="text-3xl">{yen(lastPaid.total)}</b>
+            </span>
+            {lastPaid.received !== null && (
+              <span>
+                お預かり <b className="text-3xl">{yen(lastPaid.received)}</b>
+              </span>
+            )}
             {lastPaid.change !== null && (
-              <>
-                　おつり <b className="text-2xl">{yen(lastPaid.change)}</b>
-              </>
+              <span>
+                おつり <b className="text-3xl text-green-800">{yen(lastPaid.change)}</b>
+              </span>
             )}
           </span>
           <button
@@ -900,11 +915,12 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                   <dd>−{yen(subtotal - total)}</dd>
                 </div>
               )}
-              <div className="flex justify-between text-2xl font-bold">
-                <dt>合計（税込）</dt>
-                <dd>{yen(total)}</dd>
-              </div>
             </dl>
+            {/* お客様に見せる合計 */}
+            <div className="rounded-2xl border-2 border-berry bg-berry/5 px-4 py-5 text-center">
+              <div className="text-lg font-bold text-gray-700">お会計（税込）</div>
+              <div className="mt-1 text-6xl font-bold tabular-nums text-berry-dark sm:text-7xl">{yen(total)}</div>
+            </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               全部に
               <input
@@ -931,20 +947,37 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
               <input value={customerName} maxLength={50} onChange={(e) => setCustomerName(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
             </label>
             {payment === "cash" ? (
-              <label className="block text-sm">
-                <span className="text-gray-600">お預かり（おつりの計算用・任意）</span>
-                <input
-                  inputMode="numeric"
-                  value={received}
-                  onChange={(e) => setReceived(toDigits(e.target.value))}
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-right text-base"
-                />
+              <div>
+                <label className="block">
+                  <span className="text-lg font-bold text-gray-700">お預かり</span>
+                  <span className="ml-2 text-xs text-gray-500">（おつりの計算用・任意）</span>
+                  <input
+                    inputMode="numeric"
+                    value={received === "" ? "" : Number(received).toLocaleString("ja-JP")}
+                    onChange={(e) => setReceived(toDigits(e.target.value).slice(0, 9))}
+                    placeholder="0"
+                    className="mt-1 w-full rounded-xl border-2 px-4 py-3 text-right text-5xl font-bold tabular-nums"
+                  />
+                </label>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {[
+                    { label: "ちょうど", v: total },
+                    { label: "1,000円", v: 1000 },
+                    { label: "5,000円", v: 5000 },
+                    { label: "10,000円", v: 10000 },
+                  ].map((b) => (
+                    <button key={b.label} onClick={() => setReceived(String(b.v))} className="rounded-lg border bg-white py-2 text-sm font-bold active:bg-gray-100">
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
                 {change !== null && (
-                  <span className={`mt-1 block text-right text-lg font-bold ${change < 0 ? "text-red-600" : ""}`}>
-                    {change < 0 ? `${yen(-change)} 足りません` : `おつり ${yen(change)}`}
-                  </span>
+                  <div className={`mt-3 rounded-2xl px-4 py-4 text-center ${change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}>
+                    <div className="text-lg font-bold">{change < 0 ? "足りません" : "おつり"}</div>
+                    <div className="mt-1 text-6xl font-bold tabular-nums sm:text-7xl">{yen(Math.abs(change))}</div>
+                  </div>
                 )}
-              </label>
+              </div>
             ) : (
               <label className="block text-sm">
                 <span className="text-gray-600">回収予定日（任意）</span>
