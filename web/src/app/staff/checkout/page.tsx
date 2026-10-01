@@ -951,26 +951,30 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 <label className="block">
                   <span className="text-lg font-bold text-gray-700">お預かり</span>
                   <span className="ml-2 text-xs text-gray-500">（おつりの計算用・任意）</span>
+                  {/* iPadではキーボードを出さず、下のテンキーで入れる（つないだキーボードでも打てる） */}
                   <input
-                    inputMode="numeric"
+                    inputMode="none"
                     value={received === "" ? "" : Number(received).toLocaleString("ja-JP")}
                     onChange={(e) => setReceived(toDigits(e.target.value).slice(0, 9))}
                     placeholder="0"
                     className="mt-1 w-full rounded-xl border-2 px-4 py-3 text-right text-5xl font-bold tabular-nums"
                   />
                 </label>
-                <div className="mt-2 grid grid-cols-4 gap-2">
-                  {[
+                <Keypad
+                  onKey={(k) => {
+                    if (k === "C") return setReceived("");
+                    if (k === "⌫") return setReceived(received.slice(0, -1));
+                    const next = (received + k).replace(/^0+(?=\d)/, "");
+                    if (next.length <= 9) setReceived(next);
+                  }}
+                  quick={[
                     { label: "ちょうど", v: total },
                     { label: "1,000円", v: 1000 },
                     { label: "5,000円", v: 5000 },
                     { label: "10,000円", v: 10000 },
-                  ].map((b) => (
-                    <button key={b.label} onClick={() => setReceived(String(b.v))} className="rounded-lg border bg-white py-2 text-sm font-bold active:bg-gray-100">
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
+                  ]}
+                  onQuick={(v) => setReceived(String(v))}
+                />
                 {change !== null && (
                   <div className={`mt-3 rounded-2xl px-4 py-4 text-center ${change < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-900"}`}>
                     <div className="text-lg font-bold">{change < 0 ? "足りません" : "おつり"}</div>
@@ -1201,6 +1205,42 @@ function buildTiles(settings: Settings, layout?: TileLayout): Tile[] {
 function orderGroups(tiles: Tile[], saved?: string[]): string[] {
   const all = [...new Set(tiles.map((t) => t.group))];
   return [...(saved ?? []).filter((g) => all.includes(g)), ...all.filter((g) => !(saved ?? []).includes(g))];
+}
+
+/** お預かりを入れるテンキー（右の列はよく使う金額） */
+function Keypad({ onKey, quick, onQuick }: { onKey: (k: string) => void; quick: { label: string; v: number }[]; onQuick: (v: number) => void }) {
+  const keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "00", "⌫"];
+  const btn = "rounded-xl border bg-white text-3xl font-bold tabular-nums shadow-sm active:bg-gray-200 select-none";
+  return (
+    <div className="mt-2 grid grid-cols-4 gap-2" style={{ gridAutoRows: "4rem" }}>
+      {keys.map((k, i) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onKey(k)}
+          style={{ gridColumnStart: (i % 3) + 1, gridRowStart: Math.floor(i / 3) + 1 }}
+          className={`${btn} ${k === "⌫" ? "text-2xl text-gray-600" : ""}`}
+          aria-label={k === "⌫" ? "1文字消す" : k}
+        >
+          {k}
+        </button>
+      ))}
+      {quick.map((q, i) => (
+        <button
+          key={q.label}
+          type="button"
+          onClick={() => onQuick(q.v)}
+          style={{ gridColumnStart: 4, gridRowStart: i + 1 }}
+          className="rounded-xl border border-sky-300 bg-sky-50 text-base font-bold text-sky-900 shadow-sm active:bg-sky-100"
+        >
+          {q.label}
+        </button>
+      ))}
+      <button type="button" onClick={() => onKey("C")} className="col-span-4 rounded-xl border bg-gray-50 text-lg font-bold text-gray-700 active:bg-gray-200" style={{ gridRowStart: 5 }}>
+        クリア
+      </button>
+    </div>
+  );
 }
 
 /** 全角数字を半角にして、数字以外を取り除く */
