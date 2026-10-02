@@ -46,9 +46,12 @@ export default function LoginPage() {
       <h1 className="text-center text-2xl font-bold text-berry">🍓 スタッフログイン</h1>
       <form onSubmit={onSubmit} className="mt-8 space-y-4 rounded-2xl bg-white p-6 shadow-sm">
         <label className="block">
-          <span className="text-sm text-gray-600">メールアドレス</span>
+          <span className="text-sm text-gray-600">メールアドレス（従業員の方はログインID）</span>
           <input
-            type="email"
+            type="text"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
             autoComplete="username"
             required
             value={email}

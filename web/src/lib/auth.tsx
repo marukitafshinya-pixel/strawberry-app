@@ -4,8 +4,11 @@ import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getFirebase } from "./firebase";
 
-/** 権限：admin=管理者、staff=スタッフ、null=権限なし */
-export type Role = "admin" | "staff" | null;
+/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、null=権限なし */
+export type Role = "admin" | "staff" | "worker" | null;
+
+/** ログインIDだけでログインする従業員のメールアドレスの形（サーバー側と同じ） */
+export const WORKER_EMAIL_DOMAIN = "ichigo-staff.invalid";
 
 type AuthState = {
   loading: boolean;
@@ -32,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // 権限はサーバー側でログイン情報に付けた印（カスタムクレーム）から読む
           const token = await u.getIdTokenResult();
           const r = token.claims.role;
-          setRole(r === "admin" || r === "staff" ? r : null);
+          setRole(r === "admin" || r === "staff" || r === "worker" ? r : null);
         } else {
           setRole(null);
         }
@@ -45,7 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const { auth } = await getFirebase();
-    await signInWithEmailAndPassword(auth, email, password);
+    // 「@」がなければ、従業員のログインID として読む
+    const id = email.trim();
+    await signInWithEmailAndPassword(auth, id.includes("@") ? id : `${id.toLowerCase()}@${WORKER_EMAIL_DOMAIN}`, password);
   }, []);
 
   const logout = useCallback(async () => {

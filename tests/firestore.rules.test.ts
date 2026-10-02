@@ -281,3 +281,52 @@ describe("メニューのタイルの配置 (config/menu)", () => {
     await assertFails(getDoc(doc(guest(), "config/menu")));
   });
 });
+
+describe("意向勤務管理表（従業員 worker）", () => {
+  const worker = () => env.authenticatedContext("w1", { role: "worker" }).firestore();
+  const workerOff = () => env.authenticatedContext("w2", { role: "worker" }).firestore();
+  const seed = () =>
+    env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w1"), { memberId: "m1", loginId: "tanaka", active: true });
+      await setDoc(doc(db, "workers/w2"), { memberId: "m2", loginId: "sato", active: false });
+      await setDoc(doc(db, "shiftMembers/m1"), { name: "田中", group: "男性", floor: false, order: 0, active: true, uid: "w1", loginId: "tanaka" });
+      await setDoc(doc(db, "shiftDays/2026-10-10"), { cells: { m1: "〇" }, note: "" });
+      await setDoc(doc(db, "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-20", code: "希望休", memo: "", status: "pending" });
+      await setDoc(doc(db, "shiftRequests/m9_2026-10-20"), { memberId: "m9", uid: "w9", date: "2026-10-20", code: "AM", memo: "", status: "pending" });
+      await setDoc(doc(db, "reservations/r1"), { customerName: "お客様" });
+      await setDoc(doc(db, "sales/s1"), { total: 100 });
+    });
+
+  it("従業員は勤務の表と自分の希望だけ読め、書き込みはできない", async () => {
+    await seed();
+    await assertSucceeds(getDoc(doc(worker(), "shiftDays/2026-10-10")));
+    await assertSucceeds(getDoc(doc(worker(), "shiftMembers/m1")));
+    await assertSucceeds(getDoc(doc(worker(), "config/shift")));
+    await assertSucceeds(getDoc(doc(worker(), "shiftRequests/m1_2026-10-20")));
+    await assertFails(getDoc(doc(worker(), "shiftRequests/m9_2026-10-20")));
+    await assertFails(setDoc(doc(worker(), "shiftDays/2026-10-10"), { cells: { m1: "希望休" } }));
+    await assertFails(setDoc(doc(worker(), "shiftRequests/m1_2026-10-21"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", status: "approved" }));
+    // 予約・会計・スタッフ名簿・給与は読めない
+    for (const p of ["reservations/r1", "sales/s1", "staff/u1", "employees/e1", "payrolls/2026-10", "settings/main"]) {
+      if (p === "settings/main") continue; // 設定は誰でも読める
+      await assertFails(getDoc(doc(worker(), p)));
+    }
+  });
+
+  it("使えなくした従業員は何も読めない", async () => {
+    await seed();
+    await assertFails(getDoc(doc(workerOff(), "shiftDays/2026-10-10")));
+  });
+
+  it("管理者は表を書け、スタッフは見るだけ。ログインの付け替えは管理者でもできない", async () => {
+    await seed();
+    await assertSucceeds(setDoc(doc(admin(), "shiftDays/2026-10-11"), { cells: { m1: "AM" }, note: "宵宮" }));
+    await assertSucceeds(getDoc(doc(staff(), "shiftDays/2026-10-11")));
+    await assertFails(setDoc(doc(staff(), "shiftDays/2026-10-11"), { cells: { m1: "〇" } }));
+    await assertFails(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w9", loginId: "tanaka" }));
+    await assertSucceeds(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }));
+    await assertSucceeds(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-20", code: "希望休", memo: "", status: "approved" }));
+    await assertFails(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", memo: "", status: "approved" }));
+  });
+});

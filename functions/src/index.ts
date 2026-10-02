@@ -8,6 +8,7 @@ import { assertAdmin, db, requireEmail, requirePassword, requireRole, requireStr
 export { deleteReservation, markReservationsSeen, saveReservation, setReservationStatus } from "./reservations.js";
 export { createWebReservation } from "./web.js";
 export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js";
+export { cancelShiftRequest, createWorkerLogin, submitShiftRequest, updateWorkerLogin } from "./shift.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
 
 async function countActiveAdmins(): Promise<number> {

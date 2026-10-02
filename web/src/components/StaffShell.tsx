@@ -80,6 +80,8 @@ function useNewVersion(): boolean {
   return outdated;
 }
 
+const WORKER_PATH = "/staff/shift/me/";
+
 /** スタッフ画面の共通部分。ログインしていなければログイン画面へ移動する */
 function Guard({ children }: { children: ReactNode }) {
   const { loading, user, role, logout } = useAuth();
@@ -91,21 +93,27 @@ function Guard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!loading && !user && !isLoginPage) router.replace(LOGIN_PATH);
   }, [loading, user, isLoginPage, router]);
+  const workerAway = role === "worker" && !isLoginPage && !pathname?.startsWith(WORKER_PATH);
+  useEffect(() => {
+    if (workerAway) router.replace(WORKER_PATH);
+  }, [workerAway, router]);
 
   if (isLoginPage) return <>{children}</>;
   if (loading || !user) return <p className="p-6 text-gray-500">読み込み中…</p>;
 
   if (!role) return <NoRole />;
+  // 従業員は、意向勤務管理表（自分の画面）だけ
+  if (role === "worker" && !pathname?.startsWith(WORKER_PATH)) return <p className="p-6 text-gray-500">読み込み中…</p>;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between bg-berry px-4 py-3 text-white print:hidden">
-        <Link href="/staff/" className="font-bold">
+        <Link href={role === "worker" ? WORKER_PATH : "/staff/"} className="font-bold">
           🍓 スタッフ
         </Link>
         <div className="flex items-center gap-3 text-sm">
           <span className="hidden sm:inline">
-            {user.email}（{role === "admin" ? "管理者" : "スタッフ"}）
+            {role === "worker" ? user.displayName ?? "" : user.email}（{role === "admin" ? "管理者" : role === "worker" ? "従業員" : "スタッフ"}）
           </span>
           <button onClick={logout} className="rounded-md bg-white/20 px-3 py-1">
             ログアウト
