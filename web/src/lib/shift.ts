@@ -1,6 +1,6 @@
 "use client";
 
-// 意向勤務管理表：従業員・日ごとの勤務・休みの希望
+// 勤務管理表：従業員・日ごとの勤務・休みの希望
 import { collection, deleteField, doc, documentId, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";

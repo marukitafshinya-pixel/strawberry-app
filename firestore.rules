@@ -18,7 +18,7 @@ service cloud.firestore {
     function isAdmin() {
       return isStaff() && request.auth.token.role == 'admin';
     }
-    // 従業員（意向勤務管理表を見る・休みの希望を出すだけの人）。ログインはサーバー側で作る
+    // 従業員（勤務管理表を見る・休みの希望を出すだけの人）。ログインはサーバー側で作る
     function isWorker() {
       return signedIn()
         && request.auth.token.role == 'worker'
@@ -176,7 +176,7 @@ service cloud.firestore {
       allow delete: if isStaff();
     }
 
-    // ---------- 意向勤務管理表（従業員も見られる。名前と勤務の記号だけで、連絡先や給与は入れない） ----------
+    // ---------- 勤務管理表（従業員も見られる。名前と勤務の記号だけで、連絡先や給与は入れない） ----------
     // 勤務の表に並ぶ人。ログイン（uid・loginId）はサーバー側だけが付け替える
     match /shiftMembers/{id} {
       allow read: if isStaff() || isWorker();

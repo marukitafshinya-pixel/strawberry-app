@@ -23,7 +23,7 @@ const MENU: MenuItem[] = [
   { label: "予約の集計", href: "/staff/report/reservations/" },
   { label: "商品別の実績（去年と今年）", href: "/staff/report/items/" },
   { label: "年ごとの比較", href: "/staff/report/yearly/" },
-  { label: "意向勤務管理表", href: "/staff/shift/" },
+  { label: "勤務管理表", href: "/staff/shift/" },
   { label: "出荷実績", href: "/staff/shipping/" },
   { label: "店舗実績", href: "/staff/store/" },
   { label: "給与", href: "/staff/payroll/", adminOnly: true },

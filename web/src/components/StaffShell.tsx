@@ -102,7 +102,7 @@ function Guard({ children }: { children: ReactNode }) {
   if (loading || !user) return <p className="p-6 text-gray-500">読み込み中…</p>;
 
   if (!role) return <NoRole />;
-  // 従業員は、意向勤務管理表（自分の画面）だけ
+  // 従業員は、勤務管理表（自分の画面）だけ
   if (role === "worker" && !pathname?.startsWith(WORKER_PATH)) return <p className="p-6 text-gray-500">読み込み中…</p>;
 
   return (

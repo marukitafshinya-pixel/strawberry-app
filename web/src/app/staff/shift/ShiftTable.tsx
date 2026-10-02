@@ -1,6 +1,6 @@
 "use client";
 
-// 意向勤務管理表の表（横に日付、縦に従業員）。管理者は記号を入れられ、ほかの人は見るだけ
+// 勤務管理表の表（横に日付、縦に従業員）。管理者は記号を入れられ、ほかの人は見るだけ
 import { addDays, todayJST } from "@/lib/date";
 import { codeColor, isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 

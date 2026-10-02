@@ -1,4 +1,4 @@
-// 意向勤務管理表：従業員のログインと、休みの希望の受付
+// 勤務管理表：従業員のログインと、休みの希望の受付
 // 従業員（role = worker）は、勤務の表と自分の希望しか見られない。希望の受付は締め切りなどを確かめるためサーバー側で行う。
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue } from "firebase-admin/firestore";

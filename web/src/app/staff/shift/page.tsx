@@ -1,6 +1,6 @@
 "use client";
 
-// 意向勤務管理表（管理者は入力、スタッフは見るだけ）
+// 勤務管理表（管理者は入力、スタッフは見るだけ）
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useRef, useState } from "react";
@@ -105,7 +105,7 @@ function ShiftView() {
           ← メニュー
         </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">意向勤務管理表</h1>
+      <h1 className="mt-2 text-xl font-bold">勤務管理表</h1>
 
       {isAdmin && (
         <div className="mt-3 flex flex-wrap gap-1 border-b print:hidden">
@@ -148,6 +148,7 @@ function ShiftView() {
               今日
             </button>
             <span className="flex-1" />
+            {isAdmin && <ShiftImport cfg={cfg} members={members} />}
             <button onClick={exportCsv} className="text-sm text-gray-600 underline">
               CSVで書き出す
             </button>
