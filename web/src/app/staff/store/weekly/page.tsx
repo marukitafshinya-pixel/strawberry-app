@@ -8,7 +8,7 @@ import { addDays, todayJST } from "@/lib/date";
 import { periodsOf, unitText, type UnitText } from "@/lib/period";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { STORE_ITEMS, STORE_KEYS, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
+import { STORE_ITEMS, STORE_KEYS, useStoreDaysWithRegi, type StoreDay, type StoreKey } from "@/lib/store";
 
 const num = (n: number) => n.toLocaleString("ja-JP");
 
@@ -53,14 +53,14 @@ function WeeklyView() {
   const u = unitText(params.get("unit") === "month" ? "month" : "week");
   const weeks = useMemo(() => periodsOf(year, u.unit), [year, u.unit]);
   // 第1週は前の年の12月から、最後の週は次の年の1月まで入ることがあるので、その分も読む
-  const days = useStoreDays(weeks[0].from, weeks[weeks.length - 1].to);
+  const { days } = useStoreDaysWithRegi(weeks[0].from, weeks[weeks.length - 1].to);
   const [showEmpty, setShowEmpty] = useState(false);
   const years = Array.from({ length: thisYear - 2023 + 2 }, (_, i) => thisYear + 1 - i);
 
   // 前年と比べるときは、前年の同じ週（第〇週）どうしを並べる
   const compare = params.get("view") === "compare";
   const prevWeeks = useMemo(() => periodsOf(year - 1, u.unit), [year, u.unit]);
-  const prevDays = useStoreDays(prevWeeks[0].from, prevWeeks[prevWeeks.length - 1].to);
+  const { days: prevDays } = useStoreDaysWithRegi(prevWeeks[0].from, prevWeeks[prevWeeks.length - 1].to);
   const rows = useMemo(() => (days ? computeRows(weeks, days) : null), [days, weeks]);
   const prevRows = useMemo(() => (prevDays ? computeRows(prevWeeks, prevDays) : null), [prevDays, prevWeeks]);
   const go = (yy: number, cmp: boolean, unit = u.unit) => router.replace(`/staff/store/weekly/?year=${yy}${cmp ? "&view=compare" : ""}${unit === "month" ? "&unit=month" : ""}`);

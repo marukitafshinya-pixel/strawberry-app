@@ -11,7 +11,7 @@ import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear } from "@/lib/shipping";
 import { decodeCsv, parseCsv } from "@/lib/csv";
-import { AIRREGI_KEYS, STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, useStoreDays, type StoreDay, type StoreKey } from "@/lib/store";
+import { AIRREGI_KEYS, STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, REGI_START, useStoreDaysWithRegi, type StoreDay, type StoreKey } from "@/lib/store";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 const lastDayOf = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
@@ -31,9 +31,9 @@ function StoreView() {
   const q = params.get("month");
   const month = q && /^\d{4}-\d{2}$/.test(q) ? q : todayJST().slice(0, 7);
   const setMonth = (m: string) => router.replace(`/staff/store/?month=${m}`);
-  const loaded = useStoreDays(`${month}-01`, lastDayOf(month));
+  const { days: loaded, auto } = useStoreDaysWithRegi(`${month}-01`, lastDayOf(month));
   const year = month.slice(0, 4);
-  const yearData = useStoreDays(`${year}-01-01`, `${year}-12-31`);
+  const { days: yearData } = useStoreDaysWithRegi(`${year}-01-01`, `${year}-12-31`);
   // 取り込みのあと、表を読み直すための番号
   const [version, setVersion] = useState(0);
 
@@ -76,7 +76,7 @@ function StoreView() {
       ) : (
         <>
           <StoreImport defaultYear={Number(year)} onDone={() => setVersion((v) => v + 1)} />
-          <Grid key={`${month}_${version}`} month={month} loaded={loaded} />
+          <Grid key={`${month}_${version}`} month={month} loaded={loaded} auto={auto} />
         </>
       )}
       {yearData && <YearSummary year={year} data={yearData} />}
@@ -86,7 +86,7 @@ function StoreView() {
   );
 }
 
-function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDay> }) {
+function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, StoreDay>; auto: Record<string, StoreDay> }) {
   const [data, setData] = useState<Record<string, StoreDay>>(loaded);
   const [changed, setChanged] = useState<string[]>([]);
   const [message, setMessage] = useState("");
@@ -96,7 +96,9 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
 
   const days: string[] = [];
   for (let d = `${month}-01`; d <= lastDayOf(month); d = addDays(d, 1)) days.push(d);
-  const rowTotal = (k: StoreKey) => days.reduce((n, d) => n + (data[d]?.[k] ?? 0), 0);
+  // レジの会計から出した日は、その数字を使う（手では直せない）
+  const view = (d: string) => auto[d] ?? data[d];
+  const rowTotal = (k: StoreKey) => days.reduce((n, d) => n + (view(d)?.[k] ?? 0), 0);
 
   useEffect(() => {
     if (changed.length === 0) return;
@@ -106,6 +108,7 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
   }, [changed]);
 
   function setCell(date: string, k: StoreKey, v: number | undefined) {
+    if (auto[date]) return;
     const day = { ...(data[date] ?? {}) };
     if (v === undefined) delete day[k];
     else day[k] = v;
@@ -144,7 +147,7 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
   function exportCsv() {
     const rows: (string | number)[][] = [["日付", "曜日", ...STORE_ITEMS.map((i) => i.label)]];
     for (const d of days) {
-      const day = data[d];
+      const day = view(d);
       if (!day || Object.keys(day).length === 0) continue;
       rows.push([d, weekday(d), ...STORE_KEYS.map((k) => day[k] ?? "")]);
     }
@@ -184,8 +187,14 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
                 <tr key={it.key} className={group ? "border-t-2 border-gray-300" : "border-t"}>
                   <td className={`sticky left-0 z-10 whitespace-nowrap bg-white px-2 py-1 ${isSales ? "font-semibold" : "pl-4 text-gray-600"}`}>{it.label}</td>
                   {days.map((d) => (
-                    <td key={d} className={`px-0.5 py-0.5 ${d === today ? "bg-berry/5" : ""}`}>
-                      <Cell wide={isSales} value={data[d]?.[it.key]} onChange={(v) => setCell(d, it.key, v)} label={`${Number(d.slice(8))}日 ${it.label}`} />
+                    <td key={d} className={`px-0.5 py-0.5 ${auto[d] ? "bg-sky-50" : d === today ? "bg-berry/5" : ""}`}>
+                      {auto[d] ? (
+                        <div className={`${isSales ? "w-20" : "w-12"} px-1 py-1 text-right text-sm tabular-nums text-sky-900`} title="レジの会計から自動">
+                          {auto[d][it.key] !== undefined ? num(auto[d][it.key]!) : ""}
+                        </div>
+                      ) : (
+                        <Cell wide={isSales} value={data[d]?.[it.key]} onChange={(v) => setCell(d, it.key, v)} label={`${Number(d.slice(8))}日 ${it.label}`} />
+                      )}
                     </td>
                   ))}
                   <td className="whitespace-nowrap bg-berry/5 px-2 text-right font-semibold tabular-nums">
@@ -198,6 +207,11 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
           </tbody>
         </table>
       </div>
+      {Object.keys(auto).length > 0 && (
+        <p className="mt-1 text-xs text-sky-800">
+          水色の日は、アプリのレジの会計から自動で入っています（{Number(REGI_START.slice(5, 7))}月{Number(REGI_START.slice(8))}日から）。売上合計＝会計の合計、客数（合計）＝会計の数、値引額＝値引きの合計、直売・カフェ・いちご狩りの客数＝その分類の数量（いちご狩りは人数）です。直したいときは、取引履歴で会計を直してください。
+        </p>
+      )}
       <p className="mt-1 text-xs text-gray-500">売上は円、客数は人で入れてください。売上合計はExcelと同じく、入れた数字をそのまま使います（値引き後の金額など）。</p>
 
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -206,7 +220,7 @@ function Grid({ month, loaded }: { month: string; loaded: Record<string, StoreDa
         <Tile label="カフェ売上" value={yen(rowTotal("cafe"))} sub={`客数 ${num(rowTotal("cafeCustomers"))}人・客単価 ${perCustomer(rowTotal("cafe"), rowTotal("cafeCustomers"))}`} />
         <Tile label="いちご狩り売上" value={yen(rowTotal("ichigo"))} sub={`客数 ${num(rowTotal("ichigoCustomers"))}人・客単価 ${perCustomer(rowTotal("ichigo"), rowTotal("ichigoCustomers"))}`} />
         <Tile label="値引額" value={yen(rowTotal("discount"))} />
-        <Tile label="営業日数" value={`${days.filter((d) => (data[d]?.total ?? 0) > 0).length}日`} />
+        <Tile label="営業日数" value={`${days.filter((d) => (view(d)?.total ?? 0) > 0).length}日`} />
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

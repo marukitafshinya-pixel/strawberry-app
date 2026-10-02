@@ -4,7 +4,7 @@
 import { collection, documentId, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { getFirebase } from "./firebase";
-import { useImportedSales } from "./sales";
+import { useImportedSales, useSales, type Sale } from "./sales";
 
 /** 集計項目（表の並び順）。label は Excel の「日別実績」の見出しに合わせて探す */
 export const STORE_ITEMS = [
@@ -171,4 +171,47 @@ export function usePastSales(from: string, to: string): { value: { id: string; a
     return [...m.entries()].map(([id, amount]) => ({ id, amount }));
   }, [store, imported]);
   return { value };
+}
+
+/** この日からは、店舗実績をアプリのレジの会計から自動で出す（エアレジからアプリのレジに切り替えた日） */
+export const REGI_START = "2026-10-01";
+
+/**
+ * アプリのレジの会計から、日ごとの店舗実績を作る（取り消した会計は入れない）。
+ *   売上合計＝会計の合計、客数（合計）＝会計の数、値引額＝値引きの合計
+ *   直売・カフェ・いちご狩りの売上＝その分類の明細の金額（カフェ・いちご狩り以外の分類は直売）
+ *   それぞれの客数＝その分類の数量（いちご狩りは人数）。いただいたExcelの数え方と同じ
+ */
+export function storeDaysFromSales(sales: Sale[]): Record<string, StoreDay> {
+  const out: Record<string, StoreDay> = {};
+  for (const s of sales) {
+    if (s.status !== "completed") continue;
+    const d = (out[s.date] ??= { total: 0, totalCustomers: 0, discount: 0, direct: 0, directCustomers: 0, cafe: 0, cafeCustomers: 0, ichigo: 0, ichigoCustomers: 0 });
+    d.total! += s.total;
+    d.totalCustomers! += 1;
+    d.discount! += Math.max(0, s.discountTotal);
+    for (const l of s.lines) {
+      const kind = l.kind === "plan" || l.category.includes("いちご狩り") ? "ichigo" : l.category.includes("カフェ") ? "cafe" : "direct";
+      d[kind] = (d[kind] ?? 0) + l.amount;
+      d[`${kind}Customers`] = (d[`${kind}Customers`] ?? 0) + l.qty;
+    }
+  }
+  // 0 の項目は「入力なし」と同じにする
+  for (const d of Object.values(out)) for (const k of STORE_KEYS) if (!d[k]) delete d[k];
+  return out;
+}
+
+/**
+ * 店舗実績（保存した数字）に、REGI_START 以降のレジの会計から出した数字を重ねたもの。
+ * レジの会計がある日は会計の数字（auto に入る）、ない日は保存した数字のまま。
+ */
+export function useStoreDaysWithRegi(from: string, to: string): { days: Record<string, StoreDay> | null; auto: Record<string, StoreDay> } {
+  const stored = useStoreDays(from, to);
+  const need = to >= REGI_START;
+  const { value: sales } = useSales(need ? (from < REGI_START ? REGI_START : from) : "9999-12-30", need ? to : "9999-12-31");
+  return useMemo(() => {
+    if (!stored || !sales) return { days: null, auto: {} };
+    const auto = storeDaysFromSales(sales.filter((s) => s.date >= REGI_START && s.date >= from && s.date <= to));
+    return { days: { ...stored, ...auto }, auto };
+  }, [stored, sales, from, to]);
 }
