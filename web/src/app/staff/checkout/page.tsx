@@ -2,7 +2,7 @@
 
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
@@ -11,7 +11,7 @@ import { formatJa, todayJST } from "@/lib/date";
 import { isHomeScreenApp, loadPrinter, openDrawerWithSii, printReceipt, saleReceipt } from "@/lib/receiptPrinter";
 import { loadLastHandler, saveLastHandler, useHandlers } from "@/lib/register";
 import { getFirebase } from "@/lib/firebase";
-import { peopleText, useSettings, yen, type Reservation } from "@/lib/reservations";
+import { STATUS_LABEL, STATUS_STYLE, peopleText, useReservations, useSettings, yen, type Reservation } from "@/lib/reservations";
 import { PAYMENT_LABEL, lineAmount, lineTaxRate, type PaymentMethod, type Sale, type SaleLine } from "@/lib/sales";
 import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, SETTINGS_DOC, newId, type Settings, type TaxRate, type TileLayout } from "@/lib/settings";
 
@@ -31,7 +31,9 @@ function CheckoutLoader() {
   const reservationId = params.get("reservation");
   const editId = params.get("edit");
   const { value: settings } = useSettings();
-  const [reservation, setReservation] = useState<Reservation | null | undefined>(reservationId ? undefined : null);
+  // 予約名簿から選びなおしたときに古い予約が残らないよう、読み込んだ予約のIDと照らし合わせる
+  const [loaded, setLoaded] = useState<Reservation | null>(null);
+  const reservation: Reservation | null | undefined = reservationId ? (loaded?.id === reservationId ? loaded : undefined) : null;
   const [editing, setEditing] = useState<Sale | null | undefined>(editId ? undefined : null);
   const [loadError, setLoadError] = useState("");
 
@@ -55,7 +57,7 @@ function CheckoutLoader() {
       .then(({ db }) => getDoc(doc(db, `reservations/${reservationId}`)))
       .then((snap) => {
         if (!snap.exists()) setLoadError("予約が見つかりません");
-        else setReservation({ id: snap.id, ...(snap.data() as Omit<Reservation, "id">) });
+        else setLoaded({ id: snap.id, ...(snap.data() as Omit<Reservation, "id">) });
       })
       .catch((e) => setLoadError(errorText(e)));
   }, [reservationId]);
@@ -189,6 +191,9 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   /** 選んだ顧客（顧客ごとの単価のタイルを出す） */
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [pickingCustomer, setPickingCustomer] = useState(false);
+  /** 予約名簿（今日の予約）を開いているか */
+  const [pickingReservation, setPickingReservation] = useState(false);
+  const router = useRouter();
   const [customerQ, setCustomerQ] = useState("");
   const { value: customers } = useCustomers();
 
@@ -553,8 +558,37 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
       <div className={`mt-3 grid gap-4 ${step === "pay" ? "" : "lg:grid-cols-[24rem_1fr] 2xl:grid-cols-[30rem_1fr]"}`}>
         {/* 左：注文リスト */}
         <section className={`flex flex-col rounded-2xl bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-9.5rem)] ${step === "pay" ? "hidden" : ""}`}>
-          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <div className="relative flex items-center justify-between gap-2 border-b px-4 py-3">
             <h2 className="font-bold">注文リスト</h2>
+            {!editing && (
+              <button
+                onClick={() => setPickingReservation(!pickingReservation)}
+                className={`rounded-lg border px-3 py-1 text-sm font-semibold ${pickingReservation ? "border-berry bg-berry text-white" : "border-berry text-berry"}`}
+                aria-expanded={pickingReservation}
+              >
+                予約名簿 ▾
+              </button>
+            )}
+            {pickingReservation && (
+              <ReservationRoster
+                current={r}
+                onPick={(id) => {
+                  setPickingReservation(false);
+                  if (id === r?.id) return;
+                  if (lines.length > 0 && !window.confirm("いまの注文リストを、この予約の内容に入れ替えますか？")) return;
+                  router.replace(`/staff/checkout/?reservation=${id}`);
+                }}
+                onClear={
+                  r
+                    ? () => {
+                        setPickingReservation(false);
+                        if (lines.length > 0 && !window.confirm("予約を外して、注文リストを空にしますか？")) return;
+                        router.replace("/staff/checkout/");
+                      }
+                    : null
+                }
+              />
+            )}
             {customer ? (
               <span className="flex items-center gap-1 text-sm">
                 <span className="rounded bg-sky-50 px-2 py-0.5 font-semibold text-sky-800">{customer.name} 様</span>
@@ -1209,6 +1243,52 @@ const GROUP_COLORS = [
   { bg: "bg-violet-50", border: "border-violet-300", text: "text-violet-800" },
   { bg: "bg-lime-50", border: "border-lime-300", text: "text-lime-800" },
 ];
+
+/** 予約名簿：今日の、まだ会計していない予約を時間順に出す（会計すると消える） */
+function ReservationRoster({ current, onPick, onClear }: { current: Reservation | null; onPick: (id: string) => void; onClear: (() => void) | null }) {
+  const today = todayJST();
+  const { value, error } = useReservations(today);
+  const list = (value ?? [])
+    .filter((x) => x.status !== "cancelled" && x.status !== "request" && !x.saleId)
+    .sort((a, b) => a.slotTime.localeCompare(b.slotTime) || a.customerName.localeCompare(b.customerName, "ja"));
+  return (
+    <div className="absolute left-2 right-2 top-full z-30 mt-1 max-h-[60dvh] overflow-y-auto rounded-xl border bg-white shadow-lg">
+      <p className="sticky top-0 border-b bg-white px-3 py-2 text-xs text-gray-500">{formatJa(today)} の予約（会計がまだのもの・時間順）</p>
+      {error ? (
+        <p className="px-3 py-4 text-sm text-red-600">予約を読み込めませんでした</p>
+      ) : !value ? (
+        <p className="px-3 py-4 text-sm text-gray-500">読み込み中…</p>
+      ) : list.length === 0 ? (
+        <p className="px-3 py-4 text-sm text-gray-500">会計がまだの予約はありません</p>
+      ) : (
+        <ul className="divide-y">
+          {list.map((x) => (
+            <li key={x.id}>
+              <button onClick={() => onPick(x.id)} className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${x.id === current?.id ? "bg-pink-50" : "hover:bg-gray-50"}`}>
+                <span className="w-12 shrink-0 text-lg font-bold tabular-nums">{x.slotTime}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold">{x.customerName || "（名前なし）"} 様</span>
+                  <span className="block truncate text-xs text-gray-500">
+                    {x.planName}・{peopleText(x)}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-semibold tabular-nums">{x.people}名</span>
+                  <span className={`rounded px-1.5 text-xs ${STATUS_STYLE[x.status]}`}>{STATUS_LABEL[x.status]}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {onClear && (
+        <button onClick={onClear} className="sticky bottom-0 w-full border-t bg-white px-3 py-2 text-sm text-gray-600">
+          予約を外す（予約なしの会計にする）
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** 会計画面に並べるもの：「商品設定」で販売中にした商品だけ（予約のプラン料金は、予約から会計したときに注文リストへ自動で入る） */
 function buildTiles(settings: Settings, layout?: TileLayout): Tile[] {
