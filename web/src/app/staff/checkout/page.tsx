@@ -574,7 +574,12 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 current={r}
                 onPick={(id) => {
                   setPickingReservation(false);
-                  if (id === r?.id) return;
+                  // 同じ予約をもう一度選んだら、予約の人数を入れなおす（間違って消したとき用）。ほかの商品はそのまま
+                  if (r && id === r.id) {
+                    const others = lines.filter((l) => !(l.kind === "plan" && l.refId === r.planId));
+                    setLines([...initialLines(settings, r), ...others]);
+                    return;
+                  }
                   if (lines.length > 0 && !window.confirm("いまの注文リストを、この予約の内容に入れ替えますか？")) return;
                   router.replace(`/staff/checkout/?reservation=${id}`);
                 }}
