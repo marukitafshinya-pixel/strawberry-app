@@ -13,6 +13,8 @@ type SettingsLite = {
   timeSlots: { id: string; time: string; capacity: number }[];
   priceCategories: { id: string; name: string }[];
   plans: { id: string; name: string; minutes: number; prices: Record<string, number>; public: boolean }[];
+  /** 商品（顧客ごとの値段に、いちご狩りの商品が入っているかを見るため） */
+  products?: { id: string; name: string; group: string }[];
 };
 
 /** 予約1件の中身（Firestore の reservations/{id}） */
@@ -44,7 +46,7 @@ export async function loadSettings(tx: Transaction): Promise<SettingsLite> {
   const snap = await tx.get(db.doc("settings/main"));
   if (!snap.exists) throw new HttpsError("failed-precondition", "先に設定画面で時間枠やプランを保存してください");
   const s = snap.data() as Partial<SettingsLite>;
-  return { timeSlots: s.timeSlots ?? [], priceCategories: s.priceCategories ?? [], plans: s.plans ?? [] };
+  return { timeSlots: s.timeSlots ?? [], priceCategories: s.priceCategories ?? [], plans: s.plans ?? [], products: s.products ?? [] };
 }
 
 export type ReservationInput = {
@@ -127,9 +129,14 @@ const CUSTOMER_PRICE_CATEGORIES = [
   { id: "infant", name: "幼児" },
 ];
 
+/** いちご狩りの商品か（商品名か分類に「狩」が入っている）。画面側の isPickingProduct と同じ */
+const isPickingProduct = (p: { name: string; group: string }) => /狩/.test(`${p.name ?? ""} ${p.group ?? ""}`);
+/** 顧客ごとの値段に入れた、いちご狩りの商品の料金区分ID */
+const PRODUCT_CATEGORY_PREFIX = "p:";
+
 /**
  * 顧客の料金のプランが選ばれていたら、その顧客の単価を1つのプランとして設定に足す
- * （料金区分は顧客リストの区分：大人・小学生・幼児）
+ * （料金区分は顧客リストの区分：大人・小学生・幼児と、顧客ごとの値段に入れたいちご狩りの商品）
  */
 async function withCustomerPlan(tx: Transaction, s: SettingsLite, planId: string): Promise<SettingsLite> {
   if (!planId.startsWith(CUSTOMER_PLAN_PREFIX)) return s;
@@ -143,11 +150,19 @@ async function withCustomerPlan(tx: Transaction, s: SettingsLite, planId: string
     const v = raw[cat.id];
     if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 1_000_000) prices[cat.id] = v;
   }
+  const categories = [...CUSTOMER_PRICE_CATEGORIES];
+  const special = (c.get("products") as Record<string, unknown> | undefined) ?? {};
+  for (const p of s.products ?? []) {
+    const v = special[p.id];
+    if (!isPickingProduct(p) || typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1_000_000) continue;
+    categories.push({ id: PRODUCT_CATEGORY_PREFIX + p.id, name: String(p.name).slice(0, 50) });
+    prices[PRODUCT_CATEGORY_PREFIX + p.id] = v;
+  }
   if (Object.keys(prices).length === 0) throw new HttpsError("invalid-argument", "この顧客には、いちご狩りの単価が入っていません");
   const name = String(c.get("name") ?? "").slice(0, 40);
   return {
     ...s,
-    priceCategories: CUSTOMER_PRICE_CATEGORIES,
+    priceCategories: categories,
     plans: [...s.plans, { id: planId, name: `${name}様の料金`, minutes: s.plans[0]?.minutes ?? 0, prices, public: false }],
   };
 }

@@ -16,17 +16,32 @@ import {
   type Reservation,
   type ReservationStatus,
 } from "@/lib/reservations";
-import type { Plan, PriceCategory, Settings } from "@/lib/settings";
+import type { Plan, PriceCategory, Product, Settings } from "@/lib/settings";
 
 /** 顧客リストのいちご狩りの単価を、プランとして選ぶときのプランID（サーバーと同じ形） */
 const CUSTOMER_PLAN_PREFIX = "customer:";
 
-/** いちご狩りの単価が入っている顧客を、プランの形にする（料金区分は 大人・小学生・幼児） */
-function customerPlan(c: Customer, minutes: number): Plan {
-  const prices = Object.fromEntries(CUSTOMER_PRICES.filter((p) => c.prices[p.key] !== undefined).map((p) => [p.key, c.prices[p.key]!]));
-  return { id: CUSTOMER_PLAN_PREFIX + c.id, name: `${c.name}様の料金`, minutes, prices, public: false };
+/** いちご狩りの商品か（商品名か分類に「狩」が入っている）。サーバー側と同じ */
+const isPickingProduct = (p: Product) => /狩/.test(`${p.name} ${p.group}`);
+/** 顧客ごとの値段に入れた、いちご狩りの商品の料金区分ID（サーバーと同じ形） */
+const PRODUCT_CATEGORY_PREFIX = "p:";
+
+/**
+ * いちご狩りの単価が入っている顧客を、プランの形にする
+ * （料金区分は 大人・小学生・幼児と、顧客ごとの値段に入れたいちご狩りの商品）
+ */
+function customerPlan(c: Customer, minutes: number, products: Product[]): { plan: Plan; categories: PriceCategory[] } {
+  const base = CUSTOMER_PRICES.filter((p) => c.prices[p.key] !== undefined);
+  const items = products.filter((p) => isPickingProduct(p) && c.products[p.id] !== undefined);
+  const prices = Object.fromEntries([
+    ...base.map((p) => [p.key, c.prices[p.key]!] as const),
+    ...items.map((p) => [PRODUCT_CATEGORY_PREFIX + p.id, c.products[p.id]] as const),
+  ]);
+  return {
+    plan: { id: CUSTOMER_PLAN_PREFIX + c.id, name: `${c.name}様の料金`, minutes, prices, public: false },
+    categories: [...base.map((p) => ({ id: p.key, name: p.label })), ...items.map((p) => ({ id: PRODUCT_CATEGORY_PREFIX + p.id, name: p.name }))],
+  };
 }
-const CUSTOMER_CATEGORIES: PriceCategory[] = CUSTOMER_PRICES.map((p) => ({ id: p.key, name: p.label }));
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
 const label = "block text-sm text-gray-600";
@@ -62,12 +77,13 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
 
   const { value: customers } = useCustomers();
   const customerPlans = (customers ?? [])
-    .filter((c) => c.active && CUSTOMER_PRICES.some((p) => c.prices[p.key] !== undefined))
-    .map((c) => ({ customer: c, plan: customerPlan(c, settings.plans[0]?.minutes ?? 0) }));
+    .filter((c) => c.active)
+    .map((c) => ({ customer: c, ...customerPlan(c, settings.plans[0]?.minutes ?? 0, settings.products) }))
+    .filter((x) => x.categories.length > 0);
   const isCustomerPlan = planId.startsWith(CUSTOMER_PLAN_PREFIX);
   const chosenCustomer = customerPlans.find((x) => x.plan.id === planId);
   const plan = isCustomerPlan ? chosenCustomer?.plan : settings.plans.find((p) => p.id === planId);
-  const categories = (isCustomerPlan ? CUSTOMER_CATEGORIES : settings.priceCategories).filter((c) => plan?.prices[c.id] !== undefined);
+  const categories = (isCustomerPlan ? (chosenCustomer?.categories ?? []) : settings.priceCategories).filter((c) => plan?.prices[c.id] !== undefined);
 
   function choosePlan(id: string) {
     setPlanId(id);
@@ -188,9 +204,9 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
             ))}
             {customerPlans.length > 0 && (
               <optgroup label="顧客の料金（顧客リストのいちご狩りの単価）">
-                {customerPlans.map(({ customer: c, plan: p }) => (
+                {customerPlans.map(({ customer: c, plan: p, categories: cats }) => (
                   <option key={p.id} value={p.id}>
-                    {c.name}様（{CUSTOMER_PRICES.filter((x) => p.prices[x.key] !== undefined).map((x) => `${x.label}${yen(p.prices[x.key])}`).join("・")}）
+                    {c.name}様（{cats.map((x) => `${x.name}${yen(p.prices[x.id])}`).join("・")}）
                   </option>
                 ))}
               </optgroup>
