@@ -119,6 +119,39 @@ export function buildReservation(input: ReservationInput, s: SettingsLite, sourc
   };
 }
 
+/** 顧客リストのいちご狩りの単価を、プランとして選ぶときのプランID（customer:顧客ID）。スタッフの予約だけで使える */
+export const CUSTOMER_PLAN_PREFIX = "customer:";
+const CUSTOMER_PRICE_CATEGORIES = [
+  { id: "adult", name: "大人" },
+  { id: "child", name: "小学生" },
+  { id: "infant", name: "幼児" },
+];
+
+/**
+ * 顧客の料金のプランが選ばれていたら、その顧客の単価を1つのプランとして設定に足す
+ * （料金区分は顧客リストの区分：大人・小学生・幼児）
+ */
+async function withCustomerPlan(tx: Transaction, s: SettingsLite, planId: string): Promise<SettingsLite> {
+  if (!planId.startsWith(CUSTOMER_PLAN_PREFIX)) return s;
+  const customerId = planId.slice(CUSTOMER_PLAN_PREFIX.length);
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(customerId)) throw new HttpsError("invalid-argument", "プランが正しくありません");
+  const c = await tx.get(db.doc(`customers/${customerId}`));
+  if (!c.exists || c.get("active") === false) throw new HttpsError("invalid-argument", "この顧客は顧客リストにありません（取引終了の可能性があります）");
+  const raw = (c.get("prices") as Record<string, unknown> | undefined) ?? {};
+  const prices: Record<string, number> = {};
+  for (const cat of CUSTOMER_PRICE_CATEGORIES) {
+    const v = raw[cat.id];
+    if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 1_000_000) prices[cat.id] = v;
+  }
+  if (Object.keys(prices).length === 0) throw new HttpsError("invalid-argument", "この顧客には、いちご狩りの単価が入っていません");
+  const name = String(c.get("name") ?? "").slice(0, 40);
+  return {
+    ...s,
+    priceCategories: CUSTOMER_PRICE_CATEGORIES,
+    plans: [...s.plans, { id: planId, name: `${name}様の料金`, minutes: s.plans[0]?.minutes ?? 0, prices, public: false }],
+  };
+}
+
 /** 空き状況のドキュメント（availability/{日付}）: 時間枠ごとの予約人数だけを持つ。誰でも読める */
 const availabilityRef = (date: string) => db.doc(`availability/${date}`);
 
@@ -155,7 +188,7 @@ export const saveReservation = onCall(async (req) => {
     if (id && !old?.exists) throw new HttpsError("not-found", "予約が見つかりません。削除された可能性があります");
     const before = old?.data() as ReservationDoc | undefined;
 
-    const next = buildReservation(input, settings, before?.source ?? "staff");
+    const next = buildReservation(input, await withCustomerPlan(tx, settings, input.planId), before?.source ?? "staff");
 
     // 空き状況を読む（日付が変わるときは両方の日）
     const dates = [...new Set([next.date, before?.date].filter((d): d is string => !!d))];

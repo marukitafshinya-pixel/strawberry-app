@@ -3,6 +3,7 @@
 import { FirebaseError } from "firebase/app";
 import { useState, type FormEvent } from "react";
 import { callFunction, cleanMessage, errorText } from "@/lib/callFunction";
+import { CUSTOMER_PRICES, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, isValidYmd } from "@/lib/date";
 import {
   STATUS_LABEL,
@@ -15,7 +16,17 @@ import {
   type Reservation,
   type ReservationStatus,
 } from "@/lib/reservations";
-import type { Settings } from "@/lib/settings";
+import type { Plan, PriceCategory, Settings } from "@/lib/settings";
+
+/** 顧客リストのいちご狩りの単価を、プランとして選ぶときのプランID（サーバーと同じ形） */
+const CUSTOMER_PLAN_PREFIX = "customer:";
+
+/** いちご狩りの単価が入っている顧客を、プランの形にする（料金区分は 大人・小学生・幼児） */
+function customerPlan(c: Customer, minutes: number): Plan {
+  const prices = Object.fromEntries(CUSTOMER_PRICES.filter((p) => c.prices[p.key] !== undefined).map((p) => [p.key, c.prices[p.key]!]));
+  return { id: CUSTOMER_PLAN_PREFIX + c.id, name: `${c.name}様の料金`, minutes, prices, public: false };
+}
+const CUSTOMER_CATEGORIES: PriceCategory[] = CUSTOMER_PRICES.map((p) => ({ id: p.key, name: p.label }));
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
 const label = "block text-sm text-gray-600";
@@ -49,8 +60,24 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
   const { value: booked } = useAvailability(isValidYmd(date) ? date : null);
   const { value: daily } = useDailyCapacity(isValidYmd(date) ? date : null);
 
-  const plan = settings.plans.find((p) => p.id === planId);
-  const categories = settings.priceCategories.filter((c) => plan?.prices[c.id] !== undefined);
+  const { value: customers } = useCustomers();
+  const customerPlans = (customers ?? [])
+    .filter((c) => c.active && CUSTOMER_PRICES.some((p) => c.prices[p.key] !== undefined))
+    .map((c) => ({ customer: c, plan: customerPlan(c, settings.plans[0]?.minutes ?? 0) }));
+  const isCustomerPlan = planId.startsWith(CUSTOMER_PLAN_PREFIX);
+  const chosenCustomer = customerPlans.find((x) => x.plan.id === planId);
+  const plan = isCustomerPlan ? chosenCustomer?.plan : settings.plans.find((p) => p.id === planId);
+  const categories = (isCustomerPlan ? CUSTOMER_CATEGORIES : settings.priceCategories).filter((c) => plan?.prices[c.id] !== undefined);
+
+  function choosePlan(id: string) {
+    setPlanId(id);
+    // 顧客の料金を選んだら、お名前・電話が空ならその顧客のものを入れる
+    const c = customerPlans.find((x) => x.plan.id === id)?.customer;
+    if (c) {
+      if (!customerName.trim()) setCustomerName(c.name.slice(0, 50));
+      if (!phone.trim() && c.phone) setPhone(c.phone.replace(/[^0-9+\-() ]/g, "").slice(0, 20));
+    }
+  }
   const people = categories.reduce((n, c) => n + (counts[c.id] ?? 0), 0);
   const amount = categories.reduce((n, c) => n + (counts[c.id] ?? 0) * (plan?.prices[c.id] ?? 0), 0);
 
@@ -151,14 +178,25 @@ export function ReservationForm({ settings, initialDate, reservation: r, contact
 
         <label className="mt-3 block">
           <span className={label}>プラン</span>
-          <select value={planId} onChange={(e) => setPlanId(e.target.value)} className={input}>
-            {r && !plan && <option value={r.planId}>{r.planName}（削除済み）</option>}
+          <select value={planId} onChange={(e) => choosePlan(e.target.value)} className={input}>
+            {r && !plan && (customers || !isCustomerPlan) && <option value={r.planId}>{r.planName}（{isCustomerPlan ? "顧客リストにありません" : "削除済み"}）</option>}
+            {isCustomerPlan && !customers && <option value={planId}>読み込み中…</option>}
             {settings.plans.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}（{p.minutes}分）
               </option>
             ))}
+            {customerPlans.length > 0 && (
+              <optgroup label="顧客の料金（顧客リストのいちご狩りの単価）">
+                {customerPlans.map(({ customer: c, plan: p }) => (
+                  <option key={p.id} value={p.id}>
+                    {c.name}様（{CUSTOMER_PRICES.filter((x) => p.prices[x.key] !== undefined).map((x) => `${x.label}${yen(p.prices[x.key])}`).join("・")}）
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
+          {chosenCustomer && <p className="mt-1 text-xs text-sky-800">顧客リストの「{chosenCustomer.customer.name}」様の単価で予約します</p>}
         </label>
 
         <fieldset className="mt-3">
