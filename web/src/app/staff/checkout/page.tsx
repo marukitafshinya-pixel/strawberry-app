@@ -364,7 +364,11 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
     );
   }
 
-  const tiles = buildTiles(settings, arrange ?? settings.tileLayout);
+  // 顧客を選んでいるときは、その顧客だけの値段にする（並べ替え中は元の値段のまま）
+  const special = !arrange ? (customer?.products ?? {}) : {};
+  const tiles = buildTiles(settings, arrange ?? settings.tileLayout).map((t) =>
+    t.kind === "product" && special[t.refId] !== undefined ? { ...t, price: special[t.refId], special: true } : t,
+  );
   const groups = orderGroups(tiles, (arrange ?? settings.tileLayout)?.groups);
   const colorOf = (g: string) => GROUP_COLORS[groups.indexOf(g) % GROUP_COLORS.length];
   const layout = arrange ?? settings.tileLayout;
@@ -785,7 +789,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 {customer && tab !== "search" && !arrange && (
                   <div className="mb-4 border-l-4 border-sky-400 pl-2">
                     <h3 className="mb-1 text-sm font-semibold text-sky-800">{customer.name} 様の料金</h3>
-                    {CUSTOMER_PRICES.some((p) => customer.prices[p.key] !== undefined) ? (
+                    {CUSTOMER_PRICES.some((p) => customer.prices[p.key] !== undefined) || tiles.some((t) => t.special) ? (
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                         {CUSTOMER_PRICES.filter((p) => customer.prices[p.key] !== undefined).map((p) => (
                           <button
@@ -806,6 +810,11 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                             <span className="self-end tabular-nums">{yen(customer.prices[p.key]!)}</span>
                           </button>
                         ))}
+                        {tiles
+                          .filter((t) => t.special)
+                          .map((t) => (
+                            <TileButton key={`sp-${t.key}`} t={t} c={{ bg: "bg-sky-50", border: "border-sky-300", text: "text-sky-800" }} onClick={() => tap(t)} />
+                          ))}
                       </div>
                     ) : (
                       <p className="text-sm text-gray-500">この顧客の単価はまだ設定されていません（顧客リストの詳細で設定できます）</p>
@@ -1147,7 +1156,10 @@ function TileButton({
       }`}
     >
       <span className="line-clamp-2 leading-tight">{t.name}</span>
-      <span className="self-end text-sm tabular-nums">{t.price === 0 ? "金額入力" : yen(t.price)}</span>
+      <span className="flex items-end justify-between gap-1">
+        {t.special ? <span className="rounded bg-sky-600 px-1 text-[10px] font-bold text-white">顧客価格</span> : <span />}
+        <span className={`text-sm tabular-nums ${t.special ? "font-bold text-sky-800" : ""}`}>{t.price === 0 ? "金額入力" : yen(t.price)}</span>
+      </span>
     </button>
   );
 }
@@ -1186,7 +1198,7 @@ function emptySlots(usedSlots: number[], cols: number): number[] {
   return Array.from({ length: rows * cols }, (_, i) => i).filter((i) => !used.has(i));
 }
 
-type Tile = { key: string; kind: "plan" | "product"; refId: string; name: string; group: string; price: number; taxRate: TaxRate };
+type Tile = { key: string; kind: "plan" | "product"; refId: string; name: string; group: string; price: number; taxRate: TaxRate; special?: boolean };
 
 /** 分類ごとの色（Airレジのように、分類ごとにタイルの色を変える） */
 const GROUP_COLORS = [

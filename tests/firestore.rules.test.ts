@@ -330,3 +330,11 @@ describe("意向勤務管理表（従業員 worker）", () => {
     await assertFails(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", memo: "", status: "approved" }));
   });
 });
+
+describe("顧客だけの商品の値段 (customers.products)", () => {
+  it("管理者は保存でき、スタッフは保存できない", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "customers/c1"), { name: "テスト商事", prices: { adult: 1500 }, products: { j: 700 }, active: true }));
+    await assertFails(setDoc(doc(staff(), "customers/c1"), { name: "テスト商事", products: { j: 1 }, active: true }));
+    await assertFails(setDoc(doc(admin(), "customers/c1"), { name: "テスト商事", products: "安く", active: true }));
+  });
+});

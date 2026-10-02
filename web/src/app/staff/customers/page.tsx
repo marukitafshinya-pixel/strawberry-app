@@ -8,7 +8,7 @@ import { errorText } from "@/lib/callFunction";
 import { decodeCsv, parseAmount, parseCsv } from "@/lib/csv";
 import { CUSTOMER_PRICES, emptyCustomer, matchCustomer, parseCustomerCsv, termsText, useCustomers, type Customer, type PaymentTerms } from "@/lib/customers";
 import { getFirebase } from "@/lib/firebase";
-import { yen } from "@/lib/reservations";
+import { useSettings, yen } from "@/lib/reservations";
 import { newId } from "@/lib/settings";
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
@@ -54,6 +54,8 @@ export default function CustomersPage() {
           payment: it.payment || base.payment,
           memo: it.memo || base.memo,
           prices: { ...base.prices, ...it.prices },
+          // 顧客だけの商品の値段は、取り込みで消さない
+          products: base.products ?? {},
           ...(base.terms ? { terms: base.terms } : {}),
           active: true,
           updatedAt: serverTimestamp(),
@@ -94,7 +96,7 @@ export default function CustomersPage() {
         )}
       </div>
       <p className="mt-1 text-sm text-gray-600">
-        団体・取引先などの顧客と、その顧客のいちご狩りの単価を登録します。会計で顧客を選ぶと、この単価で入ります。
+        団体・取引先などの顧客と、その顧客のいちご狩りの単価と、商品ごとの値段を登録します。会計で顧客を選ぶと、この値段で入ります。
         {!isAdmin && "（登録・変更は管理者だけができます）"}
       </p>
 
@@ -216,6 +218,11 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
   const [priceText, setPriceText] = useState<Record<string, string>>(
     Object.fromEntries(CUSTOMER_PRICES.map((p) => [p.key, customer.prices[p.key] !== undefined ? String(customer.prices[p.key]) : ""])),
   );
+  // この顧客だけの商品の値段（商品ID → 入力中の文字）
+  const [prodText, setProdText] = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(customer.products ?? {}).map(([id, v]) => [id, String(v)])),
+  );
+  const { value: settings } = useSettings();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const set = (patch: Partial<Customer>) => setC({ ...c, ...patch });
@@ -232,6 +239,14 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
       if (!Number.isInteger(v) || v < 0 || v > 1_000_000) return setError(`${p.label}の単価を正しく入れてください`);
       prices[p.key] = v;
     }
+    const products: Record<string, number> = {};
+    for (const [id, t] of Object.entries(prodText)) {
+      if (t.trim() === "") continue;
+      const v = Number(t);
+      const name = settings?.products.find((p) => p.id === id)?.name ?? "商品";
+      if (!Number.isInteger(v) || v < 0 || v > 1_000_000) return setError(`${name}の値段を正しく入れてください`);
+      products[id] = v;
+    }
     setSaving(true);
     try {
       const { db } = await getFirebase();
@@ -245,6 +260,7 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
         ...(c.terms ? { terms: c.terms } : {}),
         memo: c.memo.trim().slice(0, 500),
         prices,
+        products,
         active: c.active,
         updatedAt: serverTimestamp(),
       });
@@ -333,6 +349,8 @@ function CustomerForm({ customer, canEdit, onClose }: { customer: Customer; canE
           </div>
         </div>
 
+        <CustomerProducts settings={settings} value={prodText} onChange={setProdText} digits={digits} />
+
         <label className="block text-sm">
           <span className="text-gray-600">メモ</span>
           <textarea value={c.memo} maxLength={500} rows={2} onChange={(e) => set({ memo: e.target.value })} className={input} />
@@ -402,6 +420,111 @@ function TermsEditor({ value, onChange }: { value?: PaymentTerms; onChange: (t: 
           <span className="ml-2 rounded bg-gray-100 px-2 py-1 text-xs">{termsText(t)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+/** この顧客だけの商品の値段（商品設定にある商品を選んで、値段を決める） */
+function CustomerProducts({
+  settings,
+  value,
+  onChange,
+  digits,
+}: {
+  settings: ReturnType<typeof useSettings>["value"];
+  value: Record<string, string>;
+  onChange: (v: Record<string, string>) => void;
+  digits: (v: string) => string;
+}) {
+  const [pick, setPick] = useState("");
+  if (!settings) return null;
+  const products = settings.products;
+  const ids = Object.keys(value);
+  const groups = [...new Set(products.filter((p) => !ids.includes(p.id)).map((p) => p.group || "その他"))];
+  return (
+    <div>
+      <p className="text-sm font-semibold">この顧客だけの商品の値段（税込）</p>
+      <p className="text-xs text-gray-500">会計でこの顧客を選ぶと、ここで決めた値段になります。入れていない商品は、いつもの値段のままです。</p>
+      {ids.length > 0 && (
+        <table className="mt-2 w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-gray-500">
+              <th className="py-1">商品</th>
+              <th className="py-1 text-right">いつもの値段</th>
+              <th className="py-1 text-right">この顧客の値段</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {ids.map((id) => {
+              const p = products.find((x) => x.id === id);
+              return (
+                <tr key={id} className="border-b last:border-0">
+                  <td className="py-1">
+                    {p ? p.name : <span className="text-gray-400">（商品設定にない商品）</span>}
+                    {p && <span className="ml-1 text-xs text-gray-500">{p.group}</span>}
+                  </td>
+                  <td className="py-1 text-right tabular-nums text-gray-600">{p ? (p.price === 0 ? "金額入力" : yen(p.price)) : "－"}</td>
+                  <td className="py-1 text-right">
+                    <span className="inline-flex items-center gap-1">
+                      <input
+                        inputMode="numeric"
+                        value={value[id]}
+                        onChange={(e) => onChange({ ...value, [id]: digits(e.target.value).slice(0, 7) })}
+                        className="w-24 rounded-lg border px-2 py-1 text-right text-base tabular-nums"
+                        aria-label={`${p?.name ?? "商品"}のこの顧客の値段`}
+                      />
+                      円
+                    </span>
+                  </td>
+                  <td className="py-1 pl-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...value };
+                        delete next[id];
+                        onChange(next);
+                      }}
+                      className="text-xs text-red-700 underline"
+                    >
+                      外す
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select value={pick} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-2 text-base">
+          <option value="">商品を選ぶ…</option>
+          {groups.map((g) => (
+            <optgroup key={g} label={g}>
+              {products
+                .filter((p) => (p.group || "その他") === g && !ids.includes(p.id))
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（{p.price === 0 ? "金額入力" : yen(p.price)}）{p.active ? "" : "・販売停止中"}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!pick}
+          onClick={() => {
+            const p = products.find((x) => x.id === pick);
+            if (!p) return;
+            onChange({ ...value, [p.id]: p.price ? String(p.price) : "" });
+            setPick("");
+          }}
+          className="rounded-lg border px-4 py-2 disabled:opacity-40"
+        >
+          追加
+        </button>
+      </div>
     </div>
   );
 }

@@ -29,12 +29,14 @@ export type Customer = {
   memo: string;
   /** いちご狩りの単価（税込・円）。入れていない区分は使わない */
   prices: Partial<Record<CustomerPriceKey, number>>;
+  /** この顧客だけの商品の値段（商品ID → 税込の単価）。会計でこの顧客を選ぶと、この値段になる */
+  products: Record<string, number>;
   /** 取引をやめた顧客は外す（会計で選べなくなる） */
   active: boolean;
 };
 
 export function emptyCustomer(id: string): Customer {
-  return { id, name: "", kana: "", phone: "", address: "", contract: "", payment: "", memo: "", prices: {}, active: true };
+  return { id, name: "", kana: "", phone: "", address: "", contract: "", payment: "", memo: "", prices: {}, products: {}, active: true };
 }
 
 export function useCustomers() {
@@ -148,6 +150,7 @@ export function parseCustomerCsv(rows: string[][], parseAmount: (v: string) => n
     }
     const pay = get(cols.payment);
     items.push({
+      products: {},
       name: name.slice(0, 100),
       kana: get(cols.kana).slice(0, 100),
       phone: get(cols.phone).slice(0, 30),

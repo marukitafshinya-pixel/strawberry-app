@@ -59,11 +59,12 @@ service cloud.firestore {
     match /customers/{id} {
       allow read: if isStaff();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'contract', 'payment', 'terms', 'memo', 'prices', 'active', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'contract', 'payment', 'terms', 'memo', 'prices', 'products', 'active', 'updatedAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 100
-        && (!('prices' in request.resource.data) || request.resource.data.prices is map);
+        && (!('prices' in request.resource.data) || request.resource.data.prices is map)
+        && (!('products' in request.resource.data) || (request.resource.data.products is map && request.resource.data.products.size() <= 200));
       allow delete: if isAdmin();
     }
 
