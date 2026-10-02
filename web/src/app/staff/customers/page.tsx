@@ -17,6 +17,8 @@ export default function CustomersPage() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
   const { value: list, error } = useCustomers();
+  const { value: settings } = useSettings();
+  const productName = (id: string) => settings?.products.find((p) => p.id === id)?.name ?? "（商品設定にない商品）";
   const [q, setQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -173,6 +175,7 @@ export default function CustomersPage() {
                     {p.label}
                   </th>
                 ))}
+                <th className="px-3 py-2">この顧客だけの商品の値段</th>
                 <th className="px-3 py-2">支払</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -191,6 +194,20 @@ export default function CustomersPage() {
                       {c.prices[p.key] !== undefined ? yen(c.prices[p.key]!) : "—"}
                     </td>
                   ))}
+                  <td className="px-3 py-2 text-xs">
+                    {Object.keys(c.products ?? {}).length === 0 ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      <ul className="max-w-[16rem] space-y-0.5">
+                        {Object.entries(c.products).map(([id, v]) => (
+                          <li key={id} className="flex justify-between gap-3">
+                            <span className="truncate">{productName(id)}</span>
+                            <span className="shrink-0 tabular-nums">{yen(v)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {c.payment === "credit" ? "売掛" : c.payment === "cash" ? "現金" : ""}
                     {c.terms && <div className="text-xs text-gray-500">{termsText(c.terms)}</div>}
