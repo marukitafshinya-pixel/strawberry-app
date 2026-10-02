@@ -22,6 +22,7 @@ export default function MyShiftPage() {
   const today = todayJST();
   const [from, setFrom] = useState(today);
   const [span, more] = useGrowingSpan(from);
+  const [reset, setReset] = useState(0);
   const days = useShiftDays(from, addDays(from, span - 1));
   const mine = useShiftDays(today, addDays(today, 13));
   const reserved = useReservedPeople(from, addDays(from, span - 1));
@@ -86,7 +87,12 @@ export default function MyShiftPage() {
           <button onClick={() => setFrom(addDays(from, -7))} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
             ‹ 前の週
           </button>
-          <button onClick={() => setFrom(today)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+          <button
+            onClick={() => {
+              setFrom(today);
+              setReset(reset + 1);
+            }}
+            className="rounded-lg border bg-white px-3 py-1.5 text-sm">
             今日
           </button>
           <button onClick={() => setFrom(addDays(from, 7))} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
@@ -94,7 +100,7 @@ export default function MyShiftPage() {
           </button>
         </div>
         <p className="text-xs text-gray-500">表は横に動かせます。緑の行があなたです。</p>
-        <div className="mt-2">{days ? <ShiftTable from={from} span={span} onMore={more} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
+        <div className="mt-2">{days ? <ShiftTable from={from} span={span} onMore={more} resetKey={reset} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
       </section>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 // 勤務管理表の表（横に日付、縦に従業員）。管理者は記号を入れられ、ほかの人は見るだけ
+import { useEffect, useRef } from "react";
 import { addDays, todayJST } from "@/lib/date";
 import { isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 
@@ -28,6 +29,7 @@ export function ShiftTable({
   onCell,
   onNote,
   onMore,
+  resetKey,
 }: {
   from: string;
   span: number;
@@ -43,7 +45,13 @@ export function ShiftTable({
   onNote?: (date: string) => void;
   /** 右の端に近づいたら呼ぶ（先の日を足す） */
   onMore?: () => void;
+  /** 変わったら表を左端（先頭の日）に戻す */
+  resetKey?: number;
 }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.scrollLeft = 0;
+  }, [from, resetKey]);
   const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
   const today = todayJST();
   const sorted = sortMembers(members, cfg);
@@ -56,9 +64,12 @@ export function ShiftTable({
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
   const headBase = "sticky left-0 z-10 whitespace-nowrap border-r px-2 text-left";
   const head = `${headBase} bg-white`;
+  /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
+  const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-500" : "");
 
   return (
     <div
+      ref={box}
       className="overflow-x-auto rounded-xl border bg-white"
       onScroll={(e) => {
         const el = e.currentTarget;
@@ -70,7 +81,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
             {dates.map((d, i) => (
-              <th key={d} className={`min-w-[3.1rem] px-0.5 py-1 font-normal text-gray-500 ${colTone(d)}`}>
+              <th key={d} className={`min-w-[3.1rem] px-0.5 py-1 font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
                 {i === 0 || d.endsWith("-01") ? `${Number(d.slice(5, 7))}月` : ""}
               </th>
             ))}
@@ -78,7 +89,7 @@ export function ShiftTable({
           <tr>
             <th className={`${head} py-1`}>日付</th>
             {dates.map((d) => (
-              <th key={d} className={`px-0.5 py-1 text-sm ${colTone(d)} ${d === today ? "text-amber-800" : ""}`}>
+              <th key={d} className={`px-0.5 py-1 text-sm ${colTone(d)} ${wk(d)} ${d === today ? "text-amber-800" : ""}`}>
                 {Number(d.slice(8))}
               </th>
             ))}
@@ -86,7 +97,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1`}>曜日</th>
             {dates.map((d) => (
-              <th key={d} className={`px-0.5 py-1 font-normal ${colTone(d)} ${wdOf(d) === 0 ? "text-red-600" : wdOf(d) === 6 ? "text-sky-700" : ""}`}>
+              <th key={d} className={`px-0.5 py-1 font-normal ${colTone(d)} ${wk(d)} ${wdOf(d) === 0 ? "text-red-600" : wdOf(d) === 6 ? "text-sky-700" : ""}`}>
                 {WD[wdOf(d)]}
               </th>
             ))}
@@ -94,7 +105,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 font-normal`}>いちご狩り予約数</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center font-semibold text-berry-dark ${colTone(d)}`}>
+              <td key={d} className={`px-0.5 py-1 text-center font-semibold text-berry-dark ${colTone(d)} ${wk(d)}`}>
                 {reserved?.[d] ? reserved[d] : ""}
               </td>
             ))}
@@ -102,7 +113,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 font-normal`}>予定</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center text-[10px] leading-tight ${colTone(d)}`}>
+              <td key={d} className={`px-0.5 py-1 text-center text-[10px] leading-tight ${colTone(d)} ${wk(d)}`}>
                 {onNote ? (
                   <button onClick={() => onNote(d)} className="min-h-[1.5rem] w-full rounded hover:bg-gray-100">
                     {days[d]?.note || <span className="text-gray-300">＋</span>}
@@ -141,7 +152,7 @@ export function ShiftTable({
                       );
                       return (
                         // 記号ごとの色は付けない（行の色だけ）
-                        <td key={d} className="border-l px-0 py-0 text-center">
+                        <td key={d} className={`border-l px-0 py-0 text-center ${wk(d)}`}>
                           {onCell ? (
                             <button onClick={() => onCell(d, m.id)} className="block h-full min-h-[2rem] w-full px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
                               {body}
@@ -161,7 +172,7 @@ export function ShiftTable({
           <tr className="border-t-2">
             <th className={`${head} py-1`}>売り場対応人数</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)}`}>
+              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => m.floor && working(d, m)).length || ""}
               </td>
             ))}
@@ -169,7 +180,7 @@ export function ShiftTable({
           <tr className="border-t">
             <th className={`${head} py-1`}>収穫人数</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)}`}>
+              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => m.harvest && working(d, m)).length || ""}
               </td>
             ))}
@@ -177,7 +188,7 @@ export function ShiftTable({
           <tr className="border-t">
             <th className={`${head} py-1`}>出勤人数</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)}`}>
+              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => working(d, m)).length || ""}
               </td>
             ))}

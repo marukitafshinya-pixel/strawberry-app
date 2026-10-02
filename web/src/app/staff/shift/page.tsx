@@ -55,6 +55,8 @@ function ShiftView() {
   const cfg = useShiftConfig();
   const members = useShiftMembers();
   const [span, more] = useGrowingSpan(from);
+  /** 「今日」を押したら、今日を先頭にして表を左端に戻す */
+  const [reset, setReset] = useState(0);
   const to = addDays(from, span - 1);
   const days = useShiftDays(from, to);
   const reserved = useReservedPeople(from, to);
@@ -142,11 +144,16 @@ function ShiftView() {
               ‹ 2週前
             </button>
             <input type="date" value={from} onChange={(e) => isValidYmd(e.target.value) && go(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm" />
-            <span className="text-sm text-gray-600">から表示（表を右へ動かすと、先の日がいくらでも出ます）</span>
+            <span className="text-sm text-gray-600">から表示（右へ動かすと先の日も出ます）</span>
             <button onClick={() => go(addDays(from, 14))} className="rounded-lg border bg-white px-3 py-2 text-sm">
               2週後 ›
             </button>
-            <button onClick={() => go(todayJST())} className="rounded-lg border bg-white px-3 py-2 text-sm">
+            <button
+              onClick={() => {
+                go(todayJST());
+                setReset(reset + 1);
+              }}
+              className="rounded-lg border bg-white px-3 py-2 text-sm">
               今日
             </button>
             <span className="flex-1" />
@@ -196,6 +203,7 @@ function ShiftView() {
                 from={from}
                 span={span}
                 onMore={more}
+                resetKey={reset}
                 cfg={cfg}
                 members={active}
                 days={days}
