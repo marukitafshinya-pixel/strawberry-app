@@ -17,6 +17,9 @@ import { DEFAULT_PLAN_CATEGORY, DEFAULT_PLAN_TAX, DEFAULT_PRODUCT_TAX, SETTINGS_
 
 type Line = Omit<SaleLine, "amount" | "taxRate"> & { key: string; taxRate: TaxRate };
 
+/** 顧客リストの単価で取った予約のプランID（customer:顧客ID）。予約の画面・サーバーと同じ形 */
+const CUSTOMER_PLAN_PREFIX = "customer:";
+
 export default function CheckoutPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
@@ -196,6 +199,25 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const router = useRouter();
   const [customerQ, setCustomerQ] = useState("");
   const { value: customers } = useCustomers();
+
+  /** 顧客を選ぶ（その顧客だけの値段・いつもの支払方法にする） */
+  function chooseCustomer(c: Customer) {
+    setCustomer(c);
+    setCustomerName(c.name);
+    if (c.payment) setPayment(c.payment);
+  }
+  // 顧客の料金で取った予約なら、その顧客を選んだ状態にする（「顧客を選ぶ」で選んだのと同じ）
+  const [autoCustomerDone, setAutoCustomerDone] = useState(false);
+  if (!autoCustomerDone && customers && r && !editing) {
+    setAutoCustomerDone(true);
+    const id = r.planId.startsWith(CUSTOMER_PLAN_PREFIX) ? r.planId.slice(CUSTOMER_PLAN_PREFIX.length) : "";
+    const c = id ? customers.find((x) => x.id === id && x.active) : undefined;
+    if (c) {
+      // プリンターのアプリから戻ってきたときは、控えておいた名前・支払方法のままにする
+      if (resume) setCustomer(c);
+      else chooseCustomer(c);
+    }
+  }
 
   const alreadyPaid = !editing && !!r?.saleId;
   const subtotal = lines.reduce((n, l) => n + l.unitPrice * l.qty, 0);
@@ -1108,9 +1130,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 <li key={c.id}>
                   <button
                     onClick={() => {
-                      setCustomer(c);
-                      setCustomerName(c.name);
-                      if (c.payment) setPayment(c.payment);
+                      chooseCustomer(c);
                       setPickingCustomer(false);
                       setCustomerQ("");
                     }}
