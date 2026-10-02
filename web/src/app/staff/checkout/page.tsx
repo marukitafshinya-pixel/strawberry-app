@@ -452,6 +452,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
             ← {r ? "予約管理" : "メニュー"}
           </Link>
           <span className="ml-3 text-lg font-bold text-gray-900">{step === "pay" ? "お支払い" : "注文入力"}</span>
+          {step === "order" && <TodayCounts />}
         </p>
         <div className="flex items-center gap-2">
           <HandlerPicker />
@@ -1248,6 +1249,25 @@ const GROUP_COLORS = [
   { bg: "bg-violet-50", border: "border-violet-300", text: "text-violet-800" },
   { bg: "bg-lime-50", border: "border-lime-300", text: "text-lime-800" },
 ];
+
+/** 今日の予約の組数・人数と、まだ来店していない組数・人数（キャンセルとリクエストは数えない） */
+function TodayCounts() {
+  const { value } = useReservations(todayJST());
+  if (!value) return null;
+  const all = value.filter((x) => x.status !== "cancelled" && x.status !== "request");
+  const notYet = all.filter((x) => x.status !== "visited" && !x.saleId);
+  const people = (list: Reservation[]) => list.reduce((n, x) => n + (Number(x.people) || 0), 0);
+  return (
+    <span className="ml-4 inline-flex flex-wrap items-baseline gap-2 align-middle text-sm">
+      <span className="rounded-lg bg-pink-50 px-2.5 py-1 text-pink-900">
+        本日の予約 <b className="text-base tabular-nums">{all.length}</b>組 <b className="text-base tabular-nums">{people(all)}</b>名
+      </span>
+      <span className="rounded-lg bg-amber-50 px-2.5 py-1 text-amber-900">
+        未来店 <b className="text-base tabular-nums">{notYet.length}</b>組 <b className="text-base tabular-nums">{people(notYet)}</b>名
+      </span>
+    </span>
+  );
+}
 
 /** 予約名簿：今日の、まだ会計していない予約を時間順に出す（会計すると消える） */
 function ReservationRoster({ current, onPick, onClear }: { current: Reservation | null; onPick: (id: string) => void; onClear: (() => void) | null }) {
