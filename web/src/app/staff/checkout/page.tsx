@@ -371,11 +371,15 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
 
   // 顧客を選んでいるときは、その顧客だけの値段にする（並べ替え中は元の値段のまま）
   const special = !arrange ? (customer?.products ?? {}) : {};
-  const tiles = buildTiles(settings, arrange ?? settings.tileLayout).map((t) =>
+  const allTiles = buildTiles(settings, arrange ?? settings.tileLayout).map((t) =>
     t.kind === "product" && special[t.refId] !== undefined ? { ...t, price: special[t.refId], special: true } : t,
   );
+  // 「レジ表示」を外した商品は、タイル・リストに出さない（検索と、顧客だけの値段には出す）
+  const tiles = allTiles.filter((t) => !t.hidden);
   const groups = orderGroups(tiles, (arrange ?? settings.tileLayout)?.groups);
-  const colorOf = (g: string) => GROUP_COLORS[groups.indexOf(g) % GROUP_COLORS.length];
+  // 検索では「レジ表示」を外した商品も出すので、その分類も入れる
+  const allGroups = orderGroups(allTiles, groups);
+  const colorOf = (g: string) => GROUP_COLORS[allGroups.indexOf(g) % GROUP_COLORS.length];
   const layout = arrange ?? settings.tileLayout;
   const cols = layout?.cols ?? 6;
   const slots = assignSlots(tiles, layout?.slots);
@@ -442,7 +446,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   }
 
   const q = search.trim();
-  const shownTiles = tiles.filter((t) => (tab === "search" ? q !== "" && t.name.includes(q) : !filter || t.group === filter));
+  const shownTiles = tab === "search" ? allTiles.filter((t) => q !== "" && t.name.includes(q)) : tiles.filter((t) => !filter || t.group === filter);
 
   return (
     <div className="pb-24 lg:pb-0">
@@ -829,7 +833,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 {customer && tab !== "search" && !arrange && (
                   <div className="mb-4 border-l-4 border-sky-400 pl-2">
                     <h3 className="mb-1 text-sm font-semibold text-sky-800">{customer.name} 様の料金</h3>
-                    {CUSTOMER_PRICES.some((p) => customer.prices[p.key] !== undefined) || tiles.some((t) => t.special) ? (
+                    {CUSTOMER_PRICES.some((p) => customer.prices[p.key] !== undefined) || allTiles.some((t) => t.special) ? (
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                         {CUSTOMER_PRICES.filter((p) => customer.prices[p.key] !== undefined).map((p) => (
                           <button
@@ -850,7 +854,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                             <span className="self-end tabular-nums">{yen(customer.prices[p.key]!)}</span>
                           </button>
                         ))}
-                        {tiles
+                        {allTiles
                           .filter((t) => t.special)
                           .map((t) => (
                             <TileButton key={`sp-${t.key}`} t={t} c={{ bg: "bg-sky-50", border: "border-sky-300", text: "text-sky-800" }} onClick={() => tap(t)} />
@@ -863,7 +867,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 )}
                 {tab === "search" && q === "" && <p className="py-6 text-center text-sm text-gray-400">商品名の一部を入れてください</p>}
                 {tab === "search" && q !== "" && shownTiles.length === 0 && <p className="py-6 text-center text-sm text-gray-400">見つかりません</p>}
-                {groups
+                {(tab === "search" ? allGroups : groups)
                   .filter((g) => shownTiles.some((t) => t.group === g))
                   .map((g) => {
                     const c = colorOf(g);
@@ -1238,7 +1242,7 @@ function emptySlots(usedSlots: number[], cols: number): number[] {
   return Array.from({ length: rows * cols }, (_, i) => i).filter((i) => !used.has(i));
 }
 
-type Tile = { key: string; kind: "plan" | "product"; refId: string; name: string; group: string; price: number; taxRate: TaxRate; special?: boolean };
+type Tile = { key: string; kind: "plan" | "product"; refId: string; name: string; group: string; price: number; taxRate: TaxRate; special?: boolean; hidden?: boolean };
 
 /** 分類ごとの色（Airレジのように、分類ごとにタイルの色を変える） */
 const GROUP_COLORS = [
@@ -1315,11 +1319,11 @@ function ReservationRoster({ current, onPick, onClear }: { current: Reservation 
   );
 }
 
-/** 会計画面に並べるもの：「商品設定」で販売中にした商品だけ（予約のプラン料金は、予約から会計したときに注文リストへ自動で入る） */
+/** 会計画面に並べるもの：「商品設定」で販売中にした商品だけ。「レジ表示」を外した商品は hidden（検索でだけ出す）（予約のプラン料金は、予約から会計したときに注文リストへ自動で入る） */
 function buildTiles(settings: Settings, layout?: TileLayout): Tile[] {
   const tiles: Tile[] = settings.products
     .filter((p) => p.active)
-    .map((p) => ({ key: `p-${p.id}`, kind: "product", refId: p.id, name: p.name, group: p.group || "その他", price: p.price, taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX }));
+    .map((p) => ({ key: `p-${p.id}`, kind: "product", refId: p.id, name: p.name, group: p.group || "その他", price: p.price, taxRate: p.taxRate ?? DEFAULT_PRODUCT_TAX, hidden: p.regiHidden === true }));
   // 保存した並びがあればその順に。新しく増えた商品は後ろに付ける
   if (!layout) return tiles;
   const pos = new Map(layout.tiles.map((k, i) => [k, i]));

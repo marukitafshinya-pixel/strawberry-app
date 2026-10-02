@@ -50,6 +50,8 @@ export type Product = {
   price: number;
   /** 会計画面に表示するか（売り切れ・取扱終了なら外す） */
   active: boolean;
+  /** レジのタイル・リストに出さない（販売中のまま。会計画面の検索と、顧客だけの値段には出る） */
+  regiHidden?: boolean;
   /** 消費税率。未設定なら8% */
   taxRate?: TaxRate;
   /** Airレジの商品ID（Airレジから読み込んだ商品だけ。読み込み直したときに同じ商品を見つけるため） */

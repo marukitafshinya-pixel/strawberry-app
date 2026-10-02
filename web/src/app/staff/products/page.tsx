@@ -251,6 +251,7 @@ function Editor({ initial }: { initial: Product[] }) {
                 <th className="px-2 py-2 text-right">価格（税込）</th>
                 <th className="px-2 py-2">税率</th>
                 <th className="px-2 py-2">販売中</th>
+                <th className="px-2 py-2">レジ表示</th>
                 <th className="px-2 py-2">並び順</th>
                 <th className="px-2 py-2" />
               </tr>
@@ -307,6 +308,16 @@ function Editor({ initial }: { initial: Product[] }) {
                   <td className="px-2 py-1 text-center">
                     <input type="checkbox" checked={p.active} aria-label="販売中" onChange={(e) => setOne(p.id, { active: e.target.checked })} />
                   </td>
+                  <td className="px-2 py-1 text-center">
+                    <input
+                      type="checkbox"
+                      checked={p.active && !p.regiHidden}
+                      disabled={!p.active}
+                      aria-label="レジ表示"
+                      onChange={(e) => setOne(p.id, { regiHidden: !e.target.checked })}
+                      className="disabled:opacity-40"
+                    />
+                  </td>
                   <td className="whitespace-nowrap px-2 py-1">
                     <button onClick={() => move(p.id, -1)} className="rounded border px-2 py-0.5" aria-label="上へ">
                       ↑
@@ -333,7 +344,7 @@ function Editor({ initial }: { initial: Product[] }) {
         </div>
       )}
       <p className="mt-2 text-xs text-gray-500">
-        「販売中」を外すと会計画面に出なくなります。並び順は会計画面の表示順です。いちご狩りの予約の料金は「設定」のプランで決めます。
+        「販売中」を外すと会計画面に出なくなります（検索にも出ません）。「レジ表示」を外すと、販売中のままタイル・リストからは消え、会計画面の「検索」と顧客だけの値段にだけ出ます。並び順は会計画面の表示順です。いちご狩りの予約の料金は「設定」のプランで決めます。
       </p>
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
