@@ -113,7 +113,18 @@ export function useShiftDays(from: string, to: string): Record<string, ShiftDay>
       unsub();
     };
   }, [from, to, key]);
-  return state && state.key === key ? state.data : null;
+  // 表示する日を増やしたときに表が消えないよう、読み込み中は前の内容を返す
+  return state ? state.data : null;
+}
+
+/**
+ * 勤務表に出す日数。表を右へ動かして端に近づくと、先の日を足していく（日数の上限なし）。
+ * 先頭の日を変えたら、はじめの日数に戻す
+ */
+export function useGrowingSpan(from: string, initial = 42, step = 28): [number, () => void] {
+  const [s, setS] = useState({ from, span: initial });
+  const span = s.from === from ? s.span : initial;
+  return [span, () => setS({ from, span: span + step })];
 }
 
 /** 期間内の、いちご狩りの予約人数（日付 → 人数）。予約ページの空き状況（時間枠ごとの人数）を足す */
@@ -142,7 +153,7 @@ export function useReservedPeople(from: string, to: string): Record<string, numb
       unsub();
     };
   }, [from, to, key]);
-  return state && state.key === key ? state.data : null;
+  return state ? state.data : null;
 }
 
 /** 休みの希望。uid を渡すとその人の分だけ（従業員用）、渡さなければ決まっていない希望すべて（管理者用） */

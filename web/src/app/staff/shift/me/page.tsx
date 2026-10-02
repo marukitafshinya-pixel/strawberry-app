@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
-import { codeColor, useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers, useShiftRequests, type ShiftRequest } from "@/lib/shift";
+import { codeColor, useGrowingSpan, useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers, useShiftRequests, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "../ShiftTable";
 
 const STATUS: Record<ShiftRequest["status"], { label: string; cls: string }> = {
@@ -21,7 +21,7 @@ export default function MyShiftPage() {
   const me = members?.find((m) => m.uid === user?.uid);
   const today = todayJST();
   const [from, setFrom] = useState(today);
-  const span = 21;
+  const [span, more] = useGrowingSpan(from);
   const days = useShiftDays(from, addDays(from, span - 1));
   const mine = useShiftDays(today, addDays(today, 13));
   const reserved = useReservedPeople(from, addDays(from, span - 1));
@@ -94,7 +94,7 @@ export default function MyShiftPage() {
           </button>
         </div>
         <p className="text-xs text-gray-500">表は横に動かせます。緑の行があなたです。</p>
-        <div className="mt-2">{days ? <ShiftTable from={from} span={span} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
+        <div className="mt-2">{days ? <ShiftTable from={from} span={span} onMore={more} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
       </section>
     </div>
   );

@@ -18,6 +18,7 @@ import {
   useReservedPeople,
   useShiftConfig,
   useShiftDays,
+  useGrowingSpan,
   useShiftMembers,
   useShiftRequests,
   type ShiftCode,
@@ -28,7 +29,6 @@ import {
 import { ShiftImport } from "./ShiftImport";
 import { ShiftTable, sortMembers } from "./ShiftTable";
 
-const SPAN = 35;
 
 export default function ShiftPage() {
   return (
@@ -46,15 +46,16 @@ function ShiftView() {
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("from");
-  // 最初は、今日の1週間前から表示する
-  const from = isValidYmd(q) ? q : addDays(todayJST(), -7);
+  // 選んだ日（最初は今日）を先頭に表示する
+  const from = isValidYmd(q) ? q : todayJST();
   const tabQ = params.get("tab") as Tab | null;
   const tab: Tab = isAdmin && tabQ && ["requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
   const go = (f: string, t: Tab = tab) => router.replace(`/staff/shift/?from=${f}${t !== "table" ? `&tab=${t}` : ""}`);
 
   const cfg = useShiftConfig();
   const members = useShiftMembers();
-  const to = addDays(from, SPAN - 1);
+  const [span, more] = useGrowingSpan(from);
+  const to = addDays(from, span - 1);
   const days = useShiftDays(from, to);
   const reserved = useReservedPeople(from, to);
   const requests = useShiftRequests();
@@ -85,7 +86,7 @@ function ShiftView() {
 
   function exportCsv() {
     if (!cfg || !days) return;
-    const dates = Array.from({ length: SPAN }, (_, i) => addDays(from, i));
+    const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
     const sorted = sortMembers(active, cfg);
     downloadCsv(`kinmu_${from}_${to}.csv`, [
       ["日付", ...dates.map((d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`)],
@@ -141,11 +142,11 @@ function ShiftView() {
               ‹ 2週前
             </button>
             <input type="date" value={from} onChange={(e) => isValidYmd(e.target.value) && go(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm" />
-            <span className="text-sm text-gray-600">から{SPAN}日分</span>
+            <span className="text-sm text-gray-600">から表示（表を右へ動かすと、先の日がいくらでも出ます）</span>
             <button onClick={() => go(addDays(from, 14))} className="rounded-lg border bg-white px-3 py-2 text-sm">
               2週後 ›
             </button>
-            <button onClick={() => go(addDays(todayJST(), -7))} className="rounded-lg border bg-white px-3 py-2 text-sm">
+            <button onClick={() => go(todayJST())} className="rounded-lg border bg-white px-3 py-2 text-sm">
               今日
             </button>
             <span className="flex-1" />
@@ -193,7 +194,8 @@ function ShiftView() {
             ) : (
               <ShiftTable
                 from={from}
-                span={SPAN}
+                span={span}
+                onMore={more}
                 cfg={cfg}
                 members={active}
                 days={days}

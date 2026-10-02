@@ -27,6 +27,7 @@ export function ShiftTable({
   myMemberId,
   onCell,
   onNote,
+  onMore,
 }: {
   from: string;
   span: number;
@@ -40,6 +41,8 @@ export function ShiftTable({
   myMemberId?: string;
   onCell?: (date: string, memberId: string) => void;
   onNote?: (date: string) => void;
+  /** 右の端に近づいたら呼ぶ（先の日を足す） */
+  onMore?: () => void;
 }) {
   const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
   const today = todayJST();
@@ -55,7 +58,13 @@ export function ShiftTable({
   const head = `${headBase} bg-white`;
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white">
+    <div
+      className="overflow-x-auto rounded-xl border bg-white"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        if (onMore && el.scrollLeft + el.clientWidth > el.scrollWidth - 400) onMore();
+      }}
+    >
       <table className="border-collapse text-xs tabular-nums">
         <thead>
           <tr className="border-b">
