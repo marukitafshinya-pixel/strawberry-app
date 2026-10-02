@@ -8,7 +8,7 @@ import { getFirebase } from "./firebase";
 /** 勤務の記号。off＝休み（出勤人数に数えない）、req＝従業員が希望として出せる */
 export type ShiftCode = { code: string; off: boolean; req: boolean; color: string };
 export type ShiftConfig = { codes: ShiftCode[]; groups: string[]; cutoffDays: number };
-export type ShiftMember = { id: string; name: string; group: string; floor: boolean; order: number; active: boolean; uid?: string; loginId?: string };
+export type ShiftMember = { id: string; name: string; group: string; floor: boolean; /** 収穫ができる */ harvest?: boolean; order: number; active: boolean; uid?: string; loginId?: string };
 export type ShiftDay = { cells: Record<string, string>; note: string };
 export type ShiftRequest = { id: string; memberId: string; uid: string; date: string; code: string; memo: string; status: "pending" | "approved" | "rejected" };
 
@@ -197,7 +197,7 @@ export async function saveShiftConfig(c: ShiftConfig) {
 
 export async function saveMember(m: Omit<ShiftMember, "id" | "uid" | "loginId"> & { id?: string }) {
   const { db } = await getFirebase();
-  const data = { name: m.name.trim().slice(0, 30), group: m.group, floor: m.floor, order: m.order, active: m.active, updatedAt: serverTimestamp() };
+  const data = { name: m.name.trim().slice(0, 30), group: m.group, floor: m.floor, harvest: m.harvest === true, order: m.order, active: m.active, updatedAt: serverTimestamp() };
   if (m.id) await updateDoc(doc(db, `shiftMembers/${m.id}`), data);
   else await setDoc(doc(collection(db, "shiftMembers")), data);
 }

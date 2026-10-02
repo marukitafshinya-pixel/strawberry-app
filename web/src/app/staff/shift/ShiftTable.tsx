@@ -111,6 +111,7 @@ export function ShiftTable({
                     <th className={`${head} py-1 font-normal ${m.id === myMemberId ? "bg-emerald-50 font-bold" : ""}`}>
                       {m.name}
                       {m.floor && <span className="ml-1 rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">売</span>}
+                      {m.harvest && <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] text-rose-800">収</span>}
                     </th>
                     {dates.map((d) => {
                       const code = days[d]?.cells[m.id];
@@ -148,6 +149,14 @@ export function ShiftTable({
             {dates.map((d) => (
               <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)}`}>
                 {sorted.filter((m) => m.floor && working(d, m)).length || ""}
+              </td>
+            ))}
+          </tr>
+          <tr className="border-t">
+            <th className={`${head} py-1`}>収穫人数</th>
+            {dates.map((d) => (
+              <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)}`}>
+                {sorted.filter((m) => m.harvest && working(d, m)).length || ""}
               </td>
             ))}
           </tr>

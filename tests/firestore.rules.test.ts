@@ -326,6 +326,7 @@ describe("意向勤務管理表（従業員 worker）", () => {
     await assertFails(setDoc(doc(staff(), "shiftDays/2026-10-11"), { cells: { m1: "〇" } }));
     await assertFails(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w9", loginId: "tanaka" }));
     await assertSucceeds(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }));
+    await assertSucceeds(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, harvest: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }));
     await assertSucceeds(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-20", code: "希望休", memo: "", status: "approved" }));
     await assertFails(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", memo: "", status: "approved" }));
   });

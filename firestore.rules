@@ -182,10 +182,10 @@ service cloud.firestore {
     match /shiftMembers/{id} {
       allow read: if isStaff() || isWorker();
       allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'order', 'active', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'order', 'active', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 30;
       allow update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'order', 'active', 'updatedAt', 'uid', 'loginId'])
+        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'order', 'active', 'updatedAt', 'uid', 'loginId'])
         && request.resource.data.get('uid', null) == resource.data.get('uid', null)
         && request.resource.data.get('loginId', null) == resource.data.get('loginId', null)
         && request.resource.data.name is string && request.resource.data.name.size() <= 30;

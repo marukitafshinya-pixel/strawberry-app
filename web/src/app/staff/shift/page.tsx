@@ -93,6 +93,7 @@ function ShiftView() {
       ["予定", ...dates.map((d) => days[d]?.note ?? "")],
       ...sorted.map((m) => [m.name, ...dates.map((d) => days[d]?.cells[m.id] ?? "")]),
       ["売り場対応人数", ...dates.map((d) => sorted.filter((m) => m.floor && isWorking(cfg, days[d]?.cells[m.id])).length)],
+      ["収穫人数", ...dates.map((d) => sorted.filter((m) => m.harvest && isWorking(cfg, days[d]?.cells[m.id])).length)],
       ["出勤人数", ...dates.map((d) => sorted.filter((m) => isWorking(cfg, days[d]?.cells[m.id])).length)],
     ]);
   }
@@ -253,7 +254,7 @@ function Requests({ cfg, members, requests, by }: { cfg: ShiftConfig; members: S
   );
 }
 
-/** 従業員リスト（まとまり・売り場対応可・並び順・ログイン） */
+/** 従業員リスト（まとまり・売り場対応可・収穫可・並び順・ログイン） */
 function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }) {
   const sorted = sortMembers(members, cfg);
   const [name, setName] = useState("");
@@ -325,6 +326,7 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
               <th className="py-1">名前</th>
               <th className="py-1">まとまり</th>
               <th className="py-1">売り場対応可</th>
+              <th className="py-1">収穫可</th>
               <th className="py-1">表に出す</th>
               <th className="py-1">ログイン（スマホで見る）</th>
             </tr>
@@ -351,7 +353,10 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
                   </select>
                 </td>
                 <td className="py-1 text-center">
-                  <input type="checkbox" checked={m.floor} onChange={(e) => patch(m, { floor: e.target.checked })} className="h-5 w-5" />
+                  <input type="checkbox" checked={m.floor} aria-label="売り場対応可" onChange={(e) => patch(m, { floor: e.target.checked })} className="h-5 w-5" />
+                </td>
+                <td className="py-1 text-center">
+                  <input type="checkbox" checked={m.harvest === true} aria-label="収穫可" onChange={(e) => patch(m, { harvest: e.target.checked })} className="h-5 w-5" />
                 </td>
                 <td className="py-1 text-center">
                   <input type="checkbox" checked={m.active} onChange={(e) => patch(m, { active: e.target.checked })} className="h-5 w-5" />
