@@ -30,7 +30,6 @@ import {
 import { ShiftImport } from "./ShiftImport";
 import { ShiftTable, sortMembers } from "./ShiftTable";
 
-
 export default function ShiftPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
@@ -39,7 +38,7 @@ export default function ShiftPage() {
   );
 }
 
-type Tab = "table" | "requests" | "members" | "settings";
+type Tab = "table" | "codes" | "requests" | "members" | "settings";
 
 function ShiftView() {
   const { role, user } = useAuth();
@@ -50,7 +49,7 @@ function ShiftView() {
   // 選んだ日（最初は今日）を先頭に表示する
   const from = isValidYmd(q) ? q : todayJST();
   const tabQ = params.get("tab") as Tab | null;
-  const tab: Tab = isAdmin && tabQ && ["requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
+  const tab: Tab = isAdmin && tabQ && ["codes", "requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
   const go = (f: string, t: Tab = tab) => router.replace(`/staff/shift/?from=${f}${t !== "table" ? `&tab=${t}` : ""}`);
 
   const cfg = useShiftConfig();
@@ -63,7 +62,11 @@ function ShiftView() {
   const reserved = useReservedPeople(from, to);
   const requests = useShiftRequests();
   /** 記号を選んでいるマス（押したマスの位置に、記号のリストを出す） */
-  const [picking, setPicking] = useState<{ date: string; memberId: string; rect: DOMRect } | null>(null);
+  const [picking, setPicking] = useState<{
+    date: string;
+    memberId: string;
+    rect: DOMRect;
+  } | null>(null);
   const [error, setError] = useState("");
 
   const active = (members ?? []).filter((m) => m.active);
@@ -76,7 +79,10 @@ function ShiftView() {
     const NEW = "女性";
     if (cfg.groups.includes(OLD) && !cfg.groups.includes(NEW)) {
       migrated.current = true;
-      saveShiftConfig({ ...cfg, groups: cfg.groups.map((g) => (g === OLD ? NEW : g)) })
+      saveShiftConfig({
+        ...cfg,
+        groups: cfg.groups.map((g) => (g === OLD ? NEW : g)),
+      })
         .then(() => renameMemberGroup(members, OLD, NEW))
         .catch((e) => setError(errorText(e)));
     } else if (cfg.groups.includes(NEW) && !cfg.groups.includes(OLD) && members.some((m) => m.group === OLD)) {
@@ -143,6 +149,41 @@ function ShiftView() {
   }
 
   const pending = requests ?? [];
+  /** 勤務表の操作（日付の移動・取り込み・書き出し）。タブの横に並べる */
+  const toolbar = cfg && members && tab === "table" && (
+    <div className="ml-auto flex flex-wrap items-center gap-1.5 pb-1 print:hidden">
+      <button onClick={() => go(addDays(from, -14))} className="rounded-lg border bg-white px-2.5 py-1.5 text-sm">
+        ‹ 2週前
+      </button>
+      <input
+        type="date"
+        value={from}
+        onChange={(e) => isValidYmd(e.target.value) && go(e.target.value)}
+        title="この日を先頭に表示（右へ動かすと先の日も出ます）"
+        className="rounded-lg border px-2 py-1 text-sm"
+      />
+      <button onClick={() => go(addDays(from, 14))} className="rounded-lg border bg-white px-2.5 py-1.5 text-sm">
+        2週後 ›
+      </button>
+      <button
+        onClick={() => {
+          go(todayJST());
+          setReset(reset + 1);
+        }}
+        className="rounded-lg border bg-white px-2.5 py-1.5 text-sm"
+      >
+        今日
+      </button>
+      {isAdmin && <ShiftImport cfg={cfg} members={members} />}
+      <button onClick={exportCsv} className="px-1 text-sm text-gray-600 underline">
+        CSVで書き出す
+      </button>
+      <button onClick={() => window.print()} className="px-1 text-sm text-gray-600 underline">
+        印刷
+      </button>
+    </div>
+  );
+
   return (
     <>
       <p className="text-sm print:hidden">
@@ -152,21 +193,29 @@ function ShiftView() {
       </p>
       <h1 className="mt-2 text-xl font-bold">勤務管理表</h1>
 
-      {isAdmin && (
-        <div className="mt-3 flex flex-wrap gap-1 border-b print:hidden">
+      {isAdmin ? (
+        <div className="mt-3 flex flex-wrap items-end gap-1 border-b print:hidden">
           {(
             [
               ["table", "勤務表"],
+              ["codes", "記号のリスト"],
               ["requests", `休みの希望${pending.length ? `（${pending.length}件）` : ""}`],
               ["members", "従業員リスト"],
               ["settings", "設定"],
             ] as [Tab, string][]
           ).map(([t, label]) => (
-            <button key={t} onClick={() => go(from, t)} className={`-mb-px rounded-t-lg border px-4 py-2 text-sm ${tab === t ? "border-b-white bg-white font-bold" : "bg-gray-50 text-gray-600"}`}>
+            <button
+              key={t}
+              onClick={() => go(from, t)}
+              className={`-mb-px rounded-t-lg border px-4 py-2 text-sm ${tab === t ? "border-b-white bg-white font-bold" : "bg-gray-50 text-gray-600"}`}
+            >
               {label}
             </button>
           ))}
+          {toolbar}
         </div>
+      ) : (
+        <div className="mt-3 flex">{toolbar}</div>
       )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
@@ -177,48 +226,11 @@ function ShiftView() {
       ) : tab === "members" ? (
         <Members cfg={cfg} members={members} />
       ) : tab === "settings" ? (
-        <Settings cfg={cfg} members={members ?? []} />
+        <Settings cfg={cfg} members={members ?? []} part="other" />
+      ) : tab === "codes" ? (
+        <Settings cfg={cfg} members={members ?? []} part="codes" />
       ) : (
         <>
-          <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
-            <button onClick={() => go(addDays(from, -14))} className="rounded-lg border bg-white px-3 py-2 text-sm">
-              ‹ 2週前
-            </button>
-            <input type="date" value={from} onChange={(e) => isValidYmd(e.target.value) && go(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm" />
-            <span className="text-sm text-gray-600">から表示（右へ動かすと先の日も出ます）</span>
-            <button onClick={() => go(addDays(from, 14))} className="rounded-lg border bg-white px-3 py-2 text-sm">
-              2週後 ›
-            </button>
-            <button
-              onClick={() => {
-                go(todayJST());
-                setReset(reset + 1);
-              }}
-              className="rounded-lg border bg-white px-3 py-2 text-sm">
-              今日
-            </button>
-            <span className="flex-1" />
-            {isAdmin && <ShiftImport cfg={cfg} members={members} />}
-            <button onClick={exportCsv} className="text-sm text-gray-600 underline">
-              CSVで書き出す
-            </button>
-            <button onClick={() => window.print()} className="text-sm text-gray-600 underline">
-              印刷
-            </button>
-          </div>
-          {isAdmin && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 p-2 text-sm print:hidden">
-              <span className="mr-1 text-sky-900">マスを押すと、この記号のリストから選べます：</span>
-              {cfg.codes.map((c) => (
-                <span key={c.code} className="rounded border bg-white px-2 py-0.5">
-                  {c.code}
-                </span>
-              ))}
-              <button onClick={() => go(from, "settings")} className="ml-1 text-xs text-sky-800 underline">
-                記号のリストを作る・変える（設定）
-              </button>
-            </div>
-          )}
           {pending.length > 0 && isAdmin && (
             <p className="mt-2 text-sm text-purple-800 print:hidden">
               紫の点線は、まだ決まっていない休みの希望です。マスを押すと、その場で承認・却下できます。
@@ -230,7 +242,8 @@ function ShiftView() {
           <div className="mt-3">
             {active.length === 0 ? (
               <p className="rounded-xl bg-white p-4 text-gray-600">
-                まだ従業員が登録されていません。{isAdmin ? "「従業員リスト」で登録するか、Excelから取り込んでください。" : "管理者に登録してもらってください。"}
+                まだ従業員が登録されていません。
+                {isAdmin ? "「従業員リスト」で登録するか、Excelから取り込んでください。" : "管理者に登録してもらってください。"}
               </p>
             ) : !days ? (
               <p className="text-gray-500">読み込み中…</p>
@@ -266,14 +279,18 @@ function ShiftView() {
               <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl">
                 <p className="text-sm text-gray-500">休みの希望</p>
                 <p className="mt-1 text-lg font-bold">
-                  {members?.find((m) => m.id === deciding.memberId)?.name ?? "（名前なし）"}さん・{formatJa(deciding.date, true)}
+                  {members?.find((m) => m.id === deciding.memberId)?.name ?? "（名前なし）"}
+                  さん・{formatJa(deciding.date, true)}
                 </p>
                 <p className="mt-2">
                   希望：<b className="text-purple-800">{deciding.code}</b>
                 </p>
                 {deciding.memo && <p className="mt-1 text-sm text-gray-600">メモ：{deciding.memo}</p>}
                 {days?.[deciding.date]?.cells[deciding.memberId] && (
-                  <p className="mt-1 text-xs text-amber-700">いまのマス：{days[deciding.date].cells[deciding.memberId]}（承認すると「{deciding.code}」に変わります）</p>
+                  <p className="mt-1 text-xs text-amber-700">
+                    いまのマス：{days[deciding.date].cells[deciding.memberId]}
+                    （承認すると「{deciding.code}」に変わります）
+                  </p>
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <button onClick={() => decideHere(true)} disabled={decidingBusy} className="rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-50">
@@ -297,7 +314,21 @@ function ShiftView() {
 }
 
 /** 押したマスのすぐ下（下に入らなければ上）に出す、記号のリスト */
-function CodePicker({ rect, title, codes, current, onPick, onClose }: { rect: DOMRect; title: string; codes: string[]; current: string; onPick: (code: string) => void; onClose: () => void }) {
+function CodePicker({
+  rect,
+  title,
+  codes,
+  current,
+  onPick,
+  onClose,
+}: {
+  rect: DOMRect;
+  title: string;
+  codes: string[];
+  current: string;
+  onPick: (code: string) => void;
+  onClose: () => void;
+}) {
   const W = 176;
   const H = Math.min(44 * (codes.length + 1) + 40, 360);
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - W - 8));
@@ -325,7 +356,11 @@ function CodePicker({ rect, title, codes, current, onPick, onClose }: { rect: DO
               {c}
             </button>
           ))}
-          <button onClick={() => onPick("")} disabled={!current} className="block w-full border-t px-3 py-2 text-left text-base text-red-700 hover:bg-red-50 disabled:text-gray-300">
+          <button
+            onClick={() => onPick("")}
+            disabled={!current}
+            className="block w-full border-t px-3 py-2 text-left text-base text-red-700 hover:bg-red-50 disabled:text-gray-300"
+          >
             空にする
           </button>
         </div>
@@ -359,7 +394,9 @@ function Requests({ cfg, members, requests, by }: { cfg: ShiftConfig; members: S
           <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
             <span className="font-semibold">{name(r.memberId)}</span>
             <span>{formatJa(r.date)}</span>
-            <span className={`rounded px-2 py-0.5 text-sm font-bold ${cfg.codes.find((c) => c.code === r.code)?.off ? "bg-pink-100 text-pink-900" : "bg-sky-100 text-sky-900"}`}>{r.code}</span>
+            <span className={`rounded px-2 py-0.5 text-sm font-bold ${cfg.codes.find((c) => c.code === r.code)?.off ? "bg-pink-100 text-pink-900" : "bg-sky-100 text-sky-900"}`}>
+              {r.code}
+            </span>
             {r.memo && <span className="text-sm text-gray-600">「{r.memo}」</span>}
             <span className="ml-auto flex gap-2">
               <button disabled={!!busy} onClick={() => decide(r, true)} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50">
@@ -390,7 +427,13 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
     if (!name.trim()) return;
     setError("");
     try {
-      await saveMember({ name, group, floor: group === "売り場担当可", order: nextOrder(), active: true });
+      await saveMember({
+        name,
+        group,
+        floor: group === "売り場担当可",
+        order: nextOrder(),
+        active: true,
+      });
       setName("");
     } catch (e) {
       setError(errorText(e));
@@ -466,7 +509,12 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
                   </button>
                 </td>
                 <td className="py-1">
-                  <input defaultValue={m.name} maxLength={30} onBlur={(e) => e.target.value.trim() && e.target.value !== m.name && patch(m, { name: e.target.value })} className="w-36 rounded border px-2 py-1" />
+                  <input
+                    defaultValue={m.name}
+                    maxLength={30}
+                    onBlur={(e) => e.target.value.trim() && e.target.value !== m.name && patch(m, { name: e.target.value })}
+                    className="w-36 rounded border px-2 py-1"
+                  />
                 </td>
                 <td className="py-1">
                   <select value={m.group} onChange={(e) => patch(m, { group: e.target.value })} className="rounded border px-1 py-1">
@@ -492,7 +540,9 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
           </tbody>
         </table>
         <p className="mt-2 text-xs text-gray-500">
-          辞めた人は「表に出す」を外してください（これまでの勤務は残ります）。ログインIDは、半角の英字・数字で作ります（例：tanaka）。従業員の方は、スタッフ用のページ（{typeof window !== "undefined" ? window.location.origin : ""}/staff/）で、ログインIDとパスワードを入れてログインします。
+          辞めた人は「表に出す」を外してください（これまでの勤務は残ります）。ログインIDは、半角の英字・数字で作ります（例：tanaka）。従業員の方は、スタッフ用のページ（
+          {typeof window !== "undefined" ? window.location.origin : ""}
+          /staff/）で、ログインIDとパスワードを入れてログインします。
         </p>
       </div>
     </section>
@@ -539,14 +589,31 @@ function LoginCell({ m }: { m: ShiftMember }) {
       )}
       {open && (
         <span className="mt-1 flex flex-wrap items-center gap-1">
-          {!m.loginId && <input value={loginId} onChange={(e) => setLoginId(e.target.value.toLowerCase())} placeholder="ログインID" className="w-24 rounded border px-1 py-1 font-mono" />}
+          {!m.loginId && (
+            <input value={loginId} onChange={(e) => setLoginId(e.target.value.toLowerCase())} placeholder="ログインID" className="w-24 rounded border px-1 py-1 font-mono" />
+          )}
           <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワード（8文字以上）" className="w-36 rounded border px-1 py-1" />
           <button
             disabled={busy}
             onClick={() =>
               m.loginId
-                ? run(() => callFunction("updateWorkerLogin", { memberId: m.id, password }), "パスワードを変えました")
-                : run(() => callFunction("createWorkerLogin", { memberId: m.id, loginId, password }), "ログインを作りました")
+                ? run(
+                    () =>
+                      callFunction("updateWorkerLogin", {
+                        memberId: m.id,
+                        password,
+                      }),
+                    "パスワードを変えました",
+                  )
+                : run(
+                    () =>
+                      callFunction("createWorkerLogin", {
+                        memberId: m.id,
+                        loginId,
+                        password,
+                      }),
+                    "ログインを作りました",
+                  )
             }
             className="rounded bg-berry px-2 py-1 font-bold text-white disabled:opacity-50"
           >
@@ -563,7 +630,8 @@ function LoginCell({ m }: { m: ShiftMember }) {
 }
 
 /** 記号・まとまり・希望の締め切り */
-function Settings({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }) {
+/** 設定（part="codes" は記号のリストのタブ、"other" はまとまり・締め切りの設定タブ） */
+function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMember[]; part: "codes" | "other" }) {
   const [codes, setCodes] = useState<ShiftCode[]>(cfg.codes);
   const [groups, setGroups] = useState(cfg.groups.join("\n"));
   const [cutoff, setCutoff] = useState(String(cfg.cutoffDays));
@@ -577,7 +645,11 @@ function Settings({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }
         .map((x) => x.trim())
         .filter(Boolean);
       const next = g.length ? g : cfg.groups;
-      await saveShiftConfig({ codes: codes.filter((c) => c.code.trim()), groups: next, cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)) });
+      await saveShiftConfig({
+        codes: codes.filter((c) => c.code.trim()),
+        groups: next,
+        cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)),
+      });
       // 同じ行のまとまりの名前を変えたら、その従業員も新しい名前にする
       if (next.length === cfg.groups.length)
         for (let i = 0; i < next.length; i++) if (next[i] !== cfg.groups[i] && !next.includes(cfg.groups[i])) await renameMemberGroup(members, cfg.groups[i], next[i]);
@@ -589,82 +661,89 @@ function Settings({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }
   const set = (i: number, p: Partial<ShiftCode>) => setCodes(codes.map((c, j) => (j === i ? { ...c, ...p } : c)));
   return (
     <section className="mt-4 space-y-4 rounded-2xl bg-white p-4 text-sm shadow-sm">
-      <div>
-        <h2 className="font-bold">勤務の記号</h2>
-        <table className="mt-2 text-sm">
-          <thead>
-            <tr className="text-left text-xs text-gray-500">
-              <th className="pr-3">記号</th>
-              <th className="pr-3">休みとして数える</th>
-              <th className="pr-3">従業員が希望で出せる</th>
-              <th className="pr-3">色</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {codes.map((c, i) => (
-              <tr key={i}>
-                <td className="py-1 pr-3">
-                  <input value={c.code} maxLength={10} onChange={(e) => set(i, { code: e.target.value })} className="w-24 rounded border px-2 py-1" />
-                </td>
-                <td className="py-1 pr-3 text-center">
-                  <input type="checkbox" checked={c.off} onChange={(e) => set(i, { off: e.target.checked })} className="h-5 w-5" />
-                </td>
-                <td className="py-1 pr-3 text-center">
-                  <input type="checkbox" checked={c.req} onChange={(e) => set(i, { req: e.target.checked })} className="h-5 w-5" />
-                </td>
-                <td className="py-1 pr-3">
-                  <select value={c.color} onChange={(e) => set(i, { color: e.target.value })} className="rounded border px-1 py-1">
-                    {[
-                      ["none", "なし"],
-                      ["pink", "ピンク"],
-                      ["gray", "灰色"],
-                      ["yellow", "黄色"],
-                      ["blue", "水色"],
-                      ["green", "緑"],
-                    ].map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-1">
-                  <button onClick={() => setCodes(codes.filter((_, j) => j !== i))} className="text-xs text-red-700 underline">
-                    消す
-                  </button>
-                </td>
+      {part === "codes" && (
+        <div>
+          <h2 className="font-bold">記号のリスト</h2>
+          <p className="text-xs text-gray-500">勤務表のマスを押すと、この順番でリストに出ます。追加・変更したら「保存する」を押してください。</p>
+          <table className="mt-2 text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500">
+                <th className="pr-3">記号</th>
+                <th className="pr-3">休みとして数える</th>
+                <th className="pr-3">従業員が希望で出せる</th>
+                <th className="pr-3">色</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="mt-2 flex gap-2">
-          <input ref={newCode} maxLength={10} placeholder="新しい記号（例：～17:00）" className="rounded border px-2 py-1" />
-          <button
-            onClick={() => {
-              const v = newCode.current?.value.trim();
-              if (v && !codes.some((c) => c.code === v)) setCodes([...codes, { code: v, off: false, req: true, color: "blue" }]);
-              if (newCode.current) newCode.current.value = "";
-            }}
-            className="rounded border px-3 py-1"
-          >
-            追加
-          </button>
+            </thead>
+            <tbody>
+              {codes.map((c, i) => (
+                <tr key={i}>
+                  <td className="py-1 pr-3">
+                    <input value={c.code} maxLength={10} onChange={(e) => set(i, { code: e.target.value })} className="w-24 rounded border px-2 py-1" />
+                  </td>
+                  <td className="py-1 pr-3 text-center">
+                    <input type="checkbox" checked={c.off} onChange={(e) => set(i, { off: e.target.checked })} className="h-5 w-5" />
+                  </td>
+                  <td className="py-1 pr-3 text-center">
+                    <input type="checkbox" checked={c.req} onChange={(e) => set(i, { req: e.target.checked })} className="h-5 w-5" />
+                  </td>
+                  <td className="py-1 pr-3">
+                    <select value={c.color} onChange={(e) => set(i, { color: e.target.value })} className="rounded border px-1 py-1">
+                      {[
+                        ["none", "なし"],
+                        ["pink", "ピンク"],
+                        ["gray", "灰色"],
+                        ["yellow", "黄色"],
+                        ["blue", "水色"],
+                        ["green", "緑"],
+                      ].map(([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-1">
+                    <button onClick={() => setCodes(codes.filter((_, j) => j !== i))} className="text-xs text-red-700 underline">
+                      消す
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-2 flex gap-2">
+            <input ref={newCode} maxLength={10} placeholder="新しい記号（例：～17:00）" className="rounded border px-2 py-1" />
+            <button
+              onClick={() => {
+                const v = newCode.current?.value.trim();
+                if (v && !codes.some((c) => c.code === v)) setCodes([...codes, { code: v, off: false, req: true, color: "blue" }]);
+                if (newCode.current) newCode.current.value = "";
+              }}
+              className="rounded border px-3 py-1"
+            >
+              追加
+            </button>
+          </div>
         </div>
-      </div>
-      <div>
-        <h2 className="font-bold">まとまり（表の並び順。1行に1つ）</h2>
-        <p className="text-xs text-gray-500">名前を書き換えて保存すると、そのまとまりの従業員もまとめて新しい名前になります。</p>
-        <textarea value={groups} onChange={(e) => setGroups(e.target.value)} rows={4} className="mt-1 w-64 rounded border px-2 py-1" />
-      </div>
-      <div>
-        <h2 className="font-bold">休みの希望の締め切り</h2>
-        <label className="mt-1 flex items-center gap-2">
-          その日の
-          <input inputMode="numeric" value={cutoff} onChange={(e) => setCutoff(e.target.value.replace(/\D/g, ""))} className="w-16 rounded border px-2 py-1 text-right" />
-          日前まで出せる
-        </label>
-      </div>
+      )}
+      {part === "other" && (
+        <>
+          <div>
+            <h2 className="font-bold">まとまり（表の並び順。1行に1つ）</h2>
+            <p className="text-xs text-gray-500">名前を書き換えて保存すると、そのまとまりの従業員もまとめて新しい名前になります。</p>
+            <textarea value={groups} onChange={(e) => setGroups(e.target.value)} rows={4} className="mt-1 w-64 rounded border px-2 py-1" />
+          </div>
+          <div>
+            <h2 className="font-bold">休みの希望の締め切り</h2>
+            <label className="mt-1 flex items-center gap-2">
+              その日の
+              <input inputMode="numeric" value={cutoff} onChange={(e) => setCutoff(e.target.value.replace(/\D/g, ""))} className="w-16 rounded border px-2 py-1 text-right" />
+              日前まで出せる
+            </label>
+          </div>
+        </>
+      )}
       <button onClick={save} className="rounded-lg bg-berry px-5 py-2 font-bold text-white">
         保存する
       </button>

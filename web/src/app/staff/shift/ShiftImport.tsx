@@ -176,7 +176,7 @@ export function ShiftImport({ cfg, members }: { cfg: ShiftConfig; members: Shift
           if (f) pick(f);
         }}
       />
-      <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-4 py-2">
+      <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-2.5 py-1.5 text-sm">
         Excelの勤務表から取り込む
       </button>
       {msg && <span className="text-sm text-gray-700">{msg}</span>}
