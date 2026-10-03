@@ -1,11 +1,15 @@
 "use client";
 
 // 勤務管理表の表（横に日付、縦に従業員）。管理者は記号を入れられ、ほかの人は見るだけ
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { addDays, todayJST } from "@/lib/date";
 import { isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
+/** 日付の列の幅（px）。表の文字は、いちばん長い記号がこの幅にぎりぎり収まる大きさにそろえる */
+const COL_PX = 52;
+/** マスの左右の余白と、希望の点線の枠の分（px） */
+const CELL_INSET = 8;
 const wdOf = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
 
 /** まとまりの順、その中は並び順で並べる */
@@ -52,6 +56,16 @@ export function ShiftTable({
   onRequest?: (r: ShiftRequest) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  // 表の文字の大きさ：記号のうちいちばん横に長いものが、マスの幅にぎりぎり収まる大きさ（全部この大きさにそろえる）
+  const [fontPx, setFontPx] = useState(12);
+  const codesKey = cfg.codes.map((c) => c.code).join("|");
+  useEffect(() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx || !box.current) return;
+    ctx.font = `100px ${getComputedStyle(box.current).fontFamily}`;
+    const widest = Math.max(...codesKey.split("|").map((c) => ctx.measureText(c).width / 100), ctx.measureText("31").width / 100, 1);
+    setFontPx(Math.max(9, Math.min(20, Math.floor(((COL_PX - CELL_INSET) / widest) * 10) / 10)));
+  }, [codesKey]);
   useEffect(() => {
     if (box.current) box.current.scrollLeft = 0;
   }, [from, resetKey]);
@@ -79,12 +93,12 @@ export function ShiftTable({
         if (onMore && el.scrollLeft + el.clientWidth > el.scrollWidth - 400) onMore();
       }}
     >
-      <table className="border-collapse text-xs tabular-nums">
+      <table className="border-collapse tabular-nums leading-tight" style={{ fontSize: fontPx }}>
         <thead>
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
             {dates.map((d, i) => (
-              <th key={d} className={`min-w-[3.1rem] px-0.5 py-1 font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
+              <th key={d} style={{ width: COL_PX, minWidth: COL_PX, maxWidth: COL_PX }} className={`px-0.5 py-1 font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
                 {i === 0 || d.endsWith("-01") ? `${Number(d.slice(5, 7))}月` : ""}
               </th>
             ))}
@@ -92,7 +106,7 @@ export function ShiftTable({
           <tr>
             <th className={`${head} py-1`}>日付</th>
             {dates.map((d) => (
-              <th key={d} className={`px-0.5 py-1 text-sm ${colTone(d)} ${wk(d)} ${d === today ? "text-amber-800" : ""}`}>
+              <th key={d} className={`px-0.5 py-1 ${colTone(d)} ${wk(d)} ${d === today ? "text-amber-800" : ""}`}>
                 {Number(d.slice(8))}
               </th>
             ))}
@@ -116,7 +130,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 font-normal`}>予定</th>
             {dates.map((d) => (
-              <td key={d} className={`px-0.5 py-1 text-center text-[10px] leading-tight ${colTone(d)} ${wk(d)}`}>
+              <td key={d} className={`break-all px-0.5 py-1 text-center ${colTone(d)} ${wk(d)}`}>
                 {onNote ? (
                   <button onClick={() => onNote(d)} className="min-h-[1.5rem] w-full rounded hover:bg-gray-100">
                     {days[d]?.note || <span className="text-gray-300">＋</span>}
@@ -147,29 +161,29 @@ export function ShiftTable({
                         <>
                           {code ?? ""}
                           {r && (
-                            <span className="block rounded border border-dashed border-purple-500 px-0.5 text-[10px] text-purple-800" title={r.memo}>
-                              希:{r.code}
+                            <span className="block whitespace-nowrap rounded border border-dashed border-purple-500 text-purple-800" title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
+                              {r.code}
                             </span>
                           )}
                         </>
                       );
                       return (
                         // 記号ごとの色は付けない（行の色だけ）
-                        <td key={d} className={`border-l px-0 py-0 text-center ${wk(d)}`}>
+                        <td key={d} className={`whitespace-nowrap border-l px-0 py-0 text-center ${wk(d)}`}>
                           {r && onRequest ? (
                             <button
                               onClick={() => onRequest(r)}
-                              className="block h-full min-h-[2rem] w-full px-0.5 py-1 hover:outline hover:outline-2 hover:outline-purple-500"
+                              className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-purple-500"
                               aria-label={`${m.name}さんの休みの希望を決める`}
                             >
                               {body}
                             </button>
                           ) : onCell ? (
-                            <button onClick={() => onCell(d, m.id)} className="block h-full min-h-[2rem] w-full px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
+                            <button onClick={() => onCell(d, m.id)} className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
                               {body}
                             </button>
                           ) : (
-                            <div className="min-h-[2rem] px-0.5 py-1">{body}</div>
+                            <div className="flex min-h-[2rem] flex-col items-center justify-center px-0.5 py-1">{body}</div>
                           )}
                         </td>
                       );
