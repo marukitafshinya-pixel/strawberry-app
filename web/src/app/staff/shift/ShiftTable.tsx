@@ -36,6 +36,7 @@ export function ShiftTable({
   resetKey,
   onRequest,
   onCopyDay,
+  onClearDay,
 }: {
   from: string;
   span: number;
@@ -58,6 +59,8 @@ export function ShiftTable({
   onRequest?: (r: ShiftRequest) => void;
   /** 一番上のまとまりの帯に出す「→」：その日の記号を次の日にコピーする（管理者） */
   onCopyDay?: (date: string) => void;
+  /** 2番目のまとまりの帯に出す「－」：その日の記号を全部消す（管理者） */
+  onClearDay?: (date: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：記号のうちいちばん横に長いものが、マスの幅にぎりぎり収まる大きさ（全部この大きさにそろえる）
@@ -165,7 +168,20 @@ export function ShiftTable({
                         </button>
                       </td>
                     ))
-                  : null
+                  : onClearDay && g === groups[1]
+                    ? dates.map((d) => (
+                        <td key={d} className={`p-0 text-center ${wk(d)}`}>
+                          <button
+                            onClick={() => onClearDay(d)}
+                            title="この日の記号を全部消す"
+                            aria-label={`${Number(d.slice(5, 7))}月${Number(d.slice(8))}日の記号を消す`}
+                            className="w-full rounded px-1 font-bold text-red-600 hover:bg-red-50"
+                          >
+                            －
+                          </button>
+                        </td>
+                      ))
+                    : null
               }
             >
               {sorted

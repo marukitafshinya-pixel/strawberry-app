@@ -10,6 +10,7 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
 import {
   copyShiftDay,
+  writeShiftCells,
   decideRequest,
   isWorking,
   renameMemberGroup,
@@ -112,13 +113,54 @@ function ShiftView() {
     if (!isAdmin) return;
     setPicking({ date, memberId, rect });
   }
+  /**
+   * 「戻る」のための記録：変える前のマスの記号（日付 → 人 → 記号。空は ""）。新しいものが後ろ。最大5回分
+   * （この画面を開いている間だけ。読み込み直すと消える）
+   */
+  const [undoStack, setUndoStack] = useState<Record<string, Record<string, string>>[]>([]);
+  const [undoing, setUndoing] = useState(false);
+  /** 変える前の記号を控える（ids の人の、dates の日の分） */
+  function remember(dates: string[], ids: string[]) {
+    const snap = Object.fromEntries(dates.map((d) => [d, Object.fromEntries(ids.map((id) => [id, days?.[d]?.cells[id] ?? ""]))]));
+    setUndoStack((s) => [...s, snap].slice(-5));
+  }
+  async function undo() {
+    const last = undoStack[undoStack.length - 1];
+    if (!last || undoing) return;
+    setUndoing(true);
+    setError("");
+    try {
+      for (const [d, cells] of Object.entries(last)) await writeShiftCells(d, cells);
+      setUndoStack((s) => s.slice(0, -1));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setUndoing(false);
+    }
+  }
   async function pickCode(code: string) {
     if (!picking) return;
     const { date, memberId } = picking;
     setPicking(null);
     setError("");
+    if ((days?.[date]?.cells[memberId] ?? "") === code) return;
+    remember([date], [memberId]);
     try {
       await setShiftCell(date, memberId, code);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+  /** その日の全員の記号を消す */
+  async function clearDay(date: string) {
+    if (!isAdmin || !days) return;
+    const cells = days[date]?.cells ?? {};
+    const ids = active.map((m) => m.id).filter((id) => cells[id]);
+    if (ids.length === 0) return;
+    setError("");
+    remember([date], ids);
+    try {
+      await writeShiftCells(date, Object.fromEntries(ids.map((id) => [id, ""])));
     } catch (e) {
       setError(errorText(e));
     }
@@ -134,6 +176,7 @@ function ShiftView() {
     const changed = ids.filter((id) => dst[id] && dst[id] !== src[id]);
     if (changed.length > 0 && !window.confirm(`${formatJa(next)}にはすでに記号が入っています（${changed.length}人分）。${formatJa(date)}の記号で上書きしますか？`)) return;
     setError("");
+    remember([next], ids);
     try {
       await copyShiftDay(next, ids, src);
     } catch (e) {
@@ -170,6 +213,16 @@ function ShiftView() {
   /** 勤務表の操作（日付の移動・取り込み・書き出し）。タブの横に並べる */
   const toolbar = cfg && members && tab === "table" && (
     <div className="ml-auto flex flex-wrap items-center gap-1.5 pb-1 print:hidden">
+      {isAdmin && (
+        <button
+          onClick={undo}
+          disabled={undoStack.length === 0 || undoing}
+          title="一つ前の記号の入力・コピー・消す を元に戻す（5回まで）"
+          className="rounded-lg border bg-white px-2.5 py-1.5 text-sm disabled:opacity-40"
+        >
+          ↶ 戻る{undoStack.length > 0 ? `（${undoStack.length}）` : ""}
+        </button>
+      )}
       <button onClick={() => go(addDays(from, -14))} className="rounded-lg border bg-white px-2.5 py-1.5 text-sm">
         ‹ 2週前
       </button>
@@ -280,6 +333,7 @@ function ShiftView() {
                 onNote={isAdmin ? editNote : undefined}
                 onRequest={isAdmin ? setDeciding : undefined}
                 onCopyDay={isAdmin ? copyDay : undefined}
+                onClearDay={isAdmin ? clearDay : undefined}
               />
             )}
           </div>
