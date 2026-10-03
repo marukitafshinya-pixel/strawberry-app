@@ -3,7 +3,7 @@
 // 勤務管理表（管理者は入力、スタッフは見るだけ）
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
@@ -11,6 +11,7 @@ import { downloadCsv } from "@/lib/report";
 import {
   decideRequest,
   isWorking,
+  renameMemberGroup,
   saveMember,
   saveShiftConfig,
   setShiftCell,
@@ -66,6 +67,23 @@ function ShiftView() {
   const [error, setError] = useState("");
 
   const active = (members ?? []).filter((m) => m.active);
+
+  // まとまり「その他」を「女性」に変えた（一度だけ。設定と従業員の両方を付け替える）
+  const migrated = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || !cfg || !members || migrated.current) return;
+    const OLD = "その他";
+    const NEW = "女性";
+    if (cfg.groups.includes(OLD) && !cfg.groups.includes(NEW)) {
+      migrated.current = true;
+      saveShiftConfig({ ...cfg, groups: cfg.groups.map((g) => (g === OLD ? NEW : g)) })
+        .then(() => renameMemberGroup(members, OLD, NEW))
+        .catch((e) => setError(errorText(e)));
+    } else if (cfg.groups.includes(NEW) && !cfg.groups.includes(OLD) && members.some((m) => m.group === OLD)) {
+      migrated.current = true;
+      renameMemberGroup(members, OLD, NEW).catch((e) => setError(errorText(e)));
+    }
+  }, [isAdmin, cfg, members]);
 
   /** 勤務表のマスで決める希望 */
   const [deciding, setDeciding] = useState<ShiftRequest | null>(null);
@@ -159,7 +177,7 @@ function ShiftView() {
       ) : tab === "members" ? (
         <Members cfg={cfg} members={members} />
       ) : tab === "settings" ? (
-        <Settings cfg={cfg} />
+        <Settings cfg={cfg} members={members ?? []} />
       ) : (
         <>
           <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
@@ -545,7 +563,7 @@ function LoginCell({ m }: { m: ShiftMember }) {
 }
 
 /** 記号・まとまり・希望の締め切り */
-function Settings({ cfg }: { cfg: ShiftConfig }) {
+function Settings({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }) {
   const [codes, setCodes] = useState<ShiftCode[]>(cfg.codes);
   const [groups, setGroups] = useState(cfg.groups.join("\n"));
   const [cutoff, setCutoff] = useState(String(cfg.cutoffDays));
@@ -558,7 +576,11 @@ function Settings({ cfg }: { cfg: ShiftConfig }) {
         .split("\n")
         .map((x) => x.trim())
         .filter(Boolean);
-      await saveShiftConfig({ codes: codes.filter((c) => c.code.trim()), groups: g.length ? g : cfg.groups, cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)) });
+      const next = g.length ? g : cfg.groups;
+      await saveShiftConfig({ codes: codes.filter((c) => c.code.trim()), groups: next, cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)) });
+      // 同じ行のまとまりの名前を変えたら、その従業員も新しい名前にする
+      if (next.length === cfg.groups.length)
+        for (let i = 0; i < next.length; i++) if (next[i] !== cfg.groups[i] && !next.includes(cfg.groups[i])) await renameMemberGroup(members, cfg.groups[i], next[i]);
       setMsg("保存しました");
     } catch (e) {
       setMsg(errorText(e));
@@ -632,6 +654,7 @@ function Settings({ cfg }: { cfg: ShiftConfig }) {
       </div>
       <div>
         <h2 className="font-bold">まとまり（表の並び順。1行に1つ）</h2>
+        <p className="text-xs text-gray-500">名前を書き換えて保存すると、そのまとまりの従業員もまとめて新しい名前になります。</p>
         <textarea value={groups} onChange={(e) => setGroups(e.target.value)} rows={4} className="mt-1 w-64 rounded border px-2 py-1" />
       </div>
       <div>

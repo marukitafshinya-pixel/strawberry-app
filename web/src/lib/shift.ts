@@ -36,7 +36,7 @@ export const DEFAULT_SHIFT_CONFIG: ShiftConfig = {
     { code: "～15:00", off: false, req: true, color: "blue" },
     { code: "～16:00", off: false, req: true, color: "blue" },
   ],
-  groups: ["男性", "売り場担当可", "その他"],
+  groups: ["男性", "売り場担当可", "女性"],
   cutoffDays: 7,
 };
 
@@ -211,6 +211,16 @@ export async function saveMember(m: Omit<ShiftMember, "id" | "uid" | "loginId"> 
   const data = { name: m.name.trim().slice(0, 30), group: m.group, floor: m.floor, harvest: m.harvest === true, order: m.order, active: m.active, updatedAt: serverTimestamp() };
   if (m.id) await updateDoc(doc(db, `shiftMembers/${m.id}`), data);
   else await setDoc(doc(collection(db, "shiftMembers")), data);
+}
+
+/** まとまりの名前を変えたとき、そのまとまりの従業員もまとめて付け替える */
+export async function renameMemberGroup(members: ShiftMember[], from: string, to: string) {
+  const targets = members.filter((m) => m.group === from);
+  if (targets.length === 0) return;
+  const { db } = await getFirebase();
+  const batch = writeBatch(db);
+  for (const m of targets) batch.update(doc(db, `shiftMembers/${m.id}`), { group: to, updatedAt: serverTimestamp() });
+  await batch.commit();
 }
 
 /** 出勤に数える記号か */
