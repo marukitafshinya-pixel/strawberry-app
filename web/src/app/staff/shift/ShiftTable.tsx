@@ -46,7 +46,8 @@ export function ShiftTable({
   requests?: ShiftRequest[];
   /** 従業員の画面：自分の行を目立たせる */
   myMemberId?: string;
-  onCell?: (date: string, memberId: string) => void;
+  /** マスを押したとき（押したマスの位置も渡す。そこに記号のリストを出す） */
+  onCell?: (date: string, memberId: string, rect: DOMRect) => void;
   onNote?: (date: string) => void;
   /** 右の端に近づいたら呼ぶ（先の日を足す） */
   onMore?: () => void;
@@ -179,7 +180,7 @@ export function ShiftTable({
                               {body}
                             </button>
                           ) : onCell ? (
-                            <button onClick={() => onCell(d, m.id)} className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
+                            <button onClick={(e) => onCell(d, m.id, e.currentTarget.getBoundingClientRect())} aria-label={`${m.name}さんの${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`} className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
                               {body}
                             </button>
                           ) : (

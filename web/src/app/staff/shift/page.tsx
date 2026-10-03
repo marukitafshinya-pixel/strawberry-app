@@ -61,7 +61,8 @@ function ShiftView() {
   const days = useShiftDays(from, to);
   const reserved = useReservedPeople(from, to);
   const requests = useShiftRequests();
-  const [tool, setTool] = useState<string | null>(null);
+  /** 記号を選んでいるマス（押したマスの位置に、記号のリストを出す） */
+  const [picking, setPicking] = useState<{ date: string; memberId: string; rect: DOMRect } | null>(null);
   const [error, setError] = useState("");
 
   const active = (members ?? []).filter((m) => m.active);
@@ -82,11 +83,17 @@ function ShiftView() {
       setDecidingBusy(false);
     }
   }
-  async function tapCell(date: string, memberId: string) {
-    if (!isAdmin || tool === null) return;
+  function tapCell(date: string, memberId: string, rect: DOMRect) {
+    if (!isAdmin) return;
+    setPicking({ date, memberId, rect });
+  }
+  async function pickCode(code: string) {
+    if (!picking) return;
+    const { date, memberId } = picking;
+    setPicking(null);
     setError("");
     try {
-      await setShiftCell(date, memberId, tool === "__erase" ? "" : tool);
+      await setShiftCell(date, memberId, code);
     } catch (e) {
       setError(errorText(e));
     }
@@ -183,20 +190,15 @@ function ShiftView() {
           </div>
           {isAdmin && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 p-2 text-sm print:hidden">
-              <span className="mr-1 text-sky-900">入れる記号を選んで、マスを押してください：</span>
+              <span className="mr-1 text-sky-900">マスを押すと、この記号のリストから選べます：</span>
               {cfg.codes.map((c) => (
-                <button key={c.code} onClick={() => setTool(tool === c.code ? null : c.code)} className={`rounded-lg border px-2.5 py-1 font-bold ${tool === c.code ? "border-sky-700 bg-sky-700 text-white" : "bg-white"}`}>
+                <span key={c.code} className="rounded border bg-white px-2 py-0.5">
                   {c.code}
-                </button>
+                </span>
               ))}
-              <button onClick={() => setTool(tool === "__erase" ? null : "__erase")} className={`rounded-lg border px-2.5 py-1 ${tool === "__erase" ? "border-red-700 bg-red-700 text-white" : "bg-white text-red-700"}`}>
-                消す
+              <button onClick={() => go(from, "settings")} className="ml-1 text-xs text-sky-800 underline">
+                記号のリストを作る・変える（設定）
               </button>
-              {tool !== null && (
-                <button onClick={() => setTool(null)} className="ml-1 text-xs text-gray-600 underline">
-                  選ぶのをやめる
-                </button>
-              )}
             </div>
           )}
           {pending.length > 0 && isAdmin && (
@@ -225,12 +227,22 @@ function ShiftView() {
                 days={days}
                 reserved={reserved}
                 requests={isAdmin ? pending : undefined}
-                onCell={isAdmin && tool !== null ? tapCell : undefined}
+                onCell={isAdmin ? tapCell : undefined}
                 onNote={isAdmin ? editNote : undefined}
                 onRequest={isAdmin ? setDeciding : undefined}
               />
             )}
           </div>
+          {picking && (
+            <CodePicker
+              rect={picking.rect}
+              title={`${members?.find((m) => m.id === picking.memberId)?.name ?? ""}さん・${formatJa(picking.date)}`}
+              codes={cfg.codes.map((c) => c.code)}
+              current={days?.[picking.date]?.cells[picking.memberId] ?? ""}
+              onPick={pickCode}
+              onClose={() => setPicking(null)}
+            />
+          )}
           {deciding && (
             <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center print:hidden" onClick={() => !decidingBusy && setDeciding(null)}>
               <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl">
@@ -263,6 +275,44 @@ function ShiftView() {
         </>
       )}
     </>
+  );
+}
+
+/** 押したマスのすぐ下（下に入らなければ上）に出す、記号のリスト */
+function CodePicker({ rect, title, codes, current, onPick, onClose }: { rect: DOMRect; title: string; codes: string[]; current: string; onPick: (code: string) => void; onClose: () => void }) {
+  const W = 176;
+  const H = Math.min(44 * (codes.length + 1) + 40, 360);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - W - 8));
+  const below = rect.bottom + H + 8 <= window.innerHeight;
+  const top = below ? rect.bottom + 2 : Math.max(8, rect.top - H - 2);
+  return (
+    <div className="fixed inset-0 z-30 print:hidden" onClick={onClose}>
+      <div
+        role="listbox"
+        aria-label="記号を選ぶ"
+        onClick={(e) => e.stopPropagation()}
+        style={{ left, top, width: W, maxHeight: H }}
+        className="fixed flex flex-col overflow-hidden rounded-xl border bg-white shadow-xl"
+      >
+        <p className="border-b px-3 py-1.5 text-xs text-gray-500">{title}</p>
+        <div className="overflow-y-auto">
+          {codes.map((c) => (
+            <button
+              key={c}
+              role="option"
+              aria-selected={c === current}
+              onClick={() => onPick(c)}
+              className={`block w-full px-3 py-2 text-left text-base ${c === current ? "bg-sky-100 font-bold" : "hover:bg-gray-100"}`}
+            >
+              {c}
+            </button>
+          ))}
+          <button onClick={() => onPick("")} disabled={!current} className="block w-full border-t px-3 py-2 text-left text-base text-red-700 hover:bg-red-50 disabled:text-gray-300">
+            空にする
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
