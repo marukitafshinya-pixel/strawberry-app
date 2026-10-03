@@ -35,6 +35,7 @@ export function ShiftTable({
   onMore,
   resetKey,
   onRequest,
+  onCopyDay,
 }: {
   from: string;
   span: number;
@@ -55,6 +56,8 @@ export function ShiftTable({
   resetKey?: number;
   /** 希望が出ているマスを押したとき（管理者：その場で承認・却下する） */
   onRequest?: (r: ShiftRequest) => void;
+  /** 一番上のまとまりの帯に出す「→」：その日の記号を次の日にコピーする（管理者） */
+  onCopyDay?: (date: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：記号のうちいちばん横に長いものが、マスの幅にぎりぎり収まる大きさ（全部この大きさにそろえる）
@@ -145,7 +148,26 @@ export function ShiftTable({
         </thead>
         <tbody>
           {groups.map((g) => (
-            <GroupRows key={g} name={g}>
+            <GroupRows
+              key={g}
+              name={g}
+              band={
+                onCopyDay && g === groups[0]
+                  ? dates.map((d) => (
+                      <td key={d} className={`p-0 text-center ${wk(d)}`}>
+                        <button
+                          onClick={() => onCopyDay(d)}
+                          title="この日の記号を次の日にコピー"
+                          aria-label={`${Number(d.slice(5, 7))}月${Number(d.slice(8))}日の記号を次の日にコピー`}
+                          className="w-full rounded px-1 text-sky-700 hover:bg-sky-100"
+                        >
+                          →
+                        </button>
+                      </td>
+                    ))
+                  : null
+              }
+            >
               {sorted
                 .filter((m) => m.group === g)
                 .map((m) => (
@@ -225,12 +247,12 @@ export function ShiftTable({
   );
 }
 
-function GroupRows({ name, children }: { name: string; children: React.ReactNode }) {
+function GroupRows({ name, band, children }: { name: string; band?: React.ReactNode; children: React.ReactNode }) {
   return (
     <>
       <tr className="border-b bg-gray-50">
         <th className="sticky left-0 z-10 bg-gray-50 px-2 py-0.5 text-left text-[11px] font-bold text-gray-600">{name}</th>
-        <td colSpan={999} />
+        {band ?? <td colSpan={999} />}
       </tr>
       {children}
     </>

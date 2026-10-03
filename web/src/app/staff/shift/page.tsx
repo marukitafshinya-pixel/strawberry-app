@@ -9,6 +9,7 @@ import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
 import {
+  copyShiftDay,
   decideRequest,
   isWorking,
   renameMemberGroup,
@@ -118,6 +119,23 @@ function ShiftView() {
     setError("");
     try {
       await setShiftCell(date, memberId, code);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+  /** その日の記号を次の日にコピーする（次の日に違う記号があるときは確かめる） */
+  async function copyDay(date: string) {
+    if (!isAdmin || !days) return;
+    const next = addDays(date, 1);
+    const src = days[date]?.cells ?? {};
+    const dst = days[next]?.cells ?? {};
+    const ids = active.map((m) => m.id);
+    if (!ids.some((id) => src[id])) return setError(`${formatJa(date)}には、コピーする記号がありません`);
+    const changed = ids.filter((id) => dst[id] && dst[id] !== src[id]);
+    if (changed.length > 0 && !window.confirm(`${formatJa(next)}にはすでに記号が入っています（${changed.length}人分）。${formatJa(date)}の記号で上書きしますか？`)) return;
+    setError("");
+    try {
+      await copyShiftDay(next, ids, src);
     } catch (e) {
       setError(errorText(e));
     }
@@ -261,6 +279,7 @@ function ShiftView() {
                 onCell={isAdmin ? tapCell : undefined}
                 onNote={isAdmin ? editNote : undefined}
                 onRequest={isAdmin ? setDeciding : undefined}
+                onCopyDay={isAdmin ? copyDay : undefined}
               />
             )}
           </div>

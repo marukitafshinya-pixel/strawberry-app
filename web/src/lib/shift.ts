@@ -187,6 +187,13 @@ export async function setShiftCell(date: string, memberId: string, code: string)
   else await setDoc(ref, { cells: { [memberId]: deleteField() }, updatedAt: serverTimestamp() }, { merge: true });
 }
 
+/** その日の記号を、そのまま別の日にコピーする（その日に記号がない人は、コピー先も空にする） */
+export async function copyShiftDay(to: string, memberIds: string[], cells: Record<string, string>) {
+  const { db } = await getFirebase();
+  const next = Object.fromEntries(memberIds.map((id) => [id, cells[id] ? cells[id] : deleteField()]));
+  await setDoc(doc(db, `shiftDays/${to}`), { cells: next, updatedAt: serverTimestamp() }, { merge: true });
+}
+
 export async function setShiftNote(date: string, note: string) {
   const { db } = await getFirebase();
   await setDoc(doc(db, `shiftDays/${date}`), { note: note.trim().slice(0, 50), updatedAt: serverTimestamp() }, { merge: true });
