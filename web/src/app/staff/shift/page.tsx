@@ -66,6 +66,22 @@ function ShiftView() {
 
   const active = (members ?? []).filter((m) => m.active);
 
+  /** 勤務表のマスで決める希望 */
+  const [deciding, setDeciding] = useState<ShiftRequest | null>(null);
+  const [decidingBusy, setDecidingBusy] = useState(false);
+  async function decideHere(ok: boolean) {
+    if (!deciding) return;
+    setDecidingBusy(true);
+    setError("");
+    try {
+      await decideRequest(deciding, ok, user?.uid ?? "");
+      setDeciding(null);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setDecidingBusy(false);
+    }
+  }
   async function tapCell(date: string, memberId: string) {
     if (!isAdmin || tool === null) return;
     setError("");
@@ -185,7 +201,7 @@ function ShiftView() {
           )}
           {pending.length > 0 && isAdmin && (
             <p className="mt-2 text-sm text-purple-800 print:hidden">
-              紫の点線は、まだ決まっていない休みの希望です。
+              紫の点線は、まだ決まっていない休みの希望です。マスを押すと、その場で承認・却下できます。
               <button onClick={() => go(from, "requests")} className="ml-1 font-bold underline">
                 希望の一覧で決める（{pending.length}件）
               </button>
@@ -211,9 +227,38 @@ function ShiftView() {
                 requests={isAdmin ? pending : undefined}
                 onCell={isAdmin && tool !== null ? tapCell : undefined}
                 onNote={isAdmin ? editNote : undefined}
+                onRequest={isAdmin ? setDeciding : undefined}
               />
             )}
           </div>
+          {deciding && (
+            <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center print:hidden" onClick={() => !decidingBusy && setDeciding(null)}>
+              <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl">
+                <p className="text-sm text-gray-500">休みの希望</p>
+                <p className="mt-1 text-lg font-bold">
+                  {members?.find((m) => m.id === deciding.memberId)?.name ?? "（名前なし）"}さん・{formatJa(deciding.date, true)}
+                </p>
+                <p className="mt-2">
+                  希望：<b className="text-purple-800">{deciding.code}</b>
+                </p>
+                {deciding.memo && <p className="mt-1 text-sm text-gray-600">メモ：{deciding.memo}</p>}
+                {days?.[deciding.date]?.cells[deciding.memberId] && (
+                  <p className="mt-1 text-xs text-amber-700">いまのマス：{days[deciding.date].cells[deciding.memberId]}（承認すると「{deciding.code}」に変わります）</p>
+                )}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button onClick={() => decideHere(true)} disabled={decidingBusy} className="rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-50">
+                    承認
+                  </button>
+                  <button onClick={() => decideHere(false)} disabled={decidingBusy} className="rounded-lg border border-red-300 py-3 font-bold text-red-700 disabled:opacity-50">
+                    却下
+                  </button>
+                </div>
+                <button onClick={() => setDeciding(null)} disabled={decidingBusy} className="mt-2 w-full py-2 text-sm text-gray-500">
+                  あとで決める
+                </button>
+              </div>
+            </div>
+          )}
           <style>{`@media print { @page { size: A4 landscape; margin: 6mm; } body { background: #fff !important; } }`}</style>
         </>
       )}

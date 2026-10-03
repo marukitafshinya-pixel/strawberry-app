@@ -30,6 +30,7 @@ export function ShiftTable({
   onNote,
   onMore,
   resetKey,
+  onRequest,
 }: {
   from: string;
   span: number;
@@ -47,6 +48,8 @@ export function ShiftTable({
   onMore?: () => void;
   /** 変わったら表を左端（先頭の日）に戻す */
   resetKey?: number;
+  /** 希望が出ているマスを押したとき（管理者：その場で承認・却下する） */
+  onRequest?: (r: ShiftRequest) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -153,7 +156,15 @@ export function ShiftTable({
                       return (
                         // 記号ごとの色は付けない（行の色だけ）
                         <td key={d} className={`border-l px-0 py-0 text-center ${wk(d)}`}>
-                          {onCell ? (
+                          {r && onRequest ? (
+                            <button
+                              onClick={() => onRequest(r)}
+                              className="block h-full min-h-[2rem] w-full px-0.5 py-1 hover:outline hover:outline-2 hover:outline-purple-500"
+                              aria-label={`${m.name}さんの休みの希望を決める`}
+                            >
+                              {body}
+                            </button>
+                          ) : onCell ? (
                             <button onClick={() => onCell(d, m.id)} className="block h-full min-h-[2rem] w-full px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
                               {body}
                             </button>
