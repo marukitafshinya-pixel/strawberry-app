@@ -206,6 +206,22 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("現金出納帳", () => {
+  it("管理者だけが読み書きできる", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [{ date: "2026-08-03", item: "ごみ処理代", income: null, expense: 800, memo: "" }], opening: 660 }));
+    await assertSucceeds(getDoc(doc(admin(), "cashbook/2026-08")));
+    for (const db of [staff(), guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "cashbook/2026-08")));
+      await assertFails(setDoc(doc(db, "cashbook/2026-08"), { entries: [] }));
+    }
+  });
+  it("月の形や項目が違うものは保存できない", async () => {
+    await assertFails(setDoc(doc(admin(), "cashbook/2026-8"), { entries: [] }));
+    await assertFails(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [], secret: 1 }));
+    await assertFails(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [], opening: "660" }));
+  });
+});
+
 describe("出荷実績", () => {
   it("スタッフは出荷を入力でき、規格の設定は読むだけ", async () => {
     await assertSucceeds(setDoc(doc(staff(), "shipments/2026-07-01"), { items: { g1: { qty: 10, price: 500 } } }));

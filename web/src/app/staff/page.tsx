@@ -27,6 +27,7 @@ const MENU: MenuItem[] = [
   { label: "出荷実績", href: "/staff/shipping/" },
   { label: "店舗実績", href: "/staff/store/" },
   { label: "給与", href: "/staff/payroll/", adminOnly: true },
+  { label: "現金出納帳", href: "/staff/cashbook/", adminOnly: true },
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
