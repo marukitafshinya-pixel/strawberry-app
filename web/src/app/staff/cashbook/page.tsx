@@ -7,7 +7,11 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import {
   carryInto,
+  certLineAmount,
+  certTotal,
   emptyEntry,
+  isBlank,
+  isBlankCertLine,
   itemsFromHistory,
   monthSums,
   readCashbookExcel,
@@ -16,6 +20,8 @@ import {
   saveCashMonth,
   useCashItems,
   useCashbook,
+  type CashCert,
+  type CashCertLine,
   type CashEntry,
   type CashImportMonth,
   type CashMonth,
@@ -26,6 +32,8 @@ import { useSettings } from "@/lib/reservations";
 import { openWorkbook } from "@/lib/xlsx";
 
 const yen = (n: number) => n.toLocaleString("ja-JP");
+/** 最後の行に何か入れたら、次の空の行を足す（空の行は保存しない） */
+const withBlankRow = (list: CashEntry[], date = ""): CashEntry[] => (list.length === 0 || !isBlank(list[list.length - 1]) ? [...list, emptyEntry(date)] : list);
 const md = (d: string) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))}` : "");
 
 export default function CashbookPage() {
@@ -89,7 +97,7 @@ function CashbookView() {
 function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; storeName: string }) {
   const saved = all.find((x) => x.month === month);
   const isFirst = !all.some((x) => x.month < month);
-  const [entries, setEntries] = useState<CashEntry[]>(() => (saved?.entries.length ? saved.entries : [emptyEntry()]));
+  const [entries, setEntries] = useState<CashEntry[]>(() => withBlankRow(saved?.entries ?? []));
   const [opening, setOpening] = useState<number | undefined>(saved?.opening);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -104,7 +112,7 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
   }, [dirty]);
 
   const change = (next: CashEntry[]) => {
-    setEntries(next);
+    setEntries(withBlankRow(next));
     setDirty(true);
     setMsg("");
   };
@@ -121,13 +129,48 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
   const today = todayJST();
   const defaultDate = today.startsWith(month) ? today : "";
 
-  async function save() {
+  /** 支払証明書を開いている行（null は新しく作る） */
+  const [certRow, setCertRow] = useState<number | null | undefined>(undefined);
+  /** 印刷する支払証明書（null なら出納帳を印刷する） */
+  const [printCert, setPrintCert] = useState<{ date: string; cert: CashCert } | null>(null);
+  useEffect(() => {
+    if (!printCert) return;
+    const done = () => setPrintCert(null);
+    window.addEventListener("afterprint", done);
+    const t = window.setTimeout(() => window.print(), 50);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("afterprint", done);
+    };
+  }, [printCert]);
+
+  /** 支払証明書を出納帳の行にする（項目・支出・日付を証明書から入れる）。そのまま保存する */
+  async function applyCert(row: number | null, date: string, cert: CashCert, print: boolean) {
+    const cur = row === null ? undefined : entries[row];
+    const names = [...new Set(cert.lines.filter((l) => !isBlankCertLine(l) && l.name.trim()).map((l) => l.name.trim()))].join("・");
+    const entry: CashEntry = {
+      date,
+      item: `支払証明書 ${cert.payee.trim()}`.trim(),
+      income: null,
+      expense: certTotal(cert),
+      memo: cur?.memo || names.slice(0, 80),
+      cert,
+    };
+    const body = entries.filter((e) => !isBlank(e));
+    const next = row === null || !cur ? [...body, entry] : entries.map((e, j) => (j === row ? entry : e));
+    change(next);
+    setCertRow(undefined);
+    await save(withBlankRow(next));
+    if (print) setPrintCert({ date, cert });
+  }
+
+  async function save(list: CashEntry[] = entries) {
     setErr("");
     setSaving(true);
     try {
-      await saveCashMonth(month, entries, isFirst ? (opening ?? 0) : undefined);
+      await saveCashMonth(month, list, isFirst ? (opening ?? 0) : undefined);
       // 新しく入れた項目は、候補に足しておく
-      const added = [...new Set(entries.map((e) => e.item.trim()).filter((x) => x && !suggestions.includes(x)))];
+      const added = [...new Set(list.map((e) => e.item.trim()).filter((x) => x && !suggestions.includes(x)))];
       if (added.length > 0 || savedItems === null) await saveCashItems([...suggestions, ...added]);
       setDirty(false);
       setMsg("保存しました");
@@ -187,7 +230,14 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
                   <input type="date" value={e.date} aria-label={`${i + 1}行目の日付`} onChange={(x) => set(i, { date: x.target.value })} className="w-full rounded border px-1 py-1" />
                 </td>
                 <td className="px-1 py-1">
-                  <input value={e.item} maxLength={80} list="cash-items" aria-label={`${i + 1}行目の項目`} onChange={(x) => set(i, { item: x.target.value })} className="w-full rounded border px-2 py-1" />
+                  <div className="flex items-center gap-1">
+                    <input value={e.item} maxLength={80} list="cash-items" aria-label={`${i + 1}行目の項目`} onChange={(x) => set(i, { item: x.target.value })} className="min-w-0 flex-1 rounded border px-2 py-1" />
+                    {e.cert && (
+                      <button onClick={() => setCertRow(i)} className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800" aria-label={`${i + 1}行目の支払証明書`}>
+                        証明書
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="px-1 py-1">
                   <Num value={e.income} label={`${i + 1}行目の収入`} onChange={(v) => set(i, { income: v })} />
@@ -240,11 +290,34 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
         <button onClick={() => setEditingItems(true)} className="rounded-lg border bg-white px-4 py-2 text-sm">
           項目の候補を編集
         </button>
+        <button onClick={() => setCertRow(null)} className="rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800">
+          ＋ 支払証明書を作る
+        </button>
       </div>
+      {certRow !== undefined && (
+        <CertEditor
+          key={certRow ?? "new"}
+          date={(certRow !== null && entries[certRow]?.date) || defaultDate}
+          initial={certRow !== null ? entries[certRow]?.cert : undefined}
+          onClose={() => setCertRow(undefined)}
+          onSave={(date, cert, print) => applyCert(certRow, date, cert, print)}
+          onRemove={
+            certRow !== null && entries[certRow]?.cert
+              ? () => {
+                  const { cert: _drop, ...rest } = entries[certRow];
+                  void _drop;
+                  change(entries.map((e, j) => (j === certRow ? rest : e)));
+                  setCertRow(undefined);
+                }
+              : null
+          }
+        />
+      )}
+      {printCert && <CertPrint date={printCert.date} cert={printCert.cert} />}
       {editingItems && <ItemsEditor items={suggestions} onClose={() => setEditingItems(false)} />}
 
       {/* 印刷用（いままでの Excel と同じ形） */}
-      <div className="hidden text-black print:block">
+      <div className={`hidden text-black ${printCert ? "" : "print:block"}`}>
         <div className="flex items-end gap-6 text-[11pt]">
           <span className="font-bold">{storeName ? `${storeName}　` : ""}現金出納帳</span>
           <span>{reiwa(y)}</span>
@@ -270,7 +343,7 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
               <P>{yen(carry)}</P>
               <P />
             </tr>
-            {entries.map((e, i) => (
+            {entries.map((e, i) => isBlank(e) ? null : (
               <tr key={i}>
                 <P>{i + 1}</P>
                 <P>{md(e.date)}</P>
@@ -297,7 +370,7 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <button onClick={save} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-2.5 font-bold text-white disabled:opacity-40">
+          <button onClick={() => save()} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-2.5 font-bold text-white disabled:opacity-40">
             {saving ? "保存中…" : "保存する"}
           </button>
           {dirty && <span className="text-sm text-amber-700">まだ保存していません</span>}
@@ -368,6 +441,226 @@ function ItemsEditor({ items, onClose }: { items: string[]; onClose: () => void 
           ))}
         </ul>
         <p className="mt-2 text-right text-xs text-gray-500">{list.length}件</p>
+      </div>
+    </div>
+  );
+}
+
+const wareki = (d: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { y: "令和　年", m: "　月", d: "　日" };
+  const [y, m, dd] = d.split("-").map(Number);
+  return { y: y >= 2019 ? `令和${y - 2018}年` : `${y}年`, m: `${m}月`, d: `${dd}日` };
+};
+const emptyLine = (): CashCertLine => ({ name: "", price: null, qty: null });
+/** 最後の行に何か入れたら、次の空の行を足す */
+const withBlankLine = (lines: CashCertLine[]) => (lines.length === 0 || !isBlankCertLine(lines[lines.length - 1]) ? [...lines, emptyLine()] : lines);
+const REQUESTER_KEY = "ichigo.certRequester";
+
+/** 支払証明書の入力（保存すると出納帳の行になる） */
+function CertEditor({
+  date: date0,
+  initial,
+  onClose,
+  onSave,
+  onRemove,
+}: {
+  date: string;
+  initial?: CashCert;
+  onClose: () => void;
+  onSave: (date: string, cert: CashCert, print: boolean) => Promise<void>;
+  onRemove: (() => void) | null;
+}) {
+  const [date, setDate] = useState(date0);
+  const [payee, setPayee] = useState(initial?.payee ?? "");
+  const [lines, setLines] = useState<CashCertLine[]>(() => withBlankLine(initial?.lines ?? []));
+  const [requester, setRequester] = useState(() => {
+    if (initial) return initial.requester;
+    try {
+      return window.localStorage.getItem(REQUESTER_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const setLine = (i: number, p: Partial<CashCertLine>) => setLines(withBlankLine(lines.map((l, j) => (j === i ? { ...l, ...p } : l))));
+  const cert: CashCert = { payee, lines: lines.filter((l) => !isBlankCertLine(l)), requester };
+  const total = certTotal(cert);
+
+  async function go(print: boolean) {
+    setErr("");
+    if (!payee.trim()) return setErr("支払先を入れてください");
+    if (cert.lines.length === 0) return setErr("支払内容を1行以上入れてください");
+    setBusy(true);
+    try {
+      try {
+        window.localStorage.setItem(REQUESTER_KEY, requester.trim());
+      } catch {
+        // 覚えられなくても続ける
+      }
+      await onSave(date, cert, print);
+    } catch (e) {
+      setErr(errorText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center print:hidden" onClick={() => !busy && onClose()}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[94vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 sm:max-w-xl sm:rounded-2xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">支払証明書</h2>
+          <button onClick={onClose} disabled={busy} className="px-2 text-2xl text-gray-500" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">保存すると、出納帳に「支払証明書 支払先」の行として、合計金額が支出に入ります。</p>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="block text-sm">
+            <span className="text-gray-600">日付（精算日）</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-lg border px-2 py-2" />
+          </label>
+          <label className="block text-sm">
+            <span className="text-gray-600">請求者</span>
+            <input value={requester} maxLength={30} onChange={(e) => setRequester(e.target.value)} aria-label="請求者" className="mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+        </div>
+        <label className="mt-3 block text-sm">
+          <span className="text-gray-600">支払先</span>
+          <input value={payee} maxLength={80} onChange={(e) => setPayee(e.target.value)} aria-label="支払先" placeholder="例：北欧パン等　7月分" className="mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <p className="mt-3 text-sm text-gray-600">支払内容（1行入れると、次の行が増えます）</p>
+        <table className="mt-1 w-full text-sm">
+          <thead className="text-xs text-gray-500">
+            <tr>
+              <th className="text-left font-normal">内容</th>
+              <th className="w-24 text-right font-normal">単価</th>
+              <th className="w-16 text-right font-normal">数量</th>
+              <th className="w-24 text-right font-normal">金額</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i}>
+                <td className="py-0.5 pr-1">
+                  <input value={l.name} maxLength={60} onChange={(e) => setLine(i, { name: e.target.value })} aria-label={`支払内容${i + 1}の内容`} className="w-full rounded border px-2 py-1" />
+                </td>
+                <td className="py-0.5 pr-1">
+                  <Num value={l.price} label={`支払内容${i + 1}の単価`} onChange={(v) => setLine(i, { price: v })} />
+                </td>
+                <td className="py-0.5 pr-1">
+                  <Num value={l.qty} label={`支払内容${i + 1}の数量`} onChange={(v) => setLine(i, { qty: v })} />
+                </td>
+                <td className="py-0.5 text-right tabular-nums">{isBlankCertLine(l) ? "" : yen(certLineAmount(l))}</td>
+                <td className="text-center">
+                  {!isBlankCertLine(l) && (
+                    <button onClick={() => setLines(withBlankLine(lines.filter((_, j) => j !== i)))} className="px-1 text-gray-400 hover:text-red-600" aria-label={`支払内容${i + 1}を消す`}>
+                      ×
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-1 text-xs text-gray-500">数量を空けると1として計算します。</p>
+        <p className="mt-3 text-right">
+          合計金額 <b className="text-xl tabular-nums">{yen(total)}円</b>
+        </p>
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button onClick={() => go(false)} disabled={busy} className="rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
+            保存（出納帳に入れる）
+          </button>
+          <button onClick={() => go(true)} disabled={busy} className="rounded-lg border border-berry py-3 font-bold text-berry disabled:opacity-50">
+            保存して印刷
+          </button>
+        </div>
+        {onRemove && (
+          <button onClick={onRemove} disabled={busy} className="mt-2 w-full py-2 text-sm text-red-700 underline">
+            この行から支払証明書を外す
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 支払証明書の印刷（いままでの Excel の「支払証明書」と同じ並び） */
+function CertPrint({ date, cert }: { date: string; cert: CashCert }) {
+  const w = wareki(date);
+  const total = certTotal(cert);
+  const rows = [...cert.lines];
+  while (rows.length < 5) rows.push(emptyLine());
+  const line = "border-b border-black";
+  return (
+    <div className="hidden text-black print:block">
+      <div className="mx-auto w-[150mm] border border-black px-[8mm] py-[6mm] text-[11pt]">
+        <p className="text-center text-[16pt] font-bold tracking-[0.5em]">支払証明書</p>
+        <div className="mt-4 flex items-end gap-4">
+          <span className="w-20">日付</span>
+          <span className={`${line} w-32 text-center`}>{w.y}</span>
+          <span>{w.m}</span>
+          <span>{w.d}</span>
+        </div>
+        <div className={`mt-3 flex items-end gap-4 ${line} pb-1`}>
+          <span className="w-20">支払先</span>
+          <span className="flex-1">{cert.payee}</span>
+        </div>
+        <div className="mt-3 flex gap-4">
+          <span className="w-20">支払内容</span>
+          <table className="flex-1 border-collapse tabular-nums">
+            <thead>
+              <tr className="text-[9pt]">
+                <th className="text-left font-normal">内容</th>
+                <th className="w-24 text-right font-normal">単価</th>
+                <th className="w-12 text-right font-normal">数量</th>
+                <th className="w-24 text-right font-normal">金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((l, i) => (
+                <tr key={i} className={line}>
+                  <td className="h-[8mm]">{l.name}</td>
+                  <td className="text-right">{l.price === null ? "" : yen(l.price)}</td>
+                  <td className="text-right">{isBlankCertLine(l) ? "" : (l.qty ?? 1)}</td>
+                  <td className="text-right">{isBlankCertLine(l) ? "" : yen(certLineAmount(l))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className={`mt-4 flex ${line} border-t border-t-black py-1`}>
+          <span className="flex-1">仮払金</span>
+          <span className="tabular-nums">{yen(total)}</span>
+        </div>
+        <div className={`flex ${line} py-1`}>
+          <span className="flex-1">支払金額</span>
+          <span className="tabular-nums">{yen(total)}</span>
+        </div>
+        <div className={`mt-2 flex ${line} border-t border-t-black py-1 font-bold`}>
+          <span className="flex-1">合計金額</span>
+          <span className="tabular-nums">{yen(total)}円</span>
+        </div>
+        <div className="mt-4 flex items-start gap-4">
+          <div>
+            <p className="text-[9pt]">決済印</p>
+            <div className="mt-1 h-[22mm] w-[22mm] border border-black" />
+          </div>
+          <div className="mt-6 flex-1 space-y-3">
+            <p className="flex gap-4">
+              <span className="w-16">請求者</span>
+              <span className={`${line} flex-1`}>{cert.requester}</span>
+            </p>
+            <p className="flex gap-4">
+              <span className="w-16">精算日</span>
+              <span className={`${line} flex-1`}>
+                {w.y} {w.m} {w.d}
+              </span>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

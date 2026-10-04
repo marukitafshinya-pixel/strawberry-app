@@ -7,6 +7,13 @@ import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import type { Workbook } from "./xlsx";
 
+/** 支払証明書（領収書がないときの支払いの記録）。出納帳の1行に付ける */
+export type CashCertLine = { name: string; price: number | null; qty: number | null };
+export type CashCert = { payee: string; lines: CashCertLine[]; requester: string };
+export const certLineAmount = (l: CashCertLine) => Math.round((l.price ?? 0) * (l.qty ?? 1));
+export const certTotal = (c: CashCert) => c.lines.reduce((n, l) => n + certLineAmount(l), 0);
+export const isBlankCertLine = (l: CashCertLine) => !l.name.trim() && l.price === null && l.qty === null;
+
 export type CashEntry = {
   /** 日付（YYYY-MM-DD）。分からないときは "" */
   date: string;
@@ -14,6 +21,8 @@ export type CashEntry = {
   income: number | null;
   expense: number | null;
   memo: string;
+  /** 支払証明書（あれば） */
+  cert?: CashCert;
 };
 export type CashMonth = { month: string; entries: CashEntry[]; opening?: number };
 
@@ -64,14 +73,23 @@ export function useCashbook() {
   return { value: list, error };
 }
 
+const cleanCert = (c: CashCert): CashCert => ({
+  payee: c.payee.trim().slice(0, 80),
+  requester: c.requester.trim().slice(0, 30),
+  lines: c.lines
+    .filter((l) => !isBlankCertLine(l))
+    .slice(0, 30)
+    .map((l) => ({ name: l.name.trim().slice(0, 60), price: l.price === null ? null : Math.round(l.price), qty: l.qty === null ? null : Math.round(l.qty * 100) / 100 })),
+});
 const clean = (e: CashEntry): CashEntry => ({
+  ...(e.cert ? { cert: cleanCert(e.cert) } : {}),
   date: /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : "",
   item: e.item.trim().slice(0, 80),
   income: e.income === null || !Number.isFinite(e.income) ? null : Math.round(e.income),
   expense: e.expense === null || !Number.isFinite(e.expense) ? null : Math.round(e.expense),
   memo: e.memo.trim().slice(0, 80),
 });
-const isBlank = (e: CashEntry) => !e.date && !e.item && e.income === null && e.expense === null && !e.memo;
+export const isBlank = (e: CashEntry) => !e.date && !e.item && e.income === null && e.expense === null && !e.memo && !e.cert;
 
 export async function saveCashMonth(month: string, entries: CashEntry[], opening?: number) {
   const { db } = await getFirebase();
