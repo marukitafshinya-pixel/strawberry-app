@@ -24,18 +24,18 @@ function PrintView() {
   const { value: employees } = useEmployees();
   const { value: settings } = useSettings();
   /**
-   * 印刷で用紙の上下まん中に置くための、1枚分の高さ（mm）。
-   * 表が用紙の幅より広いと印刷で縮小されるので、その分だけ高さを大きくしておく（縮小後にちょうど1枚の高さになる）
+   * 印刷で、1枚ずつ用紙の幅に収まるよう縮小し（左右が切れないように）、用紙の下に寄せる。
+   * 縮小の割合（1枚目・2枚目）。高さも同じ割合で縮むので、1枚分の高さはその分大きく取る
    */
   const sheet = useRef<HTMLDivElement>(null);
-  const [sheetH, setSheetH] = useState(188);
+  const [zooms, setZooms] = useState<number[]>([1, 1]);
   useEffect(() => {
     const fit = () => {
       const el = sheet.current;
       if (!el) return;
-      const w = Math.max(1, ...[...el.querySelectorAll("section")].map((x) => x.scrollWidth));
-      const pageW = (281 * 96) / 25.4; // A4横（297mm）から左右の余白 8mm ずつを引いた幅
-      setSheetH(Math.floor(188 / Math.min(1, pageW / w)));
+      const pageW = (PRINT_W_MM * 96) / 25.4;
+      const next = [...el.querySelectorAll(":scope > section")].map((x) => Math.min(1, pageW / Math.max(1, x.scrollWidth)));
+      setZooms((cur) => (next.length === cur.length && next.every((z, i) => Math.abs(z - cur[i]) < 0.001) ? cur : next));
     };
     fit();
     window.addEventListener("beforeprint", fit);
@@ -45,6 +45,10 @@ function PrintView() {
       window.removeEventListener("resize", fit);
     };
   }, [payroll, employees, settings]);
+  const pageStyle = (i: number) => {
+    const z = Math.floor((zooms[i] ?? 1) * 1000) / 1000;
+    return { "--z": z, "--h": `${Math.floor((PRINT_H_MM - 2) / z)}mm` } as CSSProperties;
+  };
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
   if (!/^\d{4}-\d{2}$/.test(month)) return <p className="text-red-600">月が指定されていません</p>;
   if (!payroll || !employees || !settings) return <p className="text-gray-500">読み込み中…</p>;
@@ -71,9 +75,9 @@ function PrintView() {
         <span className="text-xs text-gray-500">用紙はA4横がおすすめです（印刷の画面で「横向き」を選んでください）</span>
       </div>
 
-      <div ref={sheet} style={{ "--sheet-h": `${sheetH}mm` } as CSSProperties} className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none">
-        {/* 1枚目：給与集計表（印刷では用紙の上下まん中に置き、上にも余白を作る） */}
-        <section className="print:flex print:min-h-[var(--sheet-h)] print:flex-col print:justify-center">
+      <div ref={sheet} className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none">
+        {/* 1枚目：給与集計表（印刷では用紙の幅に収めて、下に寄せる） */}
+        <section style={pageStyle(0)} className="print:flex print:min-h-[var(--h)] print:flex-col print:justify-end print:[zoom:var(--z)]">
           <div className="flex items-end justify-between">
             <h1 className="text-lg font-bold">{title} 給与集計表</h1>
             <div className="text-right text-xs">
@@ -206,7 +210,7 @@ function PrintView() {
         </section>
 
         {/* 2枚目：振込一覧（給与明細）。お送りいただいた「給与明細」の表と同じ並び */}
-        <section className="mt-8 break-before-page print:mt-0 print:flex print:min-h-[var(--sheet-h)] print:flex-col print:justify-center">
+        <section style={pageStyle(1)} className="mt-8 break-before-page print:mt-0 print:flex print:min-h-[var(--h)] print:flex-col print:justify-end print:[zoom:var(--z)]">
           <TransferSheet
             storeName={settings.storeName}
             year={reiwa(y)}
@@ -236,10 +240,16 @@ function PrintView() {
           )}
         </section>
       </div>
-      <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } body { background: #fff !important; } }`}</style>
+      <style>{`@media print { @page { size: A4 landscape; margin: ${PRINT_MARGIN_MM.y}mm ${PRINT_MARGIN_MM.x}mm; } body { background: #fff !important; } }`}</style>
     </>
   );
 }
+
+/** 印刷の余白（mm）。左右はプリンターで切れないよう広めに取る */
+const PRINT_MARGIN_MM = { x: 15, y: 10 };
+/** A4横から余白を引いた、印刷できる幅と高さ（mm） */
+const PRINT_W_MM = 297 - PRINT_MARGIN_MM.x * 2;
+const PRINT_H_MM = 210 - PRINT_MARGIN_MM.y * 2;
 
 function Th({ children }: { children?: React.ReactNode }) {
   return <th className="border border-black bg-gray-100 px-1 py-0.5 text-center font-semibold whitespace-nowrap">{children}</th>;
