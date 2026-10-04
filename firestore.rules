@@ -99,6 +99,14 @@ service cloud.firestore {
         && request.resource.data.cols is int
         && request.resource.data.cols >= 2 && request.resource.data.cols <= 6;
     }
+    // 現金出納帳の「項目」の候補（プルダウン）：管理者だけ
+    match /config/cashbookItems {
+      allow read: if isAdmin();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['items', 'updatedAt'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 500;
+    }
     match /config/register {
       allow read: if isStaff();
       allow write: if isStaff()

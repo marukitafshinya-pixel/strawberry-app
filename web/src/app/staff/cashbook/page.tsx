@@ -8,10 +8,13 @@ import { errorText } from "@/lib/callFunction";
 import {
   carryInto,
   emptyEntry,
+  itemsFromHistory,
   monthSums,
   readCashbookExcel,
   saveCashImport,
+  saveCashItems,
   saveCashMonth,
+  useCashItems,
   useCashbook,
   type CashEntry,
   type CashImportMonth,
@@ -110,12 +113,10 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
   const sums = monthSums(entries);
   const closing = carry + sums.income - sums.expense;
   const balances = entries.reduce<number[]>((acc, e) => [...acc, (acc.length ? acc[acc.length - 1] : carry) + (e.income ?? 0) - (e.expense ?? 0)], []);
-  // 項目の候補：これまでに使った項目（よく使う順）
-  const suggestions = (() => {
-    const count = new Map<string, number>();
-    for (const x of all) for (const e of x.entries) if (e.item) count.set(e.item, (count.get(e.item) ?? 0) + 1);
-    return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 200).map(([k]) => k);
-  })();
+  // 項目の候補：保存してある候補（まだなければ、これまでに使った項目）
+  const savedItems = useCashItems();
+  const suggestions = savedItems ?? itemsFromHistory(all);
+  const [editingItems, setEditingItems] = useState(false);
   const [y, m] = month.split("-").map(Number);
   const today = todayJST();
   const defaultDate = today.startsWith(month) ? today : "";
@@ -125,6 +126,9 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
     setSaving(true);
     try {
       await saveCashMonth(month, entries, isFirst ? (opening ?? 0) : undefined);
+      // 新しく入れた項目は、候補に足しておく
+      const added = [...new Set(entries.map((e) => e.item.trim()).filter((x) => x && !suggestions.includes(x)))];
+      if (added.length > 0 || savedItems === null) await saveCashItems([...suggestions, ...added]);
       setDirty(false);
       setMsg("保存しました");
     } catch (e) {
@@ -233,7 +237,11 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
         >
           日付順に並べる
         </button>
+        <button onClick={() => setEditingItems(true)} className="rounded-lg border bg-white px-4 py-2 text-sm">
+          項目の候補を編集
+        </button>
       </div>
+      {editingItems && <ItemsEditor items={suggestions} onClose={() => setEditingItems(false)} />}
 
       {/* 印刷用（いままでの Excel と同じ形） */}
       <div className="hidden text-black print:block">
@@ -301,6 +309,67 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
         </div>
       </div>
     </>
+  );
+}
+
+/** 項目の候補（プルダウン）を編集する：いらない候補を消す・新しく足す */
+function ItemsEditor({ items, onClose }: { items: string[]; onClose: () => void }) {
+  const [list, setList] = useState(items);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function save(next: string[]) {
+    setErr("");
+    setBusy(true);
+    try {
+      await saveCashItems(next);
+      setList(next);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center print:hidden" onClick={() => !busy && onClose()}>
+      <div onClick={(e) => e.stopPropagation()} className="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-white p-5 sm:max-w-lg sm:rounded-2xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">項目の候補（プルダウン）</h2>
+          <button onClick={onClose} disabled={busy} className="px-2 text-2xl text-gray-500" aria-label="閉じる">
+            ×
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">× を押すと候補から消えます（これまでの出納帳の記録は変わりません）。出納帳に新しい項目を入れて保存すると、自動で候補に足されます。</p>
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = text.trim();
+            if (!v) return;
+            setText("");
+            if (!list.includes(v)) void save([v, ...list]);
+          }}
+        >
+          <input value={text} maxLength={80} onChange={(e) => setText(e.target.value)} placeholder="新しい項目" aria-label="新しい項目" className="flex-1 rounded-lg border px-3 py-2" />
+          <button disabled={busy || !text.trim()} className="rounded-lg bg-berry px-4 font-bold text-white disabled:opacity-40">
+            追加
+          </button>
+        </form>
+        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+        <ul className="mt-3 flex-1 divide-y overflow-y-auto rounded-lg border">
+          {list.length === 0 && <li className="px-3 py-4 text-center text-sm text-gray-400">候補はありません</li>}
+          {list.map((it) => (
+            <li key={it} className="flex items-center gap-2 px-3 py-1.5">
+              <span className="flex-1 break-all">{it}</span>
+              <button onClick={() => save(list.filter((x) => x !== it))} disabled={busy} className="rounded px-2 text-lg text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={`${it}を候補から消す`}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-right text-xs text-gray-500">{list.length}件</p>
+      </div>
+    </div>
   );
 }
 

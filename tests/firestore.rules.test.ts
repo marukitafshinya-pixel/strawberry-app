@@ -215,6 +215,12 @@ describe("現金出納帳", () => {
       await assertFails(setDoc(doc(db, "cashbook/2026-08"), { entries: [] }));
     }
   });
+  it("項目の候補は管理者だけが読み書きできる", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "config/cashbookItems"), { items: ["ごみ処理代", "切手代"] }));
+    await assertFails(getDoc(doc(staff(), "config/cashbookItems")));
+    await assertFails(setDoc(doc(staff(), "config/cashbookItems"), { items: [] }));
+    await assertFails(setDoc(doc(admin(), "config/cashbookItems"), { items: "x" }));
+  });
   it("月の形や項目が違うものは保存できない", async () => {
     await assertFails(setDoc(doc(admin(), "cashbook/2026-8"), { entries: [] }));
     await assertFails(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [], secret: 1 }));

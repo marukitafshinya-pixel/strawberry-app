@@ -80,6 +80,43 @@ export async function saveCashMonth(month: string, entries: CashEntry[], opening
   await setDoc(doc(db, `cashbook/${month}`), data);
 }
 
+// ---------- 「項目」の候補（プルダウン） ----------
+
+/** 保存してある候補（まだ一度も保存していなければ null） */
+export function useCashItems() {
+  const [items, setItems] = useState<string[] | null | undefined>(undefined);
+  useEffect(() => {
+    let unsubscribe = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsubscribe = onSnapshot(
+        doc(db, "config/cashbookItems"),
+        (s) => setItems(s.exists() ? ((s.get("items") as string[] | undefined) ?? []).filter((x) => typeof x === "string") : null),
+        () => setItems(null),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+  return items;
+}
+
+/** これまでに使った項目（よく使う順）。候補をまだ保存していないときの、はじめの候補 */
+export function itemsFromHistory(all: CashMonth[]): string[] {
+  const count = new Map<string, number>();
+  for (const x of all) for (const e of x.entries) if (e.item.trim()) count.set(e.item.trim(), (count.get(e.item.trim()) ?? 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 300).map(([k]) => k);
+}
+
+export async function saveCashItems(items: string[]) {
+  const { db } = await getFirebase();
+  const list = [...new Set(items.map((x) => x.trim().slice(0, 80)).filter(Boolean))].slice(0, 500);
+  await setDoc(doc(db, "config/cashbookItems"), { items: list, updatedAt: serverTimestamp() });
+}
+
 // ---------- Excel（いままでの現金出納帳）の取り込み ----------
 
 export type CashImportMonth = CashMonth & { sheet: string; excelClosing: number | null };
