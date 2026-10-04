@@ -11,6 +11,8 @@ import { shiftMonth, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import {
   EMPLOYER_ITEMS,
+  EMPLOYER_RATES,
+  computeEmployer,
   PAY_ITEMS,
   computeRow,
   parsePayrollCsv,
@@ -109,7 +111,9 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     const row = { ...(data.rows[empId] ?? {}) };
     if (v === undefined) delete row[key];
     else row[key] = v;
-    update({ rows: { ...data.rows, [empId]: row } });
+    const rows = { ...data.rows, [empId]: row };
+    // 金額を変えたら、事業所負担分も計算し直す
+    update({ rows, employer: computeEmployer(rows) });
   };
 
   const totals = PAY_ITEMS.reduce(
@@ -149,7 +153,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const snap = await getDoc(doc(db, `payrolls/${prev}`));
       if (!snap.exists()) return setError("前の月の給与がまだ保存されていません");
       const p = snap.data() as Payroll;
-      update({ rows: p.rows ?? {}, employer: p.employer ?? {}, payerAccount: data.payerAccount || p.payerAccount || "", author: data.author || p.author || "" });
+      update({ rows: p.rows ?? {}, employer: computeEmployer(p.rows ?? {}), payerAccount: data.payerAccount || p.payerAccount || "", author: data.author || p.author || "" });
     } catch (e) {
       setError(errorText(e));
     }
@@ -187,7 +191,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         rows[id] = x.row;
       }
       await batch.commit();
-      update({ rows });
+      update({ rows, employer: computeEmployer(rows) });
       setMessage(`${entries.length}人分を読み込みました。確かめてから「保存する」を押してください`);
     } catch (e) {
       setError(errorText(e));
@@ -346,7 +350,13 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           </dl>
         </section>
         <section className="rounded-2xl bg-white p-4 shadow-sm">
-          <h2 className="font-bold">事業所負担分</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-bold">事業所負担分</h2>
+            <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">自動で計算（農業）</span>
+            <button onClick={() => update({ employer: computeEmployer(data.rows) })} className="ml-auto rounded-lg border px-2.5 py-1 text-xs">
+              計算し直す
+            </button>
+          </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {EMPLOYER_ITEMS.map((it) => (
               <label key={it.key} className="block text-sm">
@@ -370,6 +380,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           </p>
           <p className="text-sm">
             会社の負担（総支給＋事業所負担） <b>{yen(totalPay + employerTotal)}</b>
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-gray-500">
+            上の表の金額を変えると自動で計算します（必要なら手で直せます。表を変えると計算し直します）。
+            健康保険・介護保険・厚生年金は本人負担と同じ額（労使折半）。雇用保険は、雇用保険料が引かれている人の給与（役員報酬を除く）×{(EMPLOYER_RATES.employment * 1000).toFixed(1)}/1000（農林水産の事業）。
+            児童手当拠出金（子ども・子育て拠出金）は、厚生年金に入っている人の標準報酬月額（本人の厚生年金保険料から求める）×{(EMPLOYER_RATES.childAllowance * 1000).toFixed(1)}/1000。
+            労災保険料は年に一度の申告で納めるので、ここには入りません。
           </p>
         </section>
       </div>

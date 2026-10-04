@@ -72,6 +72,41 @@ export function computeRow(r: PayRow) {
   return { pay, social, net };
 }
 
+/**
+ * 事業所負担分の計算に使う率（農業。令和8年度）。年度が変わったらここを直す
+ * - 雇用保険（農林水産・清酒製造の事業）の事業主負担：1000分の9.5
+ * - 子ども・子育て拠出金（事業主だけが負担）：標準報酬月額の1000分の3.6
+ * - 厚生年金の本人負担：標準報酬月額の1000分の91.5（本人の厚生年金保険料から標準報酬月額を求めるのに使う）
+ */
+export const EMPLOYER_RATES = { employment: 0.0095, childAllowance: 0.0036, pensionEmployee: 0.0915 };
+
+/**
+ * 事業所負担分を、打ち込んだ本人負担の金額から計算する
+ * - 健康保険・介護保険・厚生年金：会社と本人で半分ずつ（労使折半）なので、本人負担と同じ額
+ * - 雇用保険：雇用保険料が引かれている人の、給与（月給＋時給＋通勤費。役員報酬は対象外）× 事業主負担の率
+ * - 子ども・子育て拠出金（児童手当拠出金）：厚生年金に入っている人の標準報酬月額 × 率（標準報酬月額は本人の厚生年金保険料から求める）
+ */
+export function computeEmployer(rows: Record<string, PayRow>): Partial<Record<EmployerKey, number>> {
+  let health = 0, care = 0, pension = 0, employment = 0, child = 0;
+  for (const r of Object.values(rows)) {
+    health += v(r, "health");
+    care += v(r, "care");
+    pension += v(r, "pension");
+    if (v(r, "employment") > 0) employment += (v(r, "monthly") + v(r, "hourly") + v(r, "commute")) * EMPLOYER_RATES.employment;
+    if (v(r, "pension") > 0) child += (v(r, "pension") / EMPLOYER_RATES.pensionEmployee) * EMPLOYER_RATES.childAllowance;
+  }
+  const out: Partial<Record<EmployerKey, number>> = {};
+  const put = (k: EmployerKey, n: number) => {
+    if (Math.round(n) > 0) out[k] = Math.round(n);
+  };
+  put("health", health);
+  put("care", care);
+  put("pension", pension);
+  put("employment", employment);
+  put("childAllowance", child);
+  return out;
+}
+
 export function emptyPayroll(): Payroll {
   return { paymentDate: "", rows: {}, employer: {}, memo: "", payerAccount: "", author: "" };
 }
