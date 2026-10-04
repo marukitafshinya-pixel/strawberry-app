@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "@/lib/auth";
 import { EMPLOYER_ITEMS, PAY_ITEMS, computeRow, reiwa, useEmployees, usePayroll, type Employee, type EmployerKey, type PayRow } from "@/lib/payroll";
 import { useSettings } from "@/lib/reservations";
@@ -23,6 +23,28 @@ function PrintView() {
   const { value: payroll } = usePayroll(month);
   const { value: employees } = useEmployees();
   const { value: settings } = useSettings();
+  /**
+   * 印刷で用紙の上下まん中に置くための、1枚分の高さ（mm）。
+   * 表が用紙の幅より広いと印刷で縮小されるので、その分だけ高さを大きくしておく（縮小後にちょうど1枚の高さになる）
+   */
+  const sheet = useRef<HTMLDivElement>(null);
+  const [sheetH, setSheetH] = useState(188);
+  useEffect(() => {
+    const fit = () => {
+      const el = sheet.current;
+      if (!el) return;
+      const w = Math.max(1, ...[...el.querySelectorAll("section")].map((x) => x.scrollWidth));
+      const pageW = (281 * 96) / 25.4; // A4横（297mm）から左右の余白 8mm ずつを引いた幅
+      setSheetH(Math.floor(188 / Math.min(1, pageW / w)));
+    };
+    fit();
+    window.addEventListener("beforeprint", fit);
+    window.addEventListener("resize", fit);
+    return () => {
+      window.removeEventListener("beforeprint", fit);
+      window.removeEventListener("resize", fit);
+    };
+  }, [payroll, employees, settings]);
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
   if (!/^\d{4}-\d{2}$/.test(month)) return <p className="text-red-600">月が指定されていません</p>;
   if (!payroll || !employees || !settings) return <p className="text-gray-500">読み込み中…</p>;
@@ -49,9 +71,9 @@ function PrintView() {
         <span className="text-xs text-gray-500">用紙はA4横がおすすめです（印刷の画面で「横向き」を選んでください）</span>
       </div>
 
-      <div className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none">
-        {/* 1枚目：給与集計表 */}
-        <section>
+      <div ref={sheet} style={{ "--sheet-h": `${sheetH}mm` } as CSSProperties} className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none">
+        {/* 1枚目：給与集計表（印刷では用紙の上下まん中に置き、上にも余白を作る） */}
+        <section className="print:flex print:min-h-[var(--sheet-h)] print:flex-col print:justify-center">
           <div className="flex items-end justify-between">
             <h1 className="text-lg font-bold">{title} 給与集計表</h1>
             <div className="text-right text-xs">
@@ -184,7 +206,7 @@ function PrintView() {
         </section>
 
         {/* 2枚目：振込一覧（給与明細）。お送りいただいた「給与明細」の表と同じ並び */}
-        <section className="mt-8 break-before-page print:mt-0">
+        <section className="mt-8 break-before-page print:mt-0 print:flex print:min-h-[var(--sheet-h)] print:flex-col print:justify-center">
           <TransferSheet
             storeName={settings.storeName}
             year={reiwa(y)}
