@@ -215,7 +215,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     downloadCsv(`payroll_${month}.csv`, [header, ...body, total]);
   }
 
-  const col = (label: string, cls = "") => <th key={label} className={`whitespace-nowrap px-2 py-2 text-right text-xs font-semibold ${cls}`}>{label}</th>;
+  // 見出しは下にスクロールしても上に残す（色の付いた見出しも、下の行が透けないよう白地の上に色を重ねる）
+  const col = (label: string, cls = "") => (
+    <th key={label} className="sticky top-0 z-10 bg-gray-50 p-0 text-right text-xs font-semibold">
+      <div className={`whitespace-nowrap px-2 py-2 ${cls}`}>{label}</div>
+    </th>
+  );
 
   return (
     <div className="pb-24">
@@ -269,12 +274,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         </p>
       )}
 
-      {/* 打ち込みの表（横に長いので、左右にスクロールできる） */}
-      <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
+      {/* 打ち込みの表（横に長いので、左右にスクロールできる。見出しの行と番号・氏名の列は動かない） */}
+      <div className="mt-3 max-h-[calc(100dvh-9rem)] overflow-auto rounded-2xl bg-white shadow-sm">
         <table className="min-w-max text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 text-left text-xs">番号・氏名</th>
+              <th className="sticky left-0 top-0 z-20 bg-gray-50 px-2 py-2 text-left text-xs">番号・氏名</th>
               {PAY_ITEMS.map((i) => col(i.label))}
               {col("支給合計", "border-l-2 border-berry/40 bg-berry/10")}
               {col("社会保険料計", "bg-berry/10")}
