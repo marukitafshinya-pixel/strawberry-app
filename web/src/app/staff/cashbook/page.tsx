@@ -587,42 +587,62 @@ function CertEditor({
   );
 }
 
-/** 支払証明書の印刷（いままでの Excel の「支払証明書」と同じ並び） */
+/**
+ * 支払証明書の印刷。A4縦の用紙を横に5つに分けたくらいの横長（幅190mm×高さ55mm）。
+ * 左：日付・支払先・請求者・精算日、まん中：支払内容、右：金額と決済印
+ */
 function CertPrint({ date, cert }: { date: string; cert: CashCert }) {
   const w = wareki(date);
   const total = certTotal(cert);
   const rows = [...cert.lines];
   while (rows.length < 5) rows.push(emptyLine());
+  // 行が多いときは文字を小さくして、高さに収める
+  const small = rows.length > 5;
   const line = "border-b border-black";
   return (
     <div className="hidden text-black print:block">
-      <div className="mx-auto w-[150mm] border border-black px-[8mm] py-[6mm] text-[11pt]">
-        <p className="text-center text-[16pt] font-bold tracking-[0.5em]">支払証明書</p>
-        <div className="mt-4 flex items-end gap-4">
-          <span className="w-20">日付</span>
-          <span className={`${line} w-32 text-center`}>{w.y}</span>
-          <span>{w.m}</span>
-          <span>{w.d}</span>
+      <div className="flex h-[55mm] w-[190mm] gap-[4mm] overflow-hidden border border-black px-[4mm] py-[3mm] text-[9pt] leading-tight">
+        {/* 左 */}
+        <div className="flex w-[58mm] shrink-0 flex-col">
+          <p className="text-[14pt] font-bold tracking-[0.4em]">支払証明書</p>
+          <p className={`mt-[2.5mm] flex gap-2 ${line} pb-[0.5mm]`}>
+            <span className="w-[13mm] shrink-0">日付</span>
+            <span>
+              {w.y} {w.m} {w.d}
+            </span>
+          </p>
+          <p className={`mt-[2mm] flex gap-2 ${line} pb-[0.5mm]`}>
+            <span className="w-[13mm] shrink-0">支払先</span>
+            <span className="break-all">{cert.payee}</span>
+          </p>
+          <span className="flex-1" />
+          <p className={`flex gap-2 ${line} pb-[0.5mm]`}>
+            <span className="w-[13mm] shrink-0">請求者</span>
+            <span>{cert.requester}</span>
+          </p>
+          <p className={`mt-[2mm] flex gap-2 ${line} pb-[0.5mm]`}>
+            <span className="w-[13mm] shrink-0">精算日</span>
+            <span>
+              {w.y} {w.m} {w.d}
+            </span>
+          </p>
         </div>
-        <div className={`mt-3 flex items-end gap-4 ${line} pb-1`}>
-          <span className="w-20">支払先</span>
-          <span className="flex-1">{cert.payee}</span>
-        </div>
-        <div className="mt-3 flex gap-4">
-          <span className="w-20">支払内容</span>
-          <table className="flex-1 border-collapse tabular-nums">
+        {/* まん中：支払内容 */}
+        <div className="flex min-w-0 flex-1 flex-col border-l border-black pl-[3mm]">
+          <p>支払内容</p>
+          <table className={`mt-[1mm] w-full border-collapse tabular-nums ${small ? "text-[7pt]" : ""}`}>
             <thead>
-              <tr className="text-[9pt]">
+              <tr className="text-[7.5pt]">
                 <th className="text-left font-normal">内容</th>
-                <th className="w-24 text-right font-normal">単価</th>
-                <th className="w-12 text-right font-normal">数量</th>
-                <th className="w-24 text-right font-normal">金額</th>
+                <th className="w-[16mm] text-right font-normal">単価</th>
+                <th className="w-[9mm] text-right font-normal">数量</th>
+                <th className="w-[17mm] text-right font-normal">金額</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((l, i) => (
                 <tr key={i} className={line}>
-                  <td className="h-[8mm]">{l.name}</td>
+                  <td className={small ? "h-[3.6mm]" : "h-[6mm]"}>{l.name}</td>
                   <td className="text-right">{l.price === null ? "" : yen(l.price)}</td>
                   <td className="text-right">{isBlankCertLine(l) ? "" : (l.qty ?? 1)}</td>
                   <td className="text-right">{isBlankCertLine(l) ? "" : yen(certLineAmount(l))}</td>
@@ -631,34 +651,24 @@ function CertPrint({ date, cert }: { date: string; cert: CashCert }) {
             </tbody>
           </table>
         </div>
-        <div className={`mt-4 flex ${line} border-t border-t-black py-1`}>
-          <span className="flex-1">仮払金</span>
-          <span className="tabular-nums">{yen(total)}</span>
-        </div>
-        <div className={`flex ${line} py-1`}>
-          <span className="flex-1">支払金額</span>
-          <span className="tabular-nums">{yen(total)}</span>
-        </div>
-        <div className={`mt-2 flex ${line} border-t border-t-black py-1 font-bold`}>
-          <span className="flex-1">合計金額</span>
-          <span className="tabular-nums">{yen(total)}円</span>
-        </div>
-        <div className="mt-4 flex items-start gap-4">
-          <div>
-            <p className="text-[9pt]">決済印</p>
-            <div className="mt-1 h-[22mm] w-[22mm] border border-black" />
-          </div>
-          <div className="mt-6 flex-1 space-y-3">
-            <p className="flex gap-4">
-              <span className="w-16">請求者</span>
-              <span className={`${line} flex-1`}>{cert.requester}</span>
-            </p>
-            <p className="flex gap-4">
-              <span className="w-16">精算日</span>
-              <span className={`${line} flex-1`}>
-                {w.y} {w.m} {w.d}
-              </span>
-            </p>
+        {/* 右：金額と決済印 */}
+        <div className="flex w-[42mm] shrink-0 flex-col border-l border-black pl-[3mm]">
+          <p className={`flex ${line} py-[0.8mm]`}>
+            <span className="flex-1">仮払金</span>
+            <span className="tabular-nums">{yen(total)}</span>
+          </p>
+          <p className={`flex ${line} py-[0.8mm]`}>
+            <span className="flex-1">支払金額</span>
+            <span className="tabular-nums">{yen(total)}</span>
+          </p>
+          <p className={`mt-[1mm] flex border-y-2 border-black py-[0.8mm] font-bold`}>
+            <span className="flex-1">合計金額</span>
+            <span className="tabular-nums">{yen(total)}円</span>
+          </p>
+          <span className="flex-1" />
+          <div className="flex items-end gap-2">
+            <span className="text-[8pt]">決済印</span>
+            <div className="h-[18mm] w-[18mm] border border-black" />
           </div>
         </div>
       </div>
