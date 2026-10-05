@@ -147,6 +147,15 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
     // 月ごとの給与（payrolls/{YYYY-MM}）
+    // トータル実績の、ほかの売上（玉ねぎ・そば・作業委託＆冷蔵庫リース）の月ごとの金額：管理者だけ
+    match /otherSales/{year} {
+      allow read: if isAdmin();
+      allow write: if isAdmin()
+        && year.matches('^[0-9]{4}$')
+        && request.resource.data.keys().hasOnly(['months', 'updatedAt'])
+        && request.resource.data.months is map
+        && request.resource.data.months.size() <= 12;
+    }
     // 現金出納帳（月ごと）：管理者だけが読み書きできる
     match /cashbook/{month} {
       allow read: if isAdmin();

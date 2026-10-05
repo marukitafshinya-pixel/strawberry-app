@@ -206,6 +206,19 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("トータル実績（ほかの売上）", () => {
+  it("管理者だけが読み書きできる", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));
+    await assertSucceeds(getDoc(doc(admin(), "otherSales/2026")));
+    for (const db of [staff(), guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "otherSales/2026")));
+      await assertFails(setDoc(doc(db, "otherSales/2026"), { months: {} }));
+    }
+    await assertFails(setDoc(doc(admin(), "otherSales/26"), { months: {} }));
+    await assertFails(setDoc(doc(admin(), "otherSales/2026"), { months: {}, x: 1 }));
+  });
+});
+
 describe("現金出納帳", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [{ date: "2026-08-03", item: "ごみ処理代", income: null, expense: 800, memo: "" }], opening: 660 }));
