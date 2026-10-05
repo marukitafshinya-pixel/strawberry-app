@@ -152,9 +152,10 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if isAdmin()
         && year.matches('^[0-9]{4}$')
-        && request.resource.data.keys().hasOnly(['months', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['months', 'forecast', 'updatedAt'])
         && request.resource.data.months is map
-        && request.resource.data.months.size() <= 12;
+        && request.resource.data.months.size() <= 12
+        && (!('forecast' in request.resource.data) || (request.resource.data.forecast is map && request.resource.data.forecast.size() <= 12));
     }
     // 現金出納帳（月ごと）：管理者だけが読み書きできる
     match /cashbook/{month} {

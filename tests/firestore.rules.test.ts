@@ -210,6 +210,8 @@ describe("トータル実績（ほかの売上）", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));
     await assertSucceeds(getDoc(doc(admin(), "otherSales/2026")));
+    await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: {}, forecast: { "11": { ship: 500000, direct: 80000 } } }));
+    await assertFails(setDoc(doc(admin(), "otherSales/2026"), { months: {}, forecast: "x" }));
     for (const db of [staff(), guest(), noRole(), disabled()]) {
       await assertFails(getDoc(doc(db, "otherSales/2026")));
       await assertFails(setDoc(doc(db, "otherSales/2026"), { months: {} }));
