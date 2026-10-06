@@ -14,6 +14,31 @@ import { OTHER_ITEMS, canForecast, saveOtherSales, useOtherSales, type Forecast,
 const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
 const yen = (n: number) => (n ? n.toLocaleString("ja-JP") : "");
 
+type Shipments = NonNullable<ReturnType<typeof useShipments>>;
+type StoreDays = NonNullable<ReturnType<typeof useStoreDaysWithRegi>["days"]>;
+/** 出荷の月ごとの金額：数量×単価（単価が入っている分だけ） */
+const monthlyShip = (shipments: Shipments) =>
+  MONTHS.map((m) =>
+    Object.entries(shipments)
+      .filter(([d]) => d.slice(5, 7) === m)
+      .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? it.qty * it.price : 0), 0), 0),
+  );
+/** 店舗の月ごとの金額：直売・カフェ・いちご狩り。内訳がない日（売上合計だけの日）は、小計に売上合計を入れる */
+const monthlyStore = (store: StoreDays) => {
+  const sumBy = (f: (d: StoreDays[string]) => number) =>
+    MONTHS.map((m) =>
+      Object.entries(store)
+        .filter(([d]) => d.slice(5, 7) === m)
+        .reduce((n, [, d]) => n + f(d), 0),
+    );
+  return {
+    direct: sumBy((d) => d.direct ?? 0),
+    cafe: sumBy((d) => d.cafe ?? 0),
+    ichigo: sumBy((d) => d.ichigo ?? 0),
+    sub: sumBy((d) => (d.direct ?? 0) + (d.cafe ?? 0) + (d.ichigo ?? 0) || (d.total ?? 0)),
+  };
+};
+
 export default function TotalPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
@@ -34,6 +59,9 @@ function TotalView() {
   const to = `${year}-12-31`;
   const shipments = useShipments(from, to);
   const { days: store } = useStoreDaysWithRegi(from, to);
+  // 予測の参考にする、前の年の実績
+  const prevShipments = useShipments(`${year - 1}-01-01`, `${year - 1}-12-31`);
+  const { days: prevStore } = useStoreDaysWithRegi(`${year - 1}-01-01`, `${year - 1}-12-31`);
   const other = useOtherSales(year);
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
@@ -59,10 +87,10 @@ function TotalView() {
           </button>
         )}
       </div>
-      {!shipments || !store || !other ? (
+      {!shipments || !store || !other || !prevShipments || !prevStore ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} />
+        <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} prevShipments={prevShipments} prevStore={prevStore} />
       )}
     </div>
   );
@@ -82,6 +110,8 @@ type Row = {
   actual?: number[];
   /** その月に予測を使っているか */
   isFc?: boolean[];
+  /** 前の年の実績（予測の参考） */
+  prev?: number[];
 };
 
 function Table({
@@ -90,10 +120,14 @@ function Table({
   store,
   saved,
   savedForecast,
+  prevShipments,
+  prevStore,
 }: {
   year: number;
-  shipments: NonNullable<ReturnType<typeof useShipments>>;
-  store: NonNullable<ReturnType<typeof useStoreDaysWithRegi>["days"]>;
+  shipments: Shipments;
+  store: StoreDays;
+  prevShipments: Shipments;
+  prevStore: StoreDays;
   saved: OtherMonths;
   savedForecast: Forecast;
 }) {
@@ -114,26 +148,10 @@ function Table({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // 出荷：数量×単価（単価が入っている分だけ）
-  const ship = MONTHS.map((m) =>
-    Object.entries(shipments)
-      .filter(([d]) => d.slice(5, 7) === m)
-      .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? it.qty * it.price : 0), 0), 0),
-  );
-  // 店舗：直売・カフェ・いちご狩り。内訳がない日（売上合計だけの日）は、小計に売上合計を入れる
-  const storeSum = (f: (d: (typeof store)[string]) => number) =>
-    MONTHS.map((m) =>
-      Object.entries(store)
-        .filter(([d]) => d.slice(5, 7) === m)
-        .reduce((n, [, d]) => n + f(d), 0),
-    );
-  const direct = storeSum((d) => d.direct ?? 0);
-  const cafe = storeSum((d) => d.cafe ?? 0);
-  const ichigo = storeSum((d) => d.ichigo ?? 0);
-  const storeSub = storeSum((d) => {
-    const parts = (d.direct ?? 0) + (d.cafe ?? 0) + (d.ichigo ?? 0);
-    return parts || (d.total ?? 0);
-  });
+  const ship = monthlyShip(shipments);
+  const { direct, cafe, ichigo, sub: storeSub } = monthlyStore(store);
+  const prevShip = monthlyShip(prevShipments);
+  const prev = monthlyStore(prevStore);
   // 予測：当月と先の月だけ。過ぎた月は予測があっても実績を使う
   const fcOf = (k: ForecastKey, i: number): number | undefined => (fcMonth[i] ? fc[MONTHS[i]]?.[k] : undefined);
   const use = (k: ForecastKey, actual: number[]) => {
@@ -152,10 +170,10 @@ function Table({
   const totalFc = MONTHS.map((_, i) => uShip.isFc[i] || storeFc[i]);
 
   const rows: Row[] = [
-    { key: "ship", label: "出荷（いちご）", fkey: "ship", ...uShip },
-    { key: "direct", label: "直売", indent: true, fkey: "direct", ...uDirect },
-    { key: "cafe", label: "カフェ", indent: true, fkey: "cafe", ...uCafe },
-    { key: "ichigo", label: "いちご狩り", indent: true, fkey: "ichigo", ...uIchigo },
+    { key: "ship", label: "出荷（いちご）", fkey: "ship", ...uShip, prev: prevShip },
+    { key: "direct", label: "直売", indent: true, fkey: "direct", ...uDirect, prev: prev.direct },
+    { key: "cafe", label: "カフェ", indent: true, fkey: "cafe", ...uCafe, prev: prev.cafe },
+    { key: "ichigo", label: "いちご狩り", indent: true, fkey: "ichigo", ...uIchigo, prev: prev.ichigo },
     { key: "storeSub", label: "店舗 小計", values: uStoreSub, strong: "sub", isFc: storeFc },
     ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key })),
     { key: "total", label: "合計", values: total, strong: "total", isFc: totalFc },
@@ -241,6 +259,15 @@ function Table({
                         <td key={m} className={`px-1 py-1 text-right align-top ${fcCell}`}>
                           <Num value={fc[m]?.[r.fkey] ?? null} label={`${Number(m)}月の${r.indent ? "店舗 " : ""}${r.label}の予測`} placeholder="予測" onChange={(v) => setForecast(m, r.fkey!, v)} />
                           {m === curMonth && <span className="block pr-1 text-[10px] font-normal text-gray-500">実績 {(r.actual?.[i] ?? 0).toLocaleString("ja-JP")}</span>}
+                          <button
+                            onClick={() => (r.prev?.[i] ? setForecast(m, r.fkey!, r.prev[i]) : undefined)}
+                            disabled={!r.prev?.[i]}
+                            title="押すと、前の年の実績を予測に入れます"
+                            aria-label={`${Number(m)}月の${r.indent ? "店舗 " : ""}${r.label}の前年`}
+                            className="block w-full pr-1 text-right text-[10px] font-normal text-sky-700 underline decoration-dotted disabled:text-gray-400 disabled:no-underline"
+                          >
+                            前年 {(r.prev?.[i] ?? 0).toLocaleString("ja-JP")}
+                          </button>
                         </td>
                       );
                     return (
@@ -258,7 +285,7 @@ function Table({
       </div>
       <p className="mt-2 text-xs leading-relaxed text-gray-600">
         <span className="mr-1 inline-block rounded bg-amber-50 px-1.5 text-amber-900 ring-1 ring-amber-200">予測</span>
-        出荷と店舗は、今月とそれより先の月に予測を入れられます。予測を入れた月は、合計に予測を使います（今月は、今日までの実績も小さく出ます）。月が過ぎると予測は使わず、実績になります。
+        出荷と店舗は、今月とそれより先の月に予測を入れられます。マスの下の「前年」は前の年の同じ月の実績で、押すとその金額が予測に入ります。予測を入れた月は、合計に予測を使います（今月は、今日までの実績も小さく出ます）。月が過ぎると予測は使わず、実績になります。
         {anyFc && <b className="ml-1 text-amber-800">（色の付いた数字は予測を含みます）</b>}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
@@ -302,7 +329,8 @@ function Tile({ label, value, strong }: { label: string; value: number; strong?:
 }
 
 function Num({ value, onChange, label, placeholder }: { value: number | null; onChange: (v: number | null) => void; label: string; placeholder?: string }) {
-  const fmt = (v: number | null) => (v === null ? "" : String(v));
+  // 3けたごとにカンマを入れて見せる
+  const fmt = (v: number | null) => (v === null ? "" : v.toLocaleString("ja-JP"));
   const [text, setText] = useState(fmt(value));
   const [prev, setPrev] = useState(value);
   if (prev !== value) {
@@ -318,9 +346,14 @@ function Num({ value, onChange, label, placeholder }: { value: number | null; on
       onChange={(e) => {
         let t = e.target.value.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[−ー－▲]/g, "-");
         t = t.replace(/[^0-9-]/g, "").replace(/(?!^)-/g, "");
-        setText(t);
-        if (t === "" || t === "-") onChange(null);
-        else onChange(Math.max(-999_999_999, Math.min(999_999_999, Number(t))));
+        if (t === "" || t === "-") {
+          setText(t);
+          return onChange(null);
+        }
+        const n = Math.max(-999_999_999, Math.min(999_999_999, Number(t)));
+        setText(fmt(n));
+        setPrev(n);
+        onChange(n);
       }}
       className="w-[5.2rem] rounded border px-1 py-1 text-right"
     />
