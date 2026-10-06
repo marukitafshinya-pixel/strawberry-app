@@ -206,6 +206,17 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("気象データ", () => {
+  it("スタッフは見るだけ（書き込みはサーバー側）", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "weather/2025-07"), { station: "美瑛", days: { "01": { tAvg: 19 } } });
+    });
+    await assertSucceeds(getDoc(doc(staff(), "weather/2025-07")));
+    await assertFails(setDoc(doc(admin(), "weather/2025-07"), { days: {} }));
+    await assertFails(getDoc(doc(guest(), "weather/2025-07")));
+  });
+});
+
 describe("トータル実績（ほかの売上）", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));

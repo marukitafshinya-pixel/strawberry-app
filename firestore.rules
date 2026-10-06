@@ -147,6 +147,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
     // 月ごとの給与（payrolls/{YYYY-MM}）
+    // 気象データ（気象庁のアメダス・月ごと）：スタッフが見る。取り込みはサーバー側だけ
+    match /weather/{month} {
+      allow read: if isStaff();
+    }
     // トータル実績の、ほかの売上（玉ねぎ・そば・作業委託＆冷蔵庫リース）の月ごとの金額：管理者だけ
     match /otherSales/{year} {
       allow read: if isAdmin();
