@@ -63,6 +63,7 @@ function TotalView() {
   const prevShipments = useShipments(`${year - 1}-01-01`, `${year - 1}-12-31`);
   const { days: prevStore } = useStoreDaysWithRegi(`${year - 1}-01-01`, `${year - 1}-12-31`);
   const other = useOtherSales(year);
+  const prevOther = useOtherSales(year - 1);
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
   return (
@@ -87,10 +88,10 @@ function TotalView() {
           </button>
         )}
       </div>
-      {!shipments || !store || !other || !prevShipments || !prevStore ? (
+      {!shipments || !store || !other || !prevShipments || !prevStore || !prevOther ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} prevShipments={prevShipments} prevStore={prevStore} />
+        <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} prevShipments={prevShipments} prevStore={prevStore} prevOther={prevOther.months} />
       )}
     </div>
   );
@@ -122,12 +123,14 @@ function Table({
   savedForecast,
   prevShipments,
   prevStore,
+  prevOther,
 }: {
   year: number;
   shipments: Shipments;
   store: StoreDays;
   prevShipments: Shipments;
   prevStore: StoreDays;
+  prevOther: OtherMonths;
   saved: OtherMonths;
   savedForecast: Forecast;
 }) {
@@ -152,6 +155,8 @@ function Table({
   const { direct, cafe, ichigo, sub: storeSub } = monthlyStore(store);
   const prevShip = monthlyShip(prevShipments);
   const prev = monthlyStore(prevStore);
+  const prevOthers = OTHER_ITEMS.map((it) => MONTHS.map((m) => prevOther[m]?.[it.key] ?? 0));
+  const prevTotal = MONTHS.map((_, i) => prevShip[i] + prev.sub[i] + prevOthers.reduce((n, o) => n + o[i], 0));
   // 予測：当月と先の月だけ。過ぎた月は予測があっても実績を使う
   const fcOf = (k: ForecastKey, i: number): number | undefined => (fcMonth[i] ? fc[MONTHS[i]]?.[k] : undefined);
   const use = (k: ForecastKey, actual: number[]) => {
@@ -174,9 +179,9 @@ function Table({
     { key: "direct", label: "直売", indent: true, fkey: "direct", ...uDirect, prev: prev.direct },
     { key: "cafe", label: "カフェ", indent: true, fkey: "cafe", ...uCafe, prev: prev.cafe },
     { key: "ichigo", label: "いちご狩り", indent: true, fkey: "ichigo", ...uIchigo, prev: prev.ichigo },
-    { key: "storeSub", label: "店舗 小計", values: uStoreSub, strong: "sub", isFc: storeFc },
-    ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key })),
-    { key: "total", label: "合計", values: total, strong: "total", isFc: totalFc },
+    { key: "storeSub", label: "店舗 小計", values: uStoreSub, strong: "sub", isFc: storeFc, prev: prev.sub },
+    ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key, prev: prevOthers[i] })),
+    { key: "total", label: "合計", values: total, strong: "total", isFc: totalFc, prev: prevTotal },
   ];
   const anyFc = totalFc.some(Boolean);
   const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
@@ -220,10 +225,10 @@ function Table({
   return (
     <>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Tile label="年の合計" value={sum(total)} strong />
-        <Tile label="出荷（いちご）" value={sum(uShip.values)} />
-        <Tile label="店舗 小計" value={sum(uStoreSub)} />
-        <Tile label="玉ねぎ・そば・委託ほか" value={sum(others.flat())} />
+        <Tile label="年の合計" value={sum(total)} strong prev={sum(prevTotal)} />
+        <Tile label="出荷（いちご）" value={sum(uShip.values)} prev={sum(prevShip)} />
+        <Tile label="店舗 小計" value={sum(uStoreSub)} prev={sum(prev.sub)} />
+        <Tile label="玉ねぎ・そば・委託ほか" value={sum(others.flat())} prev={sum(prevOthers.flat())} />
       </div>
       <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="min-w-max text-sm tabular-nums">
@@ -248,10 +253,13 @@ function Table({
                   </th>
                   {MONTHS.map((m, i) => {
                     const fcCell = r.isFc?.[i] ? "bg-amber-50 text-amber-900" : bg;
+                    const yoy = <Yoy value={r.values[i]} prev={r.prev?.[i] ?? 0} />;
                     if (r.input)
                       return (
-                        <td key={m} className={`px-1 py-1 text-right ${bg}`}>
+                        <td key={m} className={`px-1 py-1 text-right align-top ${bg}`}>
                           <Num value={other[m]?.[r.input] ?? null} label={`${Number(m)}月の${r.label}`} onChange={(v) => setCell(m, r.input!, v)} />
+                          <PrevLine prev={r.prev?.[i] ?? 0} value={r.values[i]} />
+                          {yoy}
                         </td>
                       );
                     if (r.fkey && fcMonth[i])
@@ -268,15 +276,22 @@ function Table({
                           >
                             前年 {(r.prev?.[i] ?? 0).toLocaleString("ja-JP")}
                           </button>
+                          {yoy}
                         </td>
                       );
                     return (
-                      <td key={m} className={`px-1 py-1 text-right ${fcCell}`}>
-                        <span className="px-1">{yen(r.values[i])}</span>
+                      <td key={m} className={`px-1 py-1 text-right align-top ${fcCell}`}>
+                        <span className="block px-1">{yen(r.values[i]) || "\u00a0"}</span>
+                        <PrevLine prev={r.prev?.[i] ?? 0} value={r.values[i]} />
+                        {yoy}
                       </td>
                     );
                   })}
-                  <td className={`px-2 text-right font-bold ${r.strong === "total" ? "bg-berry/20" : "bg-berry/5"}`}>{yen(sum(r.values))}</td>
+                  <td className={`px-2 py-1 text-right align-top font-bold ${r.strong === "total" ? "bg-berry/20" : "bg-berry/5"}`}>
+                    <span className="block">{yen(sum(r.values)) || "\u00a0"}</span>
+                    <PrevLine prev={sum(r.prev ?? [])} value={sum(r.values)} />
+                    <Yoy value={sum(r.values)} prev={sum(r.prev ?? [])} />
+                  </td>
                 </tr>
               );
             })}
@@ -285,6 +300,7 @@ function Table({
       </div>
       <p className="mt-2 text-xs leading-relaxed text-gray-600">
         <span className="mr-1 inline-block rounded bg-amber-50 px-1.5 text-amber-900 ring-1 ring-amber-200">予測</span>
+        どの月も、数字の下に前の年の同じ月の実績（前年）と前年比を出しています（前年比は、予測を入れた月は予測で計算）。
         出荷と店舗は、今月とそれより先の月に予測を入れられます。マスの下の「前年」は前の年の同じ月の実績で、押すとその金額が予測に入ります。予測を入れた月は、合計に予測を使います（今月は、今日までの実績も小さく出ます）。月が過ぎると予測は使わず、実績になります。
         {anyFc && <b className="ml-1 text-amber-800">（色の付いた数字は予測を含みます）</b>}
       </p>
@@ -319,11 +335,30 @@ function Table({
   );
 }
 
-function Tile({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+/** 前の年の同じ月の実績（小さく） */
+function PrevLine({ prev, value }: { prev: number; value: number }) {
+  if (!prev && !value) return null;
+  return <span className="block pr-1 text-[10px] font-normal text-gray-500">前年 {prev.toLocaleString("ja-JP")}</span>;
+}
+
+/** 前年比（前の年が0のときは出さない）。100%以上は緑、未満は赤 */
+function Yoy({ value, prev }: { value: number; prev: number }) {
+  if (!prev && !value) return null;
+  if (!prev) return <span className="block pr-1 text-[10px] font-normal text-gray-300">前年比 －</span>;
+  const pct = Math.round((value / prev) * 1000) / 10;
+  return <span className={`block pr-1 text-[10px] font-semibold ${pct >= 100 ? "text-emerald-700" : "text-red-600"}`}>前年比 {pct.toLocaleString("ja-JP")}%</span>;
+}
+
+function Tile({ label, value, strong, prev }: { label: string; value: number; strong?: boolean; prev?: number }) {
   return (
     <div className={`rounded-xl p-3 shadow-sm ${strong ? "bg-berry text-white" : "bg-white"}`}>
       <p className={`text-xs ${strong ? "text-white/80" : "text-gray-500"}`}>{label}</p>
       <p className="mt-1 text-xl font-bold tabular-nums">{value.toLocaleString("ja-JP")}円</p>
+      {prev !== undefined && (
+        <p className={`mt-0.5 text-xs tabular-nums ${strong ? "text-white/90" : "text-gray-500"}`}>
+          前年 {prev.toLocaleString("ja-JP")}円{prev ? `（前年比 ${(Math.round((value / prev) * 1000) / 10).toLocaleString("ja-JP")}%）` : ""}
+        </p>
+      )}
     </div>
   );
 }
