@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
+import { DayRangePicker, inDayRange, useDayRange } from "@/components/DayRange";
 import { Legend, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
 import { addDays, todayJST } from "@/lib/date";
 import { periodsOf, unitText, type UnitText } from "@/lib/period";
@@ -157,6 +158,8 @@ function Report({
   showEmpty: boolean;
   setShowEmpty: (v: boolean) => void;
 }) {
+  // 日ごとのグラフの範囲（年間・月間・週ごと）
+  const dr = useDayRange(year, rows.filter((r) => r.packs + r.berries > 0).at(-1)?.from);
   const withData = rows.filter((r) => r.packs + r.berries > 0);
   if (withData.length === 0) return <p className="mt-4 text-gray-500">{year}年の出荷の記録はまだありません。</p>;
   const tot = (f: (r: WeekRow) => number) => rows.reduce((n, r) => n + f(r), 0);
@@ -164,7 +167,7 @@ function Report({
   // グラフは、出荷があった最初の週から最後の週まで
   const first = rows.indexOf(withData[0]);
   const last = rows.indexOf(withData[withData.length - 1]);
-  const chartRows = rows.slice(first, last + 1).map((r) => ({ key: String(r.no), label: u.short(r.no), sub: u.week ? `${u.name(r.no)}（${u.span(r)}）` : u.name(r.no), values: r.byGroup }));
+  const chartRows = (u.day && dr.range.kind !== "year" ? rows.filter((r) => inDayRange(r.from, dr.range, year)) : rows.slice(first, last + 1)).map((r) => ({ key: String(r.no), label: u.short(r.no), sub: u.week ? `${u.name(r.no)}（${u.span(r)}）` : u.name(r.no), values: r.byGroup }));
   const series: Series[] = groups.map((g, i) => ({ key: g, label: g, color: SERIES_COLORS[i % SERIES_COLORS.length] }));
   const shown = showEmpty ? rows : rows.slice(first, last + 1);
   const best = withData.reduce((a, b) => (b.amount > a.amount ? b : a));
@@ -190,6 +193,7 @@ function Report({
       <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold">{u.each}の出荷金額</h2>
+          {u.day && <DayRangePicker year={year} state={dr} />}
           <Legend series={series} />
         </div>
         <p className="text-xs text-gray-500">{u.axisNote}棒を押すと、その{u.word}の金額と内訳が出ます。</p>
@@ -319,6 +323,7 @@ const METRICS: { key: Metric; label: string; unit: string }[] = [
 /** 前年との比較（同じ週・同じ月どうし） */
 function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: WeekRow[]; prev: WeekRow[] }) {
   const [metric, setMetric] = useState<Metric>("amount");
+  const dr = useDayRange(year, rows.filter((r) => r.packs + r.berries > 0).at(-1)?.from);
   const m = METRICS.find((x) => x.key === metric)!;
   const has = (r?: WeekRow) => !!r && r.packs + r.berries > 0;
   const n = Math.max(rows.length, prev.length);
@@ -328,6 +333,8 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
   const firstNo = active[0].no;
   const lastNo = active[active.length - 1].no;
   const range = all.filter((x) => x.no >= firstNo && x.no <= lastNo);
+  // 日ごとのグラフは、選んだ範囲（年間・月間・週ごと）だけ
+  const chartRange = u.day && dr.range.kind !== "year" ? all.filter((x) => x.a && inDayRange(x.a.from, dr.range, year)) : range;
   const val = (r: WeekRow | undefined) => (has(r) ? r![metric] : null);
   const fmt = (v: number) => (metric === "amount" ? `${num(v)}円` : `${num(v)}${m.unit}`);
   const sa = { key: "a", label: `${year}年`, color: SERIES_COLORS[0] };
@@ -366,12 +373,13 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
       <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold">{u.each}の{m.label}（{year}年と{year - 1}年）</h2>
+          {u.day && <DayRangePicker year={year} state={dr} />}
           <Legend series={[sa, sb]} />
         </div>
         <p className="text-xs text-gray-500">{u.axisNote}同じ{u.word}どうしを並べています。棒を押すと、その{u.word}の数字と前年比が出ます。</p>
         <div className="mt-2">
           <PairedColumns
-            rows={range.map((x) => ({ key: String(x.no), label: u.short(x.no), sub: u.week ? `${u.name(x.no)}（${md2(x.a)}）` : u.name(x.no), a: val(x.a), b: val(x.b) }))}
+            rows={chartRange.map((x) => ({ key: String(x.no), label: u.short(x.no), sub: u.week ? `${u.name(x.no)}（${md2(x.a)}）` : u.name(x.no), a: val(x.a), b: val(x.b) }))}
             a={sa}
             b={sb}
             fmt={fmt}

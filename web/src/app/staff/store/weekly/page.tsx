@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
+import { DayRangePicker, inDayRange, useDayRange } from "@/components/DayRange";
 import { Legend, NEUTRAL, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
 import { addDays, todayJST } from "@/lib/date";
 import { periodsOf, unitText, type UnitText } from "@/lib/period";
@@ -130,6 +131,8 @@ const COLS: { key: StoreKey; head: string; sub?: string }[] = [
 ];
 
 function Report({ u, year, rows, showEmpty, setShowEmpty }: { u: UnitText; year: number; rows: WeekRow[]; showEmpty: boolean; setShowEmpty: (v: boolean) => void }) {
+  // 日ごとのグラフの範囲（年間・月間・週ごと）
+  const dr = useDayRange(year, rows.filter(hasData).at(-1)?.from);
   const withData = rows.filter(hasData);
   if (withData.length === 0) return <p className="mt-4 text-gray-500">{year}年の店舗実績の記録はまだありません。</p>;
   const tot = (k: StoreKey) => rows.reduce((n, r) => n + r.v[k], 0);
@@ -148,7 +151,7 @@ function Report({ u, year, rows, showEmpty, setShowEmpty }: { u: UnitText; year:
     { key: "ichigo", label: "いちご狩り", color: SERIES_COLORS[2] },
     { key: "other", label: "その他（内訳なし）", color: NEUTRAL },
   ];
-  const chartRows = rows.slice(first, last + 1).map((r) => {
+  const chartRows = (u.day && dr.range.kind !== "year" ? rows.filter((r) => inDayRange(r.from, dr.range, year)) : rows.slice(first, last + 1)).map((r) => {
     const parts = r.v.direct + r.v.cafe + r.v.ichigo;
     return {
       key: String(r.no),
@@ -180,6 +183,7 @@ function Report({ u, year, rows, showEmpty, setShowEmpty }: { u: UnitText; year:
       <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold">{u.each}の売上</h2>
+          {u.day && <DayRangePicker year={year} state={dr} />}
           <Legend series={usedSeries} />
         </div>
         <p className="text-xs text-gray-500">
@@ -302,6 +306,7 @@ const METRICS: { key: StoreKey; label: string; unit: "円" | "人" }[] = [
 /** 前年との比較（同じ週・同じ月どうし） */
 function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: WeekRow[]; prev: WeekRow[] }) {
   const [metric, setMetric] = useState<StoreKey>("total");
+  const dr = useDayRange(year, rows.filter(hasData).at(-1)?.from);
   const m = METRICS.find((x) => x.key === metric)!;
   const n = Math.max(rows.length, prev.length);
   const all = Array.from({ length: n }, (_, i) => ({ no: i + 1, a: rows[i], b: prev[i] }));
@@ -310,6 +315,8 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
   const firstNo = active[0].no;
   const lastNo = active[active.length - 1].no;
   const range = all.filter((x) => x.no >= firstNo && x.no <= lastNo);
+  // 日ごとのグラフは、選んだ範囲（年間・月間・週ごと）だけ
+  const chartRange = u.day && dr.range.kind !== "year" ? all.filter((x) => x.a && inDayRange(x.a.from, dr.range, year)) : range;
   const val = (r: WeekRow | undefined) => (hasData(r) ? r!.v[metric] : null);
   const fmt = (v: number) => `${num(v)}${m.unit}`;
   const sa = { key: "a", label: `${year}年`, color: SERIES_COLORS[0] };
@@ -350,12 +357,13 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
           <h2 className="font-bold">
             {u.each}の{m.label}（{year}年と{year - 1}年）
           </h2>
+          {u.day && <DayRangePicker year={year} state={dr} />}
           <Legend series={[sa, sb]} />
         </div>
         <p className="text-xs text-gray-500">{u.axisNote}同じ{u.word}どうしを並べています。棒を押すと、その{u.word}の数字と前年比が出ます。</p>
         <div className="mt-2">
           <PairedColumns
-            rows={range.map((x) => ({ key: String(x.no), label: u.short(x.no), sub: u.week ? `${u.name(x.no)}（${md2(x.a)}）` : u.name(x.no), a: val(x.a), b: val(x.b) }))}
+            rows={chartRange.map((x) => ({ key: String(x.no), label: u.short(x.no), sub: u.week ? `${u.name(x.no)}（${md2(x.a)}）` : u.name(x.no), a: val(x.a), b: val(x.b) }))}
             a={sa}
             b={sb}
             fmt={fmt}
