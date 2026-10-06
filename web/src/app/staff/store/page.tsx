@@ -47,6 +47,9 @@ function StoreView() {
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">店舗実績</h1>
         <div className="flex flex-wrap gap-2">
+        <Link href={`/staff/store/weekly/?year=${year}&unit=day`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
+          実績集計（日ごと）
+        </Link>
         <Link href={`/staff/store/weekly/?year=${year}`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
           実績集計（週ごと）
         </Link>

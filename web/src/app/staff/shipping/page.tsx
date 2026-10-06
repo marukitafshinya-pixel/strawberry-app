@@ -61,6 +61,9 @@ function ShippingView() {
           出荷実績{config?.destination && <span className="ml-2 text-base font-normal text-gray-600">（{config.destination}）</span>}
         </h1>
         <div className="flex flex-wrap gap-2">
+        <Link href={`/staff/shipping/weekly/?year=${year}&unit=day`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
+          実績集計（日ごと）
+        </Link>
         <Link href={`/staff/shipping/weekly/?year=${year}`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
           実績集計（週ごと）
         </Link>
