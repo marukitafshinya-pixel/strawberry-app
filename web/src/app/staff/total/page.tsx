@@ -173,6 +173,9 @@ function Table({
   const others = OTHER_ITEMS.map((it) => MONTHS.map((m) => other[m]?.[it.key] ?? 0));
   const total = MONTHS.map((_, i) => uShip.values[i] + uStoreSub[i] + others.reduce((n, o) => n + o[i], 0));
   const totalFc = MONTHS.map((_, i) => uShip.isFc[i] || storeFc[i]);
+  // いちごの合計：出荷と店舗を足したもの
+  const ichigoTotal = MONTHS.map((_, i) => uShip.values[i] + uStoreSub[i]);
+  const prevIchigoTotal = MONTHS.map((_, i) => prevShip[i] + prev.sub[i]);
 
   const rows: Row[] = [
     { key: "ship", label: "出荷（いちご）", fkey: "ship", ...uShip, prev: prevShip },
@@ -180,6 +183,7 @@ function Table({
     { key: "cafe", label: "カフェ", indent: true, fkey: "cafe", ...uCafe, prev: prev.cafe },
     { key: "ichigo", label: "いちご狩り", indent: true, fkey: "ichigo", ...uIchigo, prev: prev.ichigo },
     { key: "storeSub", label: "店舗 小計", values: uStoreSub, strong: "sub", isFc: storeFc, prev: prev.sub },
+    { key: "ichigoTotal", label: "いちご 合計（出荷＋店舗）", values: ichigoTotal, strong: "sub", isFc: totalFc, prev: prevIchigoTotal },
     ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key, prev: prevOthers[i] })),
     { key: "total", label: "合計", values: total, strong: "total", isFc: totalFc, prev: prevTotal },
   ];
@@ -224,10 +228,11 @@ function Table({
 
   return (
     <>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Tile label="年の合計" value={sum(total)} strong prev={sum(prevTotal)} />
         <Tile label="出荷（いちご）" value={sum(uShip.values)} prev={sum(prevShip)} />
         <Tile label="店舗 小計" value={sum(uStoreSub)} prev={sum(prev.sub)} />
+        <Tile label="いちご 合計（出荷＋店舗）" value={sum(ichigoTotal)} prev={sum(prevIchigoTotal)} />
         <Tile label="玉ねぎ・そば・委託ほか" value={sum(others.flat())} prev={sum(prevOthers.flat())} />
       </div>
       <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
@@ -245,7 +250,7 @@ function Table({
           </thead>
           <tbody>
             {rows.map((r) => {
-              const bg = r.strong === "total" ? "bg-berry/10" : r.strong === "sub" ? "bg-gray-50" : "bg-white";
+              const bg = r.strong === "total" ? "bg-berry/10" : r.key === "ichigoTotal" ? "bg-rose-50" : r.strong === "sub" ? "bg-gray-50" : "bg-white";
               return (
                 <tr key={r.key} className={`border-t ${r.strong ? "font-bold" : ""} ${r.strong === "total" ? "border-t-2" : ""}`}>
                   <th className={`sticky left-0 z-10 whitespace-nowrap px-2 py-1.5 text-left font-[inherit] ${bg} ${r.indent ? "pl-6 font-normal text-gray-700" : ""}`}>
