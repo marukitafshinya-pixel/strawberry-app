@@ -372,7 +372,9 @@ export function PairedColumns({
 }
 
 /** 気象の線・棒（出荷などのグラフの下に、同じ日付の列をそろえて並べる） */
-export type WeatherRow = { key: string; label: string; sub?: string; values: Partial<Record<"tAvg" | "tMax" | "tMin" | "precip" | "sun", number | null>> };
+type WeatherValues = Partial<Record<"tAvg" | "tMax" | "tMin" | "precip" | "sun", number | null>>;
+/** values＝今年、prev＝前年の同じ日・週・月（前年と比べるときだけ） */
+export type WeatherRow = { key: string; label: string; sub?: string; values: WeatherValues; prev?: WeatherValues };
 const WEATHER_STYLE = {
   tMax: { label: "最高気温", color: "#e34948", unit: "℃" },
   tAvg: { label: "平均気温", color: "#eb6834", unit: "℃" },
@@ -386,7 +388,20 @@ type WKey = keyof typeof WEATHER_STYLE;
  * 気象のグラフ。上のグラフ（StackedColumns）と同じ左右の余白・列の幅なので、日付の列がそろう。
  * 単位が違うものは同じ目盛りにしない：気温（℃）・降水量（mm）・日照時間（h）は、それぞれ別の段にする
  */
-export function WeatherStrip({ rows, show, width = 640, padL = 44 }: { rows: WeatherRow[]; show: WKey[]; width?: number; padL?: number }) {
+export function WeatherStrip({
+  rows,
+  show,
+  width = 640,
+  padL = 44,
+  compare,
+}: {
+  rows: WeatherRow[];
+  show: WKey[];
+  width?: number;
+  padL?: number;
+  /** 前年と比べるとき：今年・前年の呼び名 */
+  compare?: { a: string; b: string };
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const [box, W] = useWidth<HTMLDivElement>(width);
   const pad = { l: padL, r: 8 };
@@ -408,7 +423,7 @@ export function WeatherStrip({ rows, show, width = 640, padL = 44 }: { rows: Wea
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="気象のグラフ" onPointerLeave={() => setHover(null)}>
         {panels.map((p, pi) => {
           const y0 = top + pi * (PH + 14);
-          const vals = rows.flatMap((r) => p.keys.map((k) => r.values[k])).filter((v): v is number => typeof v === "number");
+          const vals = rows.flatMap((r) => p.keys.flatMap((k) => [r.values[k], compare ? r.prev?.[k] : null])).filter((v): v is number => typeof v === "number");
           let lo = p.kind === "temp" ? Math.floor(Math.min(...vals, 0) / 5) * 5 : 0;
           let hi = p.kind === "temp" ? Math.ceil(Math.max(...vals, 10) / 5) * 5 : niceMax(Math.max(1, ...vals));
           if (!vals.length) {
@@ -429,42 +444,61 @@ export function WeatherStrip({ rows, show, width = 640, padL = 44 }: { rows: Wea
                 </g>
               ))}
               {p.kind === "temp"
-                ? p.keys.map((k) => {
-                    // 値のない日で線を切る
-                    const segs: string[] = [];
-                    let cur = "";
-                    rows.forEach((r, i) => {
-                      const v = r.values[k];
-                      if (typeof v !== "number") {
-                        if (cur) segs.push(cur);
-                        cur = "";
-                        return;
-                      }
-                      cur += `${cur ? "L" : "M"}${cx(i)},${y(v)} `;
-                    });
-                    if (cur) segs.push(cur);
-                    return (
-                      <g key={k}>
-                        {segs.map((d, j) => (
-                          <path key={j} d={d} fill="none" stroke={WEATHER_STYLE[k].color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-                        ))}
-                        {/* 列が広いとき（月ごとなど）は点も打つ。1つだけの値でも見えるように */}
-                        {slot >= 24 &&
-                          rows.map((r, i) =>
-                            typeof r.values[k] === "number" ? <circle key={r.key} cx={cx(i)} cy={y(r.values[k]!)} r={3.5} fill={WEATHER_STYLE[k].color} stroke={SURFACE} strokeWidth={1.5} /> : null,
+                ? p.keys.flatMap((k) =>
+                    (compare ? (["prev", "values"] as const) : (["values"] as const)).map((which) => {
+                      const get = (r: WeatherRow) => (which === "prev" ? r.prev?.[k] : r.values[k]);
+                      const isPrev = which === "prev";
+                      // 値のない日で線を切る
+                      const segs: string[] = [];
+                      let cur = "";
+                      rows.forEach((r, i) => {
+                        const v = get(r);
+                        if (typeof v !== "number") {
+                          if (cur) segs.push(cur);
+                          cur = "";
+                          return;
+                        }
+                        cur += `${cur ? "L" : "M"}${cx(i)},${y(v)} `;
+                      });
+                      if (cur) segs.push(cur);
+                      const color = WEATHER_STYLE[k].color;
+                      return (
+                        <g key={`${k}-${which}`} opacity={isPrev ? 0.7 : 1}>
+                          {segs.map((d, j) => (
+                            <path key={j} d={d} fill="none" stroke={color} strokeWidth={isPrev ? 1.5 : 2} strokeDasharray={isPrev ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" />
+                          ))}
+                          {/* 列が広いとき（月ごとなど）は点も打つ。1つだけの値でも見えるように。前年は白抜き */}
+                          {slot >= 24 &&
+                            rows.map((r, i) => {
+                              const v = get(r);
+                              return typeof v === "number" ? (
+                                <circle key={r.key} cx={cx(i)} cy={y(v)} r={3.5} fill={isPrev ? SURFACE : color} stroke={isPrev ? color : SURFACE} strokeWidth={1.5} />
+                              ) : null;
+                            })}
+                          {hover !== null && typeof get(rows[hover]) === "number" && (
+                            <circle cx={cx(hover)} cy={y(get(rows[hover])!)} r={4} fill={isPrev ? SURFACE : color} stroke={isPrev ? color : SURFACE} strokeWidth={2} />
                           )}
-                        {hover !== null && typeof rows[hover]?.values[k] === "number" && (
-                          <circle cx={cx(hover)} cy={y(rows[hover].values[k]!)} r={4} fill={WEATHER_STYLE[k].color} stroke={SURFACE} strokeWidth={2} />
-                        )}
-                      </g>
-                    );
-                  })
-                : rows.map((r, i) => {
-                    const v = r.values[p.keys[0]];
-                    if (typeof v !== "number" || v <= 0) return null;
-                    const bw = Math.max(2, Math.min(20, slot * 0.6));
-                    const h = y0 + PH - y(v);
-                    return <path key={r.key} d={topRoundedRect(cx(i) - bw / 2, y(v), bw, h, 3)} fill={WEATHER_STYLE[p.keys[0]].color} opacity={hover === null || hover === i ? 1 : 0.55} />;
+                        </g>
+                      );
+                    }),
+                  )
+                : rows.flatMap((r, i) => {
+                    const k = p.keys[0];
+                    const color = WEATHER_STYLE[k].color;
+                    const full = Math.max(2, Math.min(20, slot * 0.6));
+                    // 前年と比べるときは、左に前年（薄い色）・右に今年を並べる
+                    const bars = compare
+                      ? [
+                          { v: r.prev?.[k], x: cx(i) - full / 2 - 1, w: full / 2, prev: true },
+                          { v: r.values[k], x: cx(i) + 1, w: full / 2, prev: false },
+                        ]
+                      : [{ v: r.values[k], x: cx(i) - full / 2, w: full, prev: false }];
+                    return bars.map((b) => {
+                      if (typeof b.v !== "number" || b.v <= 0) return null;
+                      const h = y0 + PH - y(b.v);
+                      const dim = hover === null || hover === i ? 1 : 0.55;
+                      return <path key={`${r.key}-${b.prev}`} d={topRoundedRect(b.x, y(b.v), Math.max(1.5, b.w), h, Math.min(3, b.w / 2))} fill={color} opacity={(b.prev ? 0.4 : 1) * dim} />;
+                    });
                   })}
               <line x1={pad.l} x2={W - pad.r} y1={y0 + PH} y2={y0 + PH} stroke="#bdbbb4" strokeWidth={1} />
             </g>
@@ -486,15 +520,25 @@ export function WeatherStrip({ rows, show, width = 640, padL = 44 }: { rows: Wea
       </svg>
       {hover !== null && (
         <Tooltip x={(cx(hover) / W) * 100}>
-          <div className="text-xs text-gray-500">{rows[hover].sub ?? rows[hover].label}</div>
+          <div className="text-xs text-gray-500">
+            {rows[hover].sub ?? rows[hover].label}
+            {compare && `（${compare.a}）`}
+          </div>
           <ul className="mt-1 space-y-0.5">
             {show.map((k) => {
               const v = rows[hover].values[k];
+              const pv = rows[hover].prev?.[k];
+              const f = (x: number | null | undefined) => (typeof x === "number" ? `${num(x)}${WEATHER_STYLE[k].unit}` : "－");
               return (
                 <li key={k} className="flex items-center gap-2 text-xs">
                   <Swatch k={k} />
-                  <span className="font-semibold">{typeof v === "number" ? `${num(v)}${WEATHER_STYLE[k].unit}` : "－"}</span>
                   <span className="text-gray-500">{WEATHER_STYLE[k].label}</span>
+                  <span className="font-semibold">{f(v)}</span>
+                  {compare && (
+                    <span className="text-gray-500">
+                      （{compare.b} {f(pv)}）
+                    </span>
+                  )}
                 </li>
               );
             })}
@@ -511,8 +555,20 @@ function Swatch({ k }: { k: WKey }) {
   return <span className={`inline-block ${bar ? "h-2.5 w-2.5 rounded-sm" : "h-0.5 w-3"}`} style={{ background: WEATHER_STYLE[k].color }} />;
 }
 
-/** 重ねる気象の項目を選ぶチェックボックス */
-export function WeatherPicker({ show, onChange }: { show: WKey[]; onChange: (v: WKey[]) => void }) {
+/** 重ねる気象の項目を選ぶチェックボックス。「前年と比較」で、選んだ項目の前年も並べる */
+export function WeatherPicker({
+  show,
+  onChange,
+  compare,
+  onCompare,
+  year,
+}: {
+  show: WKey[];
+  onChange: (v: WKey[]) => void;
+  compare?: boolean;
+  onCompare?: (v: boolean) => void;
+  year?: number;
+}) {
   const order: WKey[] = ["tAvg", "tMax", "tMin", "precip", "sun"];
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -524,6 +580,30 @@ export function WeatherPicker({ show, onChange }: { show: WKey[]; onChange: (v: 
           {WEATHER_STYLE[k].label}
         </label>
       ))}
+      {onCompare && (
+        <label className="ml-2 flex items-center gap-1 border-l pl-3 font-semibold">
+          <input type="checkbox" checked={!!compare} onChange={(e) => onCompare(e.target.checked)} />
+          前年と比較
+        </label>
+      )}
+      {compare && show.length > 0 && year && (
+        <span className="flex items-center gap-3 text-xs text-gray-600">
+          <span className="flex items-center gap-1">
+            <svg width="22" height="8" aria-hidden>
+              <line x1="1" x2="21" y1="4" y2="4" stroke="#6b6a64" strokeWidth="2" />
+            </svg>
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#6b6a64]" />
+            {year}年
+          </span>
+          <span className="flex items-center gap-1">
+            <svg width="22" height="8" aria-hidden>
+              <line x1="1" x2="21" y1="4" y2="4" stroke="#6b6a64" strokeWidth="1.5" strokeDasharray="5 4" />
+            </svg>
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#6b6a64] opacity-40" />
+            {year - 1}年
+          </span>
+        </span>
+      )}
     </div>
   );
 }

@@ -79,22 +79,39 @@ export function weatherOfSpan(months: WeatherMonth[], from: string, to: string):
 }
 
 const SHOW_KEY = "ichigo.weatherShow";
+const CMP_KEY = "ichigo.weatherCompare";
 const ALL_KEYS: WeatherKey[] = ["tAvg", "tMax", "tMin", "precip", "sun"];
 
-/** グラフに並べる気象の項目（チェックボックス）。この端末に覚えておく */
+const load = (key: string) => {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? "null");
+  } catch {
+    return null;
+  }
+};
+const store = (key: string, v: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {}
+};
+
+/** グラフに並べる気象の項目（チェックボックス）と「前年と比較」。この端末に覚えておく */
 export function useWeatherShow() {
   const [show, setShow] = useState<WeatherKey[]>(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(SHOW_KEY) ?? "null");
-      if (Array.isArray(v)) return ALL_KEYS.filter((k) => v.includes(k));
-    } catch {}
-    return [];
+    const v = load(SHOW_KEY);
+    return Array.isArray(v) ? ALL_KEYS.filter((k) => v.includes(k)) : [];
   });
-  const change = (v: WeatherKey[]) => {
-    setShow(v);
-    try {
-      localStorage.setItem(SHOW_KEY, JSON.stringify(v));
-    } catch {}
+  const [compare, setCompare] = useState<boolean>(() => load(CMP_KEY) === true);
+  return {
+    show,
+    setShow: (v: WeatherKey[]) => {
+      setShow(v);
+      store(SHOW_KEY, v);
+    },
+    compare,
+    setCompare: (v: boolean) => {
+      setCompare(v);
+      store(CMP_KEY, v);
+    },
   };
-  return [show, change] as const;
 }
