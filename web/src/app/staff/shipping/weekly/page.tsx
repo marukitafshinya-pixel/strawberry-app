@@ -208,7 +208,7 @@ function Report({
         </div>
         <p className="text-xs text-gray-500">{u.axisNote}棒を押すと、その{u.word}の金額と内訳が出ます。</p>
         <div className="mt-2">
-          <StackedColumns rows={chartRows} series={series} ariaLabel={`${year}年 ${u.each}の出荷金額`} height={260} />
+          <StackedColumns rows={chartRows} series={series} ariaLabel={`${year}年 ${u.each}の出荷金額`} height={380} />
         </div>
         <WeatherPanel u={u} wx={wx} periods={chartBase} prevPeriods={chartBase.map((r) => prevWeeks.find((w) => w.no === r.no))} labels={chartRows} />
       </section>
@@ -396,7 +396,7 @@ function Compare({ u, year, rows, prev, wx }: { u: UnitText; year: number; rows:
             fmt={fmt}
             axis={(v) => (metric === "amount" ? yenShort(v) : num(v))}
             ariaLabel={`${u.each}の${m.label}の前年との比較`}
-            height={260}
+            height={380}
           />
         </div>
         <WeatherPanel

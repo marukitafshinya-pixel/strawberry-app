@@ -26,7 +26,7 @@ const GRID = "#e6e4df";
 const TEXT_MUTED = "#6b6a65";
 const SURFACE = "#ffffff";
 
-export const yenShort = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}万` : n.toLocaleString("ja-JP"));
+export const yenShort = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "")}万` : n.toLocaleString("ja-JP"));
 const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 
 export type Series = { key: string; label: string; color: string };
@@ -42,6 +42,28 @@ function niceMax(v: number): number {
   const p = 10 ** Math.floor(Math.log10(v));
   for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
+}
+
+/**
+ * 縦軸の目盛り。いちばん高い値のすぐ上で軸が終わるよう、きりのよい間隔（1・2・2.5・5 × 10のn乗）から
+ * 余白がいちばん少なくなるものを選ぶ（目盛りは3〜10本）。整数だけにするときは int を true に
+ */
+export function tightTicks(v: number, int = false): number[] {
+  if (v <= 0) return int ? [0, 2, 4] : [0, 500, 1000];
+  let best: { top: number; step: number } | null = null;
+  const e = Math.floor(Math.log10(v));
+  for (let k = e - 2; k <= e + 1; k++) {
+    for (const m of [1, 2, 2.5, 5]) {
+      const step = m * 10 ** k;
+      if (int && !Number.isInteger(step)) continue;
+      const n = Math.ceil(v / step);
+      if (n < 3 || n > 10) continue;
+      const top = n * step;
+      if (!best || top < best.top || (top === best.top && step > best.step)) best = { top, step };
+    }
+  }
+  if (!best) best = { top: niceMax(v), step: niceMax(v) / 2 };
+  return Array.from({ length: Math.round(best.top / best.step) + 1 }, (_, i) => Math.round(i * best!.step * 1000) / 1000);
 }
 
 /** グラフの上に出す説明の吹き出し */
@@ -98,13 +120,13 @@ export function StackedColumns({
   const pad = { l: 44, r: 8, t: 12, b: 24 };
   const totals = rows.map((r) => series.reduce((n, s) => n + (r.values[s.key] ?? 0), 0));
   // 人数のときは、目盛りが整数になるよう偶数にそろえる
-  const max = unit === "円" ? niceMax(Math.max(0, ...totals)) : Math.max(4, Math.ceil(niceMax(Math.max(0, ...totals)) / 2) * 2);
+  const ticks = tightTicks(Math.max(0, ...totals), unit !== "円");
+  const max = ticks[ticks.length - 1];
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
   const slot = plotW / Math.max(1, rows.length);
   const barW = Math.max(3, Math.min(28, slot * 0.7));
   const y = (v: number) => pad.t + plotH - (v / max) * plotH;
-  const ticks = [0, max / 2, max];
   // ラベルが重ならないよう、項目が多いときは間引く
   const labelEvery = Math.max(1, Math.ceil((rows.length * 26) / plotW));
 
@@ -295,14 +317,14 @@ export function PairedColumns({
   const [box, W] = useWidth<HTMLDivElement>(640);
   const H = height;
   const pad = { l: 48, r: 8, t: 12, b: 24 };
-  const max = niceMax(Math.max(0, ...rows.flatMap((r) => [r.a ?? 0, r.b ?? 0])));
+  const ticks = tightTicks(Math.max(0, ...rows.flatMap((r) => [r.a ?? 0, r.b ?? 0])));
+  const max = ticks[ticks.length - 1];
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
   const slot = plotW / Math.max(1, rows.length);
   // 2本の棒の間に2pxのすき間
   const barW = Math.max(3, Math.min(22, (slot * 0.8 - 2) / 2));
   const y = (v: number) => pad.t + plotH - (Math.max(0, v) / max) * plotH;
-  const ticks = [0, max / 2, max];
   const pct = (x: number | null, base: number | null) => (x !== null && base ? `${Math.round((x / base) * 100)}%` : "－");
 
   return (
