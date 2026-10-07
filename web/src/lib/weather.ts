@@ -64,3 +64,37 @@ export function aggregate(values: (number | null | undefined)[], agg: "sum" | "a
   if (agg === "avg") return Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10;
   return agg === "max" ? Math.max(...v) : Math.min(...v);
 }
+
+/** 期間（from〜to の日）の気象の値。気温はその期間の平均、降水量・日照時間は合計 */
+export function weatherOfSpan(months: WeatherMonth[], from: string, to: string): Partial<Record<WeatherKey, number | null>> {
+  const list: WeatherDay[] = [];
+  for (const m of months) {
+    for (const [d, v] of Object.entries(m.days)) {
+      const date = `${m.month}-${d}`;
+      if (date >= from && date <= to) list.push(v);
+    }
+  }
+  const pick = (k: WeatherKey, agg: "sum" | "avg") => aggregate(list.map((v) => v[k]), agg);
+  return { tAvg: pick("tAvg", "avg"), tMax: pick("tMax", "avg"), tMin: pick("tMin", "avg"), precip: pick("precip", "sum"), sun: pick("sun", "sum") };
+}
+
+const SHOW_KEY = "ichigo.weatherShow";
+const ALL_KEYS: WeatherKey[] = ["tAvg", "tMax", "tMin", "precip", "sun"];
+
+/** グラフに並べる気象の項目（チェックボックス）。この端末に覚えておく */
+export function useWeatherShow() {
+  const [show, setShow] = useState<WeatherKey[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SHOW_KEY) ?? "null");
+      if (Array.isArray(v)) return ALL_KEYS.filter((k) => v.includes(k));
+    } catch {}
+    return [];
+  });
+  const change = (v: WeatherKey[]) => {
+    setShow(v);
+    try {
+      localStorage.setItem(SHOW_KEY, JSON.stringify(v));
+    } catch {}
+  };
+  return [show, change] as const;
+}

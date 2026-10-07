@@ -370,3 +370,161 @@ export function PairedColumns({
     </div>
   );
 }
+
+/** 気象の線・棒（出荷などのグラフの下に、同じ日付の列をそろえて並べる） */
+export type WeatherRow = { key: string; label: string; sub?: string; values: Partial<Record<"tAvg" | "tMax" | "tMin" | "precip" | "sun", number | null>> };
+const WEATHER_STYLE = {
+  tMax: { label: "最高気温", color: "#e34948", unit: "℃" },
+  tAvg: { label: "平均気温", color: "#eb6834", unit: "℃" },
+  tMin: { label: "最低気温", color: "#2a78d6", unit: "℃" },
+  precip: { label: "降水量", color: "#4a3aa7", unit: "mm" },
+  sun: { label: "日照時間", color: "#eda100", unit: "h" },
+} as const;
+type WKey = keyof typeof WEATHER_STYLE;
+
+/**
+ * 気象のグラフ。上のグラフ（StackedColumns）と同じ左右の余白・列の幅なので、日付の列がそろう。
+ * 単位が違うものは同じ目盛りにしない：気温（℃）・降水量（mm）・日照時間（h）は、それぞれ別の段にする
+ */
+export function WeatherStrip({ rows, show, width = 640, padL = 44 }: { rows: WeatherRow[]; show: WKey[]; width?: number; padL?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [box, W] = useWidth<HTMLDivElement>(width);
+  const pad = { l: padL, r: 8 };
+  const plotW = W - pad.l - pad.r;
+  const slot = plotW / Math.max(1, rows.length);
+  const cx = (i: number) => pad.l + slot * i + slot / 2;
+  const temps = (["tMax", "tAvg", "tMin"] as const).filter((k) => show.includes(k));
+  const panels: { kind: "temp" | "precip" | "sun"; keys: WKey[] }[] = [];
+  if (temps.length) panels.push({ kind: "temp", keys: temps });
+  if (show.includes("precip")) panels.push({ kind: "precip", keys: ["precip"] });
+  if (show.includes("sun")) panels.push({ kind: "sun", keys: ["sun"] });
+  const PH = 96;
+  const top = 8;
+  const H = panels.length * (PH + 14) + 6;
+  const num = (v: number) => v.toLocaleString("ja-JP", { maximumFractionDigits: 1 });
+
+  return (
+    <div className="relative" ref={box}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="気象のグラフ" onPointerLeave={() => setHover(null)}>
+        {panels.map((p, pi) => {
+          const y0 = top + pi * (PH + 14);
+          const vals = rows.flatMap((r) => p.keys.map((k) => r.values[k])).filter((v): v is number => typeof v === "number");
+          let lo = p.kind === "temp" ? Math.floor(Math.min(...vals, 0) / 5) * 5 : 0;
+          let hi = p.kind === "temp" ? Math.ceil(Math.max(...vals, 10) / 5) * 5 : niceMax(Math.max(1, ...vals));
+          if (!vals.length) {
+            lo = 0;
+            hi = p.kind === "temp" ? 30 : 10;
+          }
+          const y = (v: number) => y0 + PH - ((v - lo) / (hi - lo || 1)) * PH;
+          const unit = WEATHER_STYLE[p.keys[0]].unit;
+          return (
+            <g key={p.kind}>
+              {[lo, (lo + hi) / 2, hi].map((t) => (
+                <g key={t}>
+                  <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
+                  <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
+                    {num(t)}
+                    {t === hi ? unit : ""}
+                  </text>
+                </g>
+              ))}
+              {p.kind === "temp"
+                ? p.keys.map((k) => {
+                    // 値のない日で線を切る
+                    const segs: string[] = [];
+                    let cur = "";
+                    rows.forEach((r, i) => {
+                      const v = r.values[k];
+                      if (typeof v !== "number") {
+                        if (cur) segs.push(cur);
+                        cur = "";
+                        return;
+                      }
+                      cur += `${cur ? "L" : "M"}${cx(i)},${y(v)} `;
+                    });
+                    if (cur) segs.push(cur);
+                    return (
+                      <g key={k}>
+                        {segs.map((d, j) => (
+                          <path key={j} d={d} fill="none" stroke={WEATHER_STYLE[k].color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                        ))}
+                        {/* 列が広いとき（月ごとなど）は点も打つ。1つだけの値でも見えるように */}
+                        {slot >= 24 &&
+                          rows.map((r, i) =>
+                            typeof r.values[k] === "number" ? <circle key={r.key} cx={cx(i)} cy={y(r.values[k]!)} r={3.5} fill={WEATHER_STYLE[k].color} stroke={SURFACE} strokeWidth={1.5} /> : null,
+                          )}
+                        {hover !== null && typeof rows[hover]?.values[k] === "number" && (
+                          <circle cx={cx(hover)} cy={y(rows[hover].values[k]!)} r={4} fill={WEATHER_STYLE[k].color} stroke={SURFACE} strokeWidth={2} />
+                        )}
+                      </g>
+                    );
+                  })
+                : rows.map((r, i) => {
+                    const v = r.values[p.keys[0]];
+                    if (typeof v !== "number" || v <= 0) return null;
+                    const bw = Math.max(2, Math.min(20, slot * 0.6));
+                    const h = y0 + PH - y(v);
+                    return <path key={r.key} d={topRoundedRect(cx(i) - bw / 2, y(v), bw, h, 3)} fill={WEATHER_STYLE[p.keys[0]].color} opacity={hover === null || hover === i ? 1 : 0.55} />;
+                  })}
+              <line x1={pad.l} x2={W - pad.r} y1={y0 + PH} y2={y0 + PH} stroke="#bdbbb4" strokeWidth={1} />
+            </g>
+          );
+        })}
+        {hover !== null && <line x1={cx(hover)} x2={cx(hover)} y1={top} y2={H - 6} stroke="#9a988f" strokeWidth={1} strokeDasharray="3 3" />}
+        {rows.map((r, i) => (
+          <rect
+            key={r.key}
+            x={pad.l + slot * i}
+            y={0}
+            width={slot}
+            height={H}
+            fill="transparent"
+            onPointerEnter={() => setHover(i)}
+            onPointerDown={() => setHover(i)}
+          />
+        ))}
+      </svg>
+      {hover !== null && (
+        <Tooltip x={(cx(hover) / W) * 100}>
+          <div className="text-xs text-gray-500">{rows[hover].sub ?? rows[hover].label}</div>
+          <ul className="mt-1 space-y-0.5">
+            {show.map((k) => {
+              const v = rows[hover].values[k];
+              return (
+                <li key={k} className="flex items-center gap-2 text-xs">
+                  <Swatch k={k} />
+                  <span className="font-semibold">{typeof v === "number" ? `${num(v)}${WEATHER_STYLE[k].unit}` : "－"}</span>
+                  <span className="text-gray-500">{WEATHER_STYLE[k].label}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+/** 線（気温）は細い線、棒（降水量・日照時間）は四角で見せる */
+function Swatch({ k }: { k: WKey }) {
+  const bar = k === "precip" || k === "sun";
+  return <span className={`inline-block ${bar ? "h-2.5 w-2.5 rounded-sm" : "h-0.5 w-3"}`} style={{ background: WEATHER_STYLE[k].color }} />;
+}
+
+/** 重ねる気象の項目を選ぶチェックボックス */
+export function WeatherPicker({ show, onChange }: { show: WKey[]; onChange: (v: WKey[]) => void }) {
+  const order: WKey[] = ["tAvg", "tMax", "tMin", "precip", "sun"];
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+      <span className="text-xs text-gray-500">気象を並べる：</span>
+      {order.map((k) => (
+        <label key={k} className="flex items-center gap-1">
+          <input type="checkbox" checked={show.includes(k)} onChange={(e) => onChange(e.target.checked ? order.filter((x) => x === k || show.includes(x)) : show.filter((x) => x !== k))} />
+          <Swatch k={k} />
+          {WEATHER_STYLE[k].label}
+        </label>
+      ))}
+    </div>
+  );
+}
+export type WeatherKey5 = WKey;

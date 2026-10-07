@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { DayRangePicker, inDayRange, useDayRange } from "@/components/DayRange";
-import { Legend, PairedColumns, SERIES_COLORS, StackedColumns, yenShort, type Series } from "@/components/charts";
+import { Legend, PairedColumns, SERIES_COLORS, StackedColumns, WeatherPicker, WeatherStrip, yenShort, type Series } from "@/components/charts";
 import { addDays, todayJST } from "@/lib/date";
 import { periodsOf, unitText, type UnitText } from "@/lib/period";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { useWeatherMonths, useWeatherShow, weatherOfSpan, type WeatherMonth } from "@/lib/weather";
 
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 const num = (n: number) => n.toLocaleString("ja-JP");
@@ -87,6 +88,10 @@ function WeeklyView() {
     return { rows: computeRows(weeks, days, grades), grades, groups };
   }, [days, config, weeks]);
   const prevRows = useMemo(() => (prevDays && config ? computeRows(prevWeeks, prevDays, config.grades) : null), [prevDays, config, prevWeeks]);
+  // 気象データ（グラフの下に並べる）
+  const weather = useWeatherMonths(weeks[0].from.slice(0, 7), weeks[weeks.length - 1].to.slice(0, 7));
+  const [wShow, setWShow] = useWeatherShow();
+  const wx = { months: weather, show: wShow, setShow: setWShow };
   const go = (yy: number, cmp: boolean, unit = u.unit) => router.replace(`/staff/shipping/weekly/?year=${yy}${cmp ? "&view=compare" : ""}${unit !== "week" ? `&unit=${unit}` : ""}`);
 
   return (
@@ -132,9 +137,9 @@ function WeeklyView() {
       {!data || (compare && !prevRows) ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : compare ? (
-        <Compare u={u} year={year} rows={data.rows} prev={prevRows!} />
+        <Compare u={u} year={year} rows={data.rows} prev={prevRows!} wx={wx} />
       ) : (
-        <Report u={u} year={year} {...data} showEmpty={showEmpty} setShowEmpty={setShowEmpty} />
+        <Report u={u} year={year} {...data} showEmpty={showEmpty} setShowEmpty={setShowEmpty} wx={wx} />
       )}
       <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } body { background: #fff !important; } }`}</style>
     </>
@@ -149,6 +154,7 @@ function Report({
   groups,
   showEmpty,
   setShowEmpty,
+  wx,
 }: {
   u: UnitText;
   year: number;
@@ -157,6 +163,7 @@ function Report({
   groups: string[];
   showEmpty: boolean;
   setShowEmpty: (v: boolean) => void;
+  wx: WeatherProps;
 }) {
   // 日ごとのグラフの範囲（年間・月間・週ごと）
   const dr = useDayRange(year, rows.filter((r) => r.packs + r.berries > 0).at(-1)?.from);
@@ -167,7 +174,8 @@ function Report({
   // グラフは、出荷があった最初の週から最後の週まで
   const first = rows.indexOf(withData[0]);
   const last = rows.indexOf(withData[withData.length - 1]);
-  const chartRows = (u.day && dr.range.kind !== "year" ? rows.filter((r) => inDayRange(r.from, dr.range, year)) : rows.slice(first, last + 1)).map((r) => ({ key: String(r.no), label: u.short(r.no), sub: u.week ? `${u.name(r.no)}（${u.span(r)}）` : u.name(r.no), values: r.byGroup }));
+  const chartBase = u.day && dr.range.kind !== "year" ? rows.filter((r) => inDayRange(r.from, dr.range, year)) : rows.slice(first, last + 1);
+  const chartRows = chartBase.map((r) => ({ key: String(r.no), label: u.short(r.no), sub: u.week ? `${u.name(r.no)}（${u.span(r)}）` : u.name(r.no), values: r.byGroup }));
   const series: Series[] = groups.map((g, i) => ({ key: g, label: g, color: SERIES_COLORS[i % SERIES_COLORS.length] }));
   const shown = showEmpty ? rows : rows.slice(first, last + 1);
   const best = withData.reduce((a, b) => (b.amount > a.amount ? b : a));
@@ -200,6 +208,7 @@ function Report({
         <div className="mt-2">
           <StackedColumns rows={chartRows} series={series} ariaLabel={`${year}年 ${u.each}の出荷金額`} height={260} />
         </div>
+        <WeatherPanel u={u} wx={wx} periods={chartBase} labels={chartRows} />
       </section>
 
       <section className="mt-4 overflow-x-auto rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
@@ -321,7 +330,7 @@ const METRICS: { key: Metric; label: string; unit: string }[] = [
 ];
 
 /** 前年との比較（同じ週・同じ月どうし） */
-function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: WeekRow[]; prev: WeekRow[] }) {
+function Compare({ u, year, rows, prev, wx }: { u: UnitText; year: number; rows: WeekRow[]; prev: WeekRow[]; wx: WeatherProps }) {
   const [metric, setMetric] = useState<Metric>("amount");
   const dr = useDayRange(year, rows.filter((r) => r.packs + r.berries > 0).at(-1)?.from);
   const m = METRICS.find((x) => x.key === metric)!;
@@ -388,6 +397,14 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
             height={260}
           />
         </div>
+        <WeatherPanel
+          u={u}
+          wx={wx}
+          padL={48}
+          note={`気象は${year}年の値です。`}
+          periods={chartRange.map((x) => x.a)}
+          labels={chartRange.map((x) => ({ key: String(x.no), label: u.short(x.no), sub: u.week ? `${u.name(x.no)}（${md2(x.a)}）` : u.name(x.no) }))}
+        />
       </section>
 
       <section className="mt-4 overflow-x-auto rounded-2xl bg-white p-4 shadow-sm print:shadow-none">
@@ -441,5 +458,52 @@ function Compare({ u, year, rows, prev }: { u: UnitText; year: number; rows: Wee
       </section>
       <div className="h-8" />
     </>
+  );
+}
+
+type WeatherProps = { months: WeatherMonth[] | null; show: ReturnType<typeof useWeatherShow>[0]; setShow: ReturnType<typeof useWeatherShow>[1] };
+
+/** 出荷のグラフの下に、同じ日付（週・月）の気象を並べる。気温・降水量・日照時間は単位が違うので、それぞれ別の段にする */
+function WeatherPanel({
+  u,
+  wx,
+  periods,
+  labels,
+  padL,
+  note,
+}: {
+  u: UnitText;
+  wx: WeatherProps;
+  periods: ({ from: string; to: string } | undefined)[];
+  labels: { key: string; label: string; sub?: string }[];
+  padL?: number;
+  note?: string;
+}) {
+  const rows = labels.map((l, i) => ({ ...l, values: periods[i] && wx.months ? weatherOfSpan(wx.months, periods[i]!.from, periods[i]!.to) : {} }));
+  const any = rows.some((r) => Object.values(r.values).some((v) => typeof v === "number"));
+  return (
+    <div className="mt-3 border-t pt-3">
+      <WeatherPicker show={wx.show} onChange={wx.setShow} />
+      {wx.show.length > 0 &&
+        (!wx.months ? (
+          <p className="mt-2 text-xs text-gray-500">気象データを読み込み中…</p>
+        ) : !any ? (
+          <p className="mt-2 text-xs text-gray-500">
+            この期間の気象データがありません。
+            <Link href="/staff/weather/" className="underline">
+              気象データ
+            </Link>
+            の画面で取り込んでください。
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-gray-500">
+              上の棒と同じ{u.word}の気象です（美瑛のアメダス）。{u.day ? "" : "気温はその期間の平均、降水量・日照時間は合計です。"}
+              {note}
+            </p>
+            <WeatherStrip rows={rows} show={wx.show} padL={padL} />
+          </>
+        ))}
+    </div>
   );
 }
