@@ -435,16 +435,18 @@ export function WeatherStrip({
   if (temps.length) panels.push({ kind: "temp", keys: temps });
   if (show.includes("precip")) panels.push({ kind: "precip", keys: ["precip"] });
   if (show.includes("sun")) panels.push({ kind: "sun", keys: ["sun"] });
-  const PH = 96;
+  // 段の高さ。気温・日照時間は差が見えやすいよう高め（降水量の1.5倍）
+  const heightOf = (kind: "temp" | "precip" | "sun") => (kind === "precip" ? 96 : 144);
   const top = 8;
-  const H = panels.length * (PH + 14) + 6;
+  const H = panels.reduce((n, p) => n + heightOf(p.kind) + 14, 0) + 6;
   const num = (v: number) => v.toLocaleString("ja-JP", { maximumFractionDigits: 1 });
 
   return (
     <div className="relative" ref={box}>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="気象のグラフ" onPointerLeave={() => setHover(null)}>
         {panels.map((p, pi) => {
-          const y0 = top + pi * (PH + 14);
+          const y0 = top + panels.slice(0, pi).reduce((n, q) => n + heightOf(q.kind) + 14, 0);
+          const PH = heightOf(p.kind);
           const vals = rows.flatMap((r) => p.keys.flatMap((k) => [r.values[k], compare ? r.prev?.[k] : null])).filter((v): v is number => typeof v === "number");
           let lo = p.kind === "temp" ? Math.floor(Math.min(...vals, 0) / 5) * 5 : 0;
           let hi = p.kind === "temp" ? Math.ceil(Math.max(...vals, 10) / 5) * 5 : niceMax(Math.max(1, ...vals));
