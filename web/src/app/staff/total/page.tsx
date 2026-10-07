@@ -174,8 +174,11 @@ function Table({
   const total = MONTHS.map((_, i) => uShip.values[i] + uStoreSub[i] + others.reduce((n, o) => n + o[i], 0));
   const totalFc = MONTHS.map((_, i) => uShip.isFc[i] || storeFc[i]);
   // いちごの合計：出荷と店舗を足したもの
-  const ichigoTotal = MONTHS.map((_, i) => uShip.values[i] + uStoreSub[i]);
-  const prevIchigoTotal = MONTHS.map((_, i) => prevShip[i] + prev.sub[i]);
+  // （チケット・規格外・催事も、いちごの売上として足す）
+  const isIchigo = OTHER_ITEMS.map((it) => it.group === "ichigo");
+  const extra = (list: number[][], i: number, ichigo: boolean) => list.reduce((n, o, k) => n + (isIchigo[k] === ichigo ? o[i] : 0), 0);
+  const ichigoTotal = MONTHS.map((_, i) => uShip.values[i] + uStoreSub[i] + extra(others, i, true));
+  const prevIchigoTotal = MONTHS.map((_, i) => prevShip[i] + prev.sub[i] + extra(prevOthers, i, true));
 
   const rows: Row[] = [
     { key: "ship", label: "出荷（いちご）", fkey: "ship", ...uShip, prev: prevShip },
@@ -183,8 +186,9 @@ function Table({
     { key: "cafe", label: "カフェ", indent: true, fkey: "cafe", ...uCafe, prev: prev.cafe },
     { key: "ichigo", label: "いちご狩り", indent: true, fkey: "ichigo", ...uIchigo, prev: prev.ichigo },
     { key: "storeSub", label: "店舗 小計", values: uStoreSub, strong: "sub", isFc: storeFc, prev: prev.sub },
-    { key: "ichigoTotal", label: "いちご 合計（出荷＋店舗）", values: ichigoTotal, strong: "sub", isFc: totalFc, prev: prevIchigoTotal },
-    ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key, prev: prevOthers[i] })),
+    ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key, prev: prevOthers[i] })).filter((_, i) => isIchigo[i]),
+    { key: "ichigoTotal", label: "いちご 合計", values: ichigoTotal, strong: "sub", isFc: totalFc, prev: prevIchigoTotal },
+    ...OTHER_ITEMS.map((it, i) => ({ key: it.key, label: it.label, values: others[i], input: it.key, prev: prevOthers[i] })).filter((_, i) => !isIchigo[i]),
     { key: "total", label: "合計", values: total, strong: "total", isFc: totalFc, prev: prevTotal },
   ];
   const anyFc = totalFc.some(Boolean);
@@ -232,8 +236,8 @@ function Table({
         <Tile label="年の合計" value={sum(total)} strong prev={sum(prevTotal)} />
         <Tile label="出荷（いちご）" value={sum(uShip.values)} prev={sum(prevShip)} />
         <Tile label="店舗 小計" value={sum(uStoreSub)} prev={sum(prev.sub)} />
-        <Tile label="いちご 合計（出荷＋店舗）" value={sum(ichigoTotal)} prev={sum(prevIchigoTotal)} />
-        <Tile label="玉ねぎ・そば・委託ほか" value={sum(others.flat())} prev={sum(prevOthers.flat())} />
+        <Tile label="いちご 合計" value={sum(ichigoTotal)} prev={sum(prevIchigoTotal)} />
+        <Tile label="玉ねぎ・そば・委託ほか" value={sum(others.filter((_, k) => !isIchigo[k]).flat())} prev={sum(prevOthers.filter((_, k) => !isIchigo[k]).flat())} />
       </div>
       <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="min-w-max text-sm tabular-nums">
@@ -311,7 +315,7 @@ function Table({
       </p>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
         出荷は「出荷実績」の数量×単価（仕切書で直した数字も入ります。単価がまだの日は入りません）。店舗は「店舗実績」の数字（10月1日からはレジの会計）で、内訳がなく売上合計だけの日は小計にだけ入ります。
-        玉ねぎ・そば・作業委託＆冷蔵庫リースは、月ごとの合計をこの表に入れて「保存する」を押してください。
+        チケット・規格外・催事・玉ねぎ・そば・作業委託＆冷蔵庫リースは、月ごとの合計をこの表に入れて「保存する」を押してください。いちご合計は、出荷・店舗小計・チケット・規格外・催事の合計です。
       </p>
       <div className="mt-2 flex gap-3 print:hidden">
         <button onClick={exportCsv} className="text-sm text-gray-600 underline">

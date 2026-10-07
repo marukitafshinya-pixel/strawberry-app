@@ -1,15 +1,19 @@
 "use client";
 
-// トータル実績：出荷・店舗の実績に、ほかの売上（玉ねぎ・そば・作業委託＆冷蔵庫リース）を足して月ごとに集計する。
+// トータル実績：出荷・店舗の実績に、ほかの売上（チケット・規格外・催事・玉ねぎ・そば・作業委託＆冷蔵庫リース）を足して月ごとに集計する。
 // ほかの売上は、月ごとの合計を手で入れる（otherSales/{年}）。
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 
+/** 手で入れる月ごとの売上。group が "ichigo" のものは、いちごの合計に入れる */
 export const OTHER_ITEMS = [
-  { key: "onion", label: "玉ねぎ" },
-  { key: "soba", label: "そば" },
-  { key: "contract", label: "作業委託＆冷蔵庫リース" },
+  { key: "ticket", label: "チケット", group: "ichigo" },
+  { key: "offgrade", label: "規格外", group: "ichigo" },
+  { key: "event", label: "催事", group: "ichigo" },
+  { key: "onion", label: "玉ねぎ", group: "other" },
+  { key: "soba", label: "そば", group: "other" },
+  { key: "contract", label: "作業委託＆冷蔵庫リース", group: "other" },
 ] as const;
 export type OtherKey = (typeof OTHER_ITEMS)[number]["key"];
 /** 月（"01"〜"12"）→ 項目 → 金額 */
