@@ -275,6 +275,9 @@ export async function replaceShiftCodes(map: Record<string, string>): Promise<nu
   return count;
 }
 
-/** 出勤に数える記号か */
-export const isWorking = (cfg: ShiftConfig, code: string | undefined) => !!code && !cfg.codes.find((c) => c.code === code)?.off;
+/** 出勤に数える記号か。記号のリストにあって「休みとして数える」でない記号だけ（リストにない古い記号などは数えない） */
+export const isWorking = (cfg: ShiftConfig, code: string | undefined) => {
+  const c = !!code && cfg.codes.find((x) => x.code === code);
+  return !!c && !c.off;
+};
 export const codeColor = (cfg: ShiftConfig, code: string | undefined) => CODE_COLORS[cfg.codes.find((c) => c.code === code)?.color ?? "none"] ?? "";

@@ -564,6 +564,25 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
     }
   }
   /** 同じまとまりの中で、上か下の人と入れ替える */
+  const [removing, setRemoving] = useState<string | null>(null);
+  /** 従業員を削除する（ログイン・休みの希望・勤務表のその人のマスも消える） */
+  async function remove(m: ShiftMember) {
+    if (
+      !window.confirm(
+        `「${m.name}」さんを従業員リストから削除します。\n\n勤務表のこの人の記号・休みの希望${m.loginId ? "・ログイン" : ""}も消え、元に戻せません。\nこれまでの勤務を残したいときは、削除ではなく「表に出す」を外してください。\n\n削除しますか？`,
+      )
+    )
+      return;
+    setError("");
+    setRemoving(m.id);
+    try {
+      await callFunction("deleteShiftMember", { memberId: m.id });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setRemoving(null);
+    }
+  }
   async function move(m: ShiftMember, delta: number) {
     const list = sorted.filter((x) => x.group === m.group);
     const i = list.findIndex((x) => x.id === m.id);
@@ -611,6 +630,7 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
               <th className="py-1">収穫可</th>
               <th className="py-1">表に出す</th>
               <th className="py-1">ログイン（スマホで見る）</th>
+              <th className="py-1" />
             </tr>
           </thead>
           <tbody>
@@ -651,12 +671,17 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
                 <td className="py-1">
                   <LoginCell m={m} />
                 </td>
+                <td className="py-1 text-right">
+                  <button onClick={() => remove(m)} disabled={removing === m.id} className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">
+                    {removing === m.id ? "削除中…" : "削除"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         <p className="mt-2 text-xs text-gray-500">
-          辞めた人は「表に出す」を外してください（これまでの勤務は残ります）。ログインIDは、半角の英字・数字で作ります（例：tanaka）。従業員の方は、スタッフ用のページ（
+          辞めた人は「表に出す」を外してください（これまでの勤務は残ります）。間違えて登録した人などは「削除」で消せます（その人の勤務表の記号も消えます）。ログインIDは、半角の英字・数字で作ります（例：tanaka）。従業員の方は、スタッフ用のページ（
           {typeof window !== "undefined" ? window.location.origin : ""}
           /staff/）で、ログインIDとパスワードを入れてログインします。
         </p>

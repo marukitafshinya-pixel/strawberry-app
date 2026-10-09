@@ -61,6 +61,38 @@ export const updateWorkerLogin = onCall(async (req) => {
   return { ok: true };
 });
 
+/**
+ * 従業員を勤務管理表から削除する（管理者）。ログインがあればログインも消す。
+ * その人の休みの希望と、勤務表のマスの記号も消す（残したいときは「表に出す」を外す）
+ */
+export const deleteShiftMember = onCall(async (req) => {
+  await assertAdmin(req);
+  const memberId = requireString(req.data?.memberId, "従業員", 64);
+  const mRef = db.doc(`shiftMembers/${memberId}`);
+  const m = await mRef.get();
+  if (!m.exists) throw new HttpsError("not-found", "従業員が見つかりません");
+  const uid = m.get("uid") as string | undefined;
+  if (uid) {
+    try {
+      await getAuth().deleteUser(uid);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "auth/user-not-found") throw e;
+    }
+    await db.doc(`workers/${uid}`).delete();
+  }
+  const writer = db.bulkWriter();
+  const reqs = await db.collection("shiftRequests").where("memberId", "==", memberId).get();
+  for (const r of reqs.docs) void writer.delete(r.ref);
+  const days = await db.collection("shiftDays").get();
+  for (const d of days.docs) {
+    const cells = (d.get("cells") as Record<string, unknown> | undefined) ?? {};
+    if (memberId in cells) void writer.update(d.ref, { [`cells.${memberId}`]: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+  }
+  void writer.delete(mRef);
+  await writer.close();
+  return { ok: true };
+});
+
 /** 呼び出した人が有効な従業員なら、その従業員（勤務の表の行）のIDを返す */
 async function assertWorker(req: CallableRequest): Promise<{ uid: string; memberId: string }> {
   const uid = req.auth?.uid;
