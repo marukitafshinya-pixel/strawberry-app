@@ -3,7 +3,7 @@
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
@@ -655,7 +655,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                   <button onClick={() => (l.qty > 1 ? update(l.key, { qty: l.qty - 1 }) : removeLine(l.key))} className="h-8 w-8 rounded border" aria-label="減らす">
                     −
                   </button>
-                  <span className="w-6 text-center tabular-nums">{l.qty}</span>
+                  <QtyInput value={l.qty} onChange={(qty) => update(l.key, { qty })} />
                   <button onClick={() => update(l.key, { qty: Math.min(9999, l.qty + 1) })} className="h-8 w-8 rounded border" aria-label="増やす">
                     ＋
                   </button>
@@ -1431,5 +1431,38 @@ function HandlerPicker() {
         {handler && !handlers.includes(handler) && <option value={handler}>{handler}</option>}
       </select>
     </label>
+  );
+}
+
+/** 点数。数字を押すと直接入力できる（全選択されるので、そのまま打ち直せる）。確定は Enter かほかの場所を押したとき。空・0 は元に戻す */
+function QtyInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancel = useRef(false);
+  function commit() {
+    const n = Number(draft);
+    if (!cancel.current && draft !== null && Number.isInteger(n) && n >= 1) onChange(Math.min(9999, n));
+    cancel.current = false;
+    setDraft(null);
+  }
+  return (
+    <input
+      inputMode="numeric"
+      aria-label="点数"
+      value={draft ?? String(value)}
+      onFocus={(e) => {
+        setDraft(String(value));
+        e.currentTarget.select();
+      }}
+      onChange={(e) => setDraft(e.target.value.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/\D/g, "").slice(0, 4))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          cancel.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      className="h-8 w-11 rounded border border-gray-300 bg-white text-center tabular-nums focus:border-berry focus:outline-none"
+    />
   );
 }
