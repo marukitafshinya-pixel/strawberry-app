@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import { addDays, formatJa, todayJST } from "@/lib/date";
 import { errorText } from "@/lib/callFunction";
-import { newSlotId, saveHaichiDay, saveHaichiTemplate, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
+import { newSlotId, saveHaichiDay, saveHaichiTemplate, sectionArrows, sectionSide, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
 import { isWorking, useShiftDays, type ShiftConfig, type ShiftMember } from "@/lib/shift";
 import { sortMembers } from "./ShiftTable";
 
@@ -33,71 +33,87 @@ export function HaichiBoard({
     onSlotTap: (slotId: string) => void;
     onRemove: (slotId: string, memberId: string) => void;
     onMemo: (slotId: string, memo: string) => void;
+    onArrow: (slotId: string, arrow: string) => void;
   };
 }) {
   return (
     <div>
-      {/* まとまりは、上から詰めて段に並べる（高さの違うまとまりでもすき間が空きにくい） */}
-      <div className={`gap-3 ${cols ? ["", "columns-1", "columns-2", "columns-3"][cols] : big ? "columns-3" : "columns-1 md:columns-2 xl:columns-3"}`}>
-        {template.sections.map((sec) => (
-          <section key={sec.id} className="mb-3 break-inside-avoid overflow-hidden rounded-xl border-2 border-gray-500 bg-white">
-            <h3 className={`bg-slate-700 px-3 py-1 font-bold text-white ${big ? "text-2xl" : "text-base"}`}>{sec.name}</h3>
-            <table className="w-full border-collapse">
-              <tbody>
-                {sec.slots.map((slot) => {
-                  const cell = day.cells[slot.id] ?? { members: [], memo: "" };
-                  return (
-                    <tr
-                      key={slot.id}
-                      data-drop={edit ? slot.id : undefined}
-                      onClick={edit ? () => edit.onSlotTap(slot.id) : undefined}
-                      className={`border-t border-gray-400 align-middle ${edit?.selected ? "cursor-copy hover:bg-amber-50" : ""}`}
-                    >
-                      <th
-                        className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 text-left font-bold ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
-                      >
-                        {slot.label}
-                      </th>
-                      <td className={`px-2 ${big ? "py-2" : "py-1"}`}>
-                        <div className="flex min-h-[2rem] flex-wrap items-center gap-1.5">
-                          {cell.members.map((id) => (
-                            <span
-                              key={id}
-                              onPointerDown={edit ? (e) => edit.onPickChip(id, slot.id, e) : undefined}
-                              onClick={(e) => e.stopPropagation()}
-                              className={`inline-flex touch-none select-none items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 font-bold text-sky-950 ${
-                                big ? "px-3 py-1 text-2xl" : "px-2 py-0.5 text-base"
-                              } ${edit ? "cursor-grab" : ""} ${edit?.selected?.memberId === id && edit.selected.from === slot.id ? "ring-2 ring-amber-500" : ""}`}
+      {/* まとまりは左右2列に分けて、それぞれ上から並べる（どちらの列かは「枠を編集」で決める） */}
+      <div className={`grid items-start gap-3 ${cols === 1 ? "" : cols || big ? "grid-cols-2" : "lg:grid-cols-2"}`}>
+        {(["left", "right"] as const).map((side) => (
+          <div key={side} className="space-y-3">
+            {template.sections
+              .filter((sec) => sectionSide(sec) === side)
+              .map((sec) => (
+                <section key={sec.id} className="overflow-hidden rounded-xl border-2 border-gray-500 bg-white">
+                  <h3 className={`bg-slate-700 px-3 py-1 font-bold text-white ${big ? "text-2xl" : "text-base"}`}>{sec.name}</h3>
+                  <table className="w-full border-collapse">
+                    <tbody>
+                      {sec.slots.map((slot) => {
+                        const cell = day.cells[slot.id] ?? { members: [], memo: "" };
+                        return (
+                          <tr
+                            key={slot.id}
+                            data-drop={edit ? slot.id : undefined}
+                            onClick={edit ? () => edit.onSlotTap(slot.id) : undefined}
+                            className={`border-t border-gray-400 align-middle ${edit?.selected ? "cursor-copy hover:bg-amber-50" : ""}`}
+                          >
+                            <th
+                              className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 text-left font-bold ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
                             >
-                              {names[id] ?? "（削除された人）"}
-                              {edit && (
-                                <button
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    edit.onRemove(slot.id, id);
-                                  }}
-                                  className="ml-0.5 text-sm text-gray-400 hover:text-red-600"
-                                  aria-label={`${names[id] ?? ""}を外す`}
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </span>
-                          ))}
-                          {edit ? (
-                            <MemoInput value={cell.memo} onSave={(v) => edit.onMemo(slot.id, v)} />
-                          ) : (
-                            cell.memo && <span className={`text-gray-700 ${big ? "text-xl" : "text-sm"}`}>{cell.memo}</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
+                              {slot.label}
+                            </th>
+                            {sectionArrows(sec) && (
+                              <td className={`border-r border-gray-300 text-center ${big ? "w-14" : "w-12"}`}>
+                                {edit ? (
+                                  <ArrowSelect value={cell.arrow ?? ""} onChange={(v) => edit.onArrow(slot.id, v)} />
+                                ) : (
+                                  <span className={`font-bold text-red-600 ${big ? "text-4xl" : "text-2xl"}`}>{cell.arrow}</span>
+                                )}
+                              </td>
+                            )}
+                            <td className={`px-2 ${big ? "py-2" : "py-1"}`}>
+                              <div className="flex min-h-[2rem] flex-wrap items-center gap-1.5">
+                                {cell.members.map((id) => (
+                                  <span
+                                    key={id}
+                                    onPointerDown={edit ? (e) => edit.onPickChip(id, slot.id, e) : undefined}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`inline-flex touch-none select-none items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 font-bold text-sky-950 ${
+                                      big ? "px-3 py-1 text-2xl" : "px-2 py-0.5 text-base"
+                                    } ${edit ? "cursor-grab" : ""} ${edit?.selected?.memberId === id && edit.selected.from === slot.id ? "ring-2 ring-amber-500" : ""}`}
+                                  >
+                                    {names[id] ?? "（削除された人）"}
+                                    {edit && (
+                                      <button
+                                        onPointerDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          edit.onRemove(slot.id, id);
+                                        }}
+                                        className="ml-0.5 text-sm text-gray-400 hover:text-red-600"
+                                        aria-label={`${names[id] ?? ""}を外す`}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                                {edit ? (
+                                  <MemoInput value={cell.memo} onSave={(v) => edit.onMemo(slot.id, v)} />
+                                ) : (
+                                  cell.memo && <span className={`text-gray-700 ${big ? "text-xl" : "text-sm"}`}>{cell.memo}</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </section>
+              ))}
+          </div>
         ))}
       </div>
       {day.note && !edit && (
@@ -107,6 +123,29 @@ export function HaichiBoard({
         </section>
       )}
     </div>
+  );
+}
+
+/** 次に向かうハウスの方向（収穫の枠に付ける矢印） */
+export const ARROWS = ["", "→", "←", "↑", "↓", "↗", "↘", "↙", "↖"] as const;
+
+/** 矢印を選ぶ（押すと一覧が出る） */
+function ArrowSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="次に向かう方向"
+      title="次に向かうハウスの方向"
+      className={`w-11 cursor-pointer appearance-none rounded border bg-white py-0.5 text-center text-2xl font-bold ${value ? "border-red-300 text-red-600" : "border-dashed border-gray-300 text-gray-300"}`}
+    >
+      {ARROWS.map((a) => (
+        <option key={a} value={a}>
+          {a || "・"}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -364,6 +403,10 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
                       setSelected(null);
                     },
                     onRemove: (slotId, id) => place(id, null, slotId),
+                    onArrow: (slotId, arrow) => {
+                      const c = day.cells[slotId] ?? { members: [], memo: "" };
+                      void save({ ...day, cells: { ...day.cells, [slotId]: { ...c, arrow } } });
+                    },
                     onMemo: (slotId, memo) => {
                       const c = day.cells[slotId] ?? { members: [], memo: "" };
                       void save({
@@ -471,6 +514,24 @@ function TemplateEditor({ template, onClose }: { template: HaichiTemplate; onClo
               >
                 消す
               </button>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
+              <label className="flex items-center gap-1">
+                表の
+                <select
+                  value={sectionSide(s)}
+                  onChange={(e) => setSec(i, (x) => ({ ...x, side: e.target.value as "left" | "right" }))}
+                  className="rounded border px-1 py-0.5"
+                >
+                  <option value="left">左</option>
+                  <option value="right">右</option>
+                </select>
+                の列
+              </label>
+              <label className="flex items-center gap-1">
+                <input type="checkbox" checked={sectionArrows(s)} onChange={(e) => setSec(i, (x) => ({ ...x, arrows: e.target.checked }))} />
+                次に向かう方向の矢印を付ける
+              </label>
             </div>
             <ul className="mt-1 space-y-1">
               {s.slots.map((slot, k) => (

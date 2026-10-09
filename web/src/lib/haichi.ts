@@ -8,10 +8,11 @@ import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 
 export type HaichiSlot = { id: string; label: string };
-export type HaichiSection = { id: string; name: string; slots: HaichiSlot[] };
+/** side＝配置表の左右どちらの列に出すか。arrows＝次に向かう方向の矢印を付けるか（収穫） */
+export type HaichiSection = { id: string; name: string; slots: HaichiSlot[]; side?: "left" | "right"; arrows?: boolean };
 export type HaichiTemplate = { sections: HaichiSection[] };
 /** その日の割り振り。cells は 枠のID → 入る人（従業員ID）とメモ */
-export type HaichiCell = { members: string[]; memo: string };
+export type HaichiCell = { members: string[]; memo: string; arrow?: string };
 export type HaichiDay = { cells: Record<string, HaichiCell>; note: string; done: boolean };
 
 const sl = (id: string, label: string): HaichiSlot => ({ id, label });
@@ -19,13 +20,18 @@ const sl = (id: string, label: string): HaichiSlot => ({ id, label });
 /** はじめの枠（いままで使っていたExcelの配置表の形）。画面から変えられる */
 export const DEFAULT_HAICHI: HaichiTemplate = {
   sections: [
-    { id: "harvest", name: "収穫", slots: ["1", "6", "8", "4", "5", "9", "10"].map((n) => sl(`h${n}`, n)) },
-    { id: "harvest2", name: "ハウス17〜27", slots: Array.from({ length: 11 }, (_, i) => sl(`h${17 + i}`, String(17 + i))) },
-    { id: "pickup", name: "集荷", slots: [sl("pickup", "集荷係")] },
-    { id: "shop", name: "売り場", slots: ["案内係", "受付・レジ", "選別", "製品チェック", "選別機"].map((l, i) => sl(`shop${i + 1}`, l)) },
-    { id: "work", name: "作業", slots: ["四季彩の丘", "11-16ベンチ", "いちご手入れ", "NO20", "いちご防除"].map((l, i) => sl(`work${i + 1}`, l)) },
+    { id: "harvest", name: "収穫", side: "left", arrows: true, slots: ["1", "6", "8", "4", "5", "9", "10"].map((n) => sl(`h${n}`, n)) },
+    { id: "harvest2", name: "ハウス17〜27", side: "right", arrows: true, slots: Array.from({ length: 11 }, (_, i) => sl(`h${17 + i}`, String(17 + i))) },
+    { id: "pickup", name: "集荷", side: "left", slots: [sl("pickup", "集荷係")] },
+    { id: "shop", name: "売り場", side: "left", slots: ["案内係", "受付・レジ", "選別", "製品チェック", "選別機"].map((l, i) => sl(`shop${i + 1}`, l)) },
+    { id: "work", name: "作業", side: "right", slots: ["四季彩の丘", "11-16ベンチ", "いちご手入れ", "NO20", "いちご防除"].map((l, i) => sl(`work${i + 1}`, l)) },
   ],
 };
+
+/** まとまりを左右どちらに出すか（決めていなければ、はじめの枠の形：ハウス17〜27と作業は右、ほかは左） */
+export const sectionSide = (s: HaichiSection): "left" | "right" => s.side ?? (s.id === "harvest2" || s.id === "work" ? "right" : "left");
+/** 矢印を付けるまとまりか（決めていなければ、収穫のまとまり） */
+export const sectionArrows = (s: HaichiSection) => s.arrows ?? (s.id === "harvest" || s.id === "harvest2");
 
 export const EMPTY_DAY: HaichiDay = { cells: {}, note: "", done: false };
 
@@ -86,7 +92,7 @@ export function useHaichiDay(date: string): HaichiDay | null {
 export async function saveHaichiDay(date: string, d: HaichiDay) {
   const { db } = await getFirebase();
   // 人もメモもない枠は保存しない
-  const cells = Object.fromEntries(Object.entries(d.cells).filter(([, c]) => c.members.length > 0 || c.memo.trim()));
+  const cells = Object.fromEntries(Object.entries(d.cells).filter(([, c]) => c.members.length > 0 || c.memo.trim() || c.arrow));
   await setDoc(doc(db, "haichi", date), { cells, note: d.note.slice(0, 200), done: d.done, updatedAt: serverTimestamp() });
 }
 
