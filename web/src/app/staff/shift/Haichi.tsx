@@ -6,21 +6,8 @@
 import { useRef, useState } from "react";
 import { addDays, formatJa, todayJST } from "@/lib/date";
 import { errorText } from "@/lib/callFunction";
-import {
-  newSlotId,
-  saveHaichiDay,
-  saveHaichiTemplate,
-  useHaichiDay,
-  useHaichiTemplate,
-  type HaichiDay,
-  type HaichiTemplate,
-} from "@/lib/haichi";
-import {
-  isWorking,
-  useShiftDays,
-  type ShiftConfig,
-  type ShiftMember,
-} from "@/lib/shift";
+import { newSlotId, saveHaichiDay, saveHaichiTemplate, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
+import { isWorking, useShiftDays, type ShiftConfig, type ShiftMember } from "@/lib/shift";
 import { sortMembers } from "./ShiftTable";
 
 /** 配置表（見るだけの形と、割り振る形の両方で使う） */
@@ -29,6 +16,7 @@ export function HaichiBoard({
   day,
   names,
   big,
+  cols,
   edit,
 }: {
   template: HaichiTemplate;
@@ -36,6 +24,8 @@ export function HaichiBoard({
   names: Record<string, string>;
   /** 大きく出す（配置完了のあと・投影用） */
   big?: boolean;
+  /** 段の数（決めると、画面の幅で変えない。投影用で使う） */
+  cols?: 1 | 2 | 3;
   /** 割り振る形のとき：名前を押したとき・枠を押したとき・メモを変えたとき */
   edit?: {
     selected: { memberId: string; from: string | null } | null;
@@ -48,19 +38,10 @@ export function HaichiBoard({
   return (
     <div>
       {/* まとまりは、上から詰めて段に並べる（高さの違うまとまりでもすき間が空きにくい） */}
-      <div
-        className={`gap-3 ${big ? "columns-3" : "columns-1 md:columns-2 xl:columns-3"}`}
-      >
+      <div className={`gap-3 ${cols ? ["", "columns-1", "columns-2", "columns-3"][cols] : big ? "columns-3" : "columns-1 md:columns-2 xl:columns-3"}`}>
         {template.sections.map((sec) => (
-          <section
-            key={sec.id}
-            className="mb-3 break-inside-avoid overflow-hidden rounded-xl border-2 border-gray-500 bg-white"
-          >
-            <h3
-              className={`bg-slate-700 px-3 py-1 font-bold text-white ${big ? "text-2xl" : "text-base"}`}
-            >
-              {sec.name}
-            </h3>
+          <section key={sec.id} className="mb-3 break-inside-avoid overflow-hidden rounded-xl border-2 border-gray-500 bg-white">
+            <h3 className={`bg-slate-700 px-3 py-1 font-bold text-white ${big ? "text-2xl" : "text-base"}`}>{sec.name}</h3>
             <table className="w-full border-collapse">
               <tbody>
                 {sec.slots.map((slot) => {
@@ -82,16 +63,10 @@ export function HaichiBoard({
                           {cell.members.map((id) => (
                             <span
                               key={id}
-                              onPointerDown={
-                                edit
-                                  ? (e) => edit.onPickChip(id, slot.id, e)
-                                  : undefined
-                              }
+                              onPointerDown={edit ? (e) => edit.onPickChip(id, slot.id, e) : undefined}
                               onClick={(e) => e.stopPropagation()}
                               className={`inline-flex touch-none select-none items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 font-bold text-sky-950 ${
-                                big
-                                  ? "px-3 py-1 text-2xl"
-                                  : "px-2 py-0.5 text-base"
+                                big ? "px-3 py-1 text-2xl" : "px-2 py-0.5 text-base"
                               } ${edit ? "cursor-grab" : ""} ${edit?.selected?.memberId === id && edit.selected.from === slot.id ? "ring-2 ring-amber-500" : ""}`}
                             >
                               {names[id] ?? "（削除された人）"}
@@ -111,18 +86,9 @@ export function HaichiBoard({
                             </span>
                           ))}
                           {edit ? (
-                            <MemoInput
-                              value={cell.memo}
-                              onSave={(v) => edit.onMemo(slot.id, v)}
-                            />
+                            <MemoInput value={cell.memo} onSave={(v) => edit.onMemo(slot.id, v)} />
                           ) : (
-                            cell.memo && (
-                              <span
-                                className={`text-gray-700 ${big ? "text-xl" : "text-sm"}`}
-                              >
-                                {cell.memo}
-                              </span>
-                            )
+                            cell.memo && <span className={`text-gray-700 ${big ? "text-xl" : "text-sm"}`}>{cell.memo}</span>
                           )}
                         </div>
                       </td>
@@ -145,13 +111,7 @@ export function HaichiBoard({
 }
 
 /** 枠のメモ（押すと書ける。ほかの場所を押すと保存） */
-function MemoInput({
-  value,
-  onSave,
-}: {
-  value: string;
-  onSave: (v: string) => void;
-}) {
+function MemoInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <input
@@ -172,15 +132,7 @@ function MemoInput({
 }
 
 /** 作業配置表のタブ（管理者は割り振る、ほかの人は見るだけ） */
-export function HaichiTab({
-  cfg,
-  members,
-  isAdmin,
-}: {
-  cfg: ShiftConfig;
-  members: ShiftMember[];
-  isAdmin: boolean;
-}) {
+export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members: ShiftMember[]; isAdmin: boolean }) {
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const day = useHaichiDay(date);
@@ -216,9 +168,7 @@ export function HaichiTab({
   const cells = shiftDays?.[date]?.cells ?? {};
   const attendees = active.filter((m) => isWorking(cfg, cells[m.id]));
   const placedCount = new Map<string, number>();
-  for (const c of Object.values(day?.cells ?? {}))
-    for (const id of c.members)
-      placedCount.set(id, (placedCount.get(id) ?? 0) + 1);
+  for (const c of Object.values(day?.cells ?? {})) for (const id of c.members) placedCount.set(id, (placedCount.get(id) ?? 0) + 1);
   const unplaced = attendees.filter((m) => !placedCount.has(m.id));
   const listMembers = showAll ? active : attendees;
 
@@ -243,18 +193,13 @@ export function HaichiTab({
     }
     if (to) {
       const c = next.cells[to] ?? { members: [], memo: "" };
-      if (!c.members.includes(memberId))
-        next.cells[to] = { ...c, members: [...c.members, memberId] };
+      if (!c.members.includes(memberId)) next.cells[to] = { ...c, members: [...c.members, memberId] };
     }
     void save(next);
   }
 
   // ドラッグ：押して少し動かしたらドラッグ、動かさずに離したら「選ぶ」
-  function onPick(
-    memberId: string,
-    from: string | null,
-    e: React.PointerEvent,
-  ) {
+  function onPick(memberId: string, from: string | null, e: React.PointerEvent) {
     if (!isAdmin || day?.done) return;
     e.preventDefault();
     start.current = {
@@ -267,8 +212,7 @@ export function HaichiTab({
     const move = (ev: PointerEvent) => {
       const s = start.current;
       if (!s) return;
-      if (!s.moved && Math.hypot(ev.clientX - s.x, ev.clientY - s.y) < 6)
-        return;
+      if (!s.moved && Math.hypot(ev.clientX - s.x, ev.clientY - s.y) < 6) return;
       s.moved = true;
       setDrag({
         memberId: s.memberId,
@@ -286,16 +230,10 @@ export function HaichiTab({
       setDrag(null);
       if (!s) return;
       if (!s.moved) {
-        setSelected((cur) =>
-          cur && cur.memberId === s.memberId && cur.from === s.from
-            ? null
-            : { memberId: s.memberId, from: s.from },
-        );
+        setSelected((cur) => (cur && cur.memberId === s.memberId && cur.from === s.from ? null : { memberId: s.memberId, from: s.from }));
         return;
       }
-      const target = (
-        document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null
-      )?.closest<HTMLElement>("[data-drop]");
+      const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
       if (!target) return;
       const to = target.dataset.drop === "list" ? null : target.dataset.drop!;
       place(s.memberId, to, s.from);
@@ -306,8 +244,7 @@ export function HaichiTab({
     window.addEventListener("pointercancel", up);
   }
 
-  if (!template || !day || !shiftDays)
-    return <p className="mt-4 text-gray-500">読み込み中…</p>;
+  if (!template || !day || !shiftDays) return <p className="mt-4 text-gray-500">読み込み中…</p>;
   const done = day.done;
   const canEdit = isAdmin && !done;
   const btn = "rounded-lg border bg-white px-3 py-1.5 text-sm";
@@ -329,24 +266,13 @@ export function HaichiTab({
         )}
         <span className="text-sm text-gray-600">
           出勤 {attendees.length}人
-          {canEdit && unplaced.length > 0 && (
-            <span className="ml-1 font-bold text-amber-700">
-              （まだ配置していない人 {unplaced.length}人）
-            </span>
-          )}
+          {canEdit && unplaced.length > 0 && <span className="ml-1 font-bold text-amber-700">（まだ配置していない人 {unplaced.length}人）</span>}
         </span>
         <button
           onClick={() => {
-            const w = window.open(
-              `/staff/shift/display/?from=${date}&view=haichi`,
-              "ichigo-shift-display",
-              "popup=yes,width=1280,height=800",
-            );
+            const w = window.open(`/staff/shift/display/?from=${date}&view=haichi`, "ichigo-shift-display", "popup=yes,width=1280,height=800");
             if (w) w.focus();
-            else
-              window.alert(
-                "ウィンドウを開けませんでした。ブラウザでポップアップを許可してください。",
-              );
+            else window.alert("ウィンドウを開けませんでした。ブラウザでポップアップを許可してください。");
           }}
           className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-bold text-white"
         >
@@ -355,18 +281,12 @@ export function HaichiTab({
         {isAdmin && (
           <div className="ml-auto flex gap-2">
             {done ? (
-              <button
-                onClick={() => save({ ...day, done: false })}
-                className={btn}
-              >
+              <button onClick={() => save({ ...day, done: false })} className={btn}>
                 配置を直す
               </button>
             ) : (
               <>
-                <button
-                  onClick={() => setEditingTemplate(!editingTemplate)}
-                  className={btn}
-                >
+                <button onClick={() => setEditingTemplate(!editingTemplate)} className={btn}>
                   {editingTemplate ? "枠の編集を閉じる" : "枠を編集"}
                 </button>
                 <button
@@ -377,35 +297,20 @@ export function HaichiTab({
                 </button>
               </>
             )}
-            <button
-              onClick={() => window.print()}
-              className="px-1 text-sm text-gray-600 underline"
-            >
+            <button onClick={() => window.print()} className="px-1 text-sm text-gray-600 underline">
               印刷
             </button>
           </div>
         )}
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {editingTemplate && canEdit && (
-        <TemplateEditor
-          template={template}
-          onClose={() => setEditingTemplate(false)}
-        />
-      )}
+      {editingTemplate && canEdit && <TemplateEditor template={template} onClose={() => setEditingTemplate(false)} />}
 
-      <div
-        className={`mt-3 ${canEdit ? "grid gap-3 lg:grid-cols-[14rem_1fr]" : ""}`}
-      >
+      <div className={`mt-3 ${canEdit ? "grid gap-3 lg:grid-cols-[14rem_1fr]" : ""}`}>
         {canEdit && (
-          <aside
-            data-drop="list"
-            className="h-max rounded-xl border-2 border-dashed border-gray-400 bg-white p-2 lg:sticky lg:top-2"
-          >
+          <aside data-drop="list" className="h-max rounded-xl border-2 border-dashed border-gray-400 bg-white p-2 lg:sticky lg:top-2">
             <h3 className="font-bold">出勤者のリスト</h3>
-            <p className="text-xs text-gray-500">
-              名前を枠へドラッグ（または名前を押してから枠を押す）。枠の名前をここへ戻すと外れます。
-            </p>
+            <p className="text-xs text-gray-500">名前を枠へドラッグ（または名前を押してから枠を押す）。枠の名前をここへ戻すと外れます。</p>
             <ul className="mt-2 flex flex-wrap gap-1.5 lg:flex-col">
               {listMembers.map((m) => {
                 const n = placedCount.get(m.id) ?? 0;
@@ -414,45 +319,28 @@ export function HaichiTab({
                     key={m.id}
                     onPointerDown={(e) => onPick(m.id, null, e)}
                     className={`flex cursor-grab touch-none select-none items-center justify-between gap-2 rounded-lg border px-2 py-1 font-bold ${
-                      n === 0
-                        ? "border-amber-400 bg-amber-50"
-                        : "border-gray-300 bg-gray-50 text-gray-500"
+                      n === 0 ? "border-amber-400 bg-amber-50" : "border-gray-300 bg-gray-50 text-gray-500"
                     } ${selected?.memberId === m.id && selected.from === null ? "ring-2 ring-amber-500" : ""}`}
                   >
                     <span>
                       {m.name}
-                      <span className="ml-1 text-xs font-normal text-gray-500">
-                        {cells[m.id] ?? ""}
-                      </span>
+                      <span className="ml-1 text-xs font-normal text-gray-500">{cells[m.id] ?? ""}</span>
                     </span>
-                    {n > 0 && (
-                      <span className="text-xs font-normal">{n}か所</span>
-                    )}
+                    {n > 0 && <span className="text-xs font-normal">{n}か所</span>}
                   </li>
                 );
               })}
-              {listMembers.length === 0 && (
-                <li className="text-sm text-gray-500">
-                  この日の出勤者はいません（勤務表に記号が入っていません）。
-                </li>
-              )}
+              {listMembers.length === 0 && <li className="text-sm text-gray-500">この日の出勤者はいません（勤務表に記号が入っていません）。</li>}
             </ul>
             <label className="mt-2 flex items-center gap-1 text-xs text-gray-600">
-              <input
-                type="checkbox"
-                checked={showAll}
-                onChange={(e) => setShowAll(e.target.checked)}
-              />
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
               出勤でない人も出す
             </label>
             {selected && (
               <p className="mt-2 rounded bg-amber-100 px-2 py-1 text-xs text-amber-900">
                 「{names[selected.memberId]}
                 」を選んでいます。入れる枠を押してください。
-                <button
-                  onClick={() => setSelected(null)}
-                  className="ml-1 underline"
-                >
+                <button onClick={() => setSelected(null)} className="ml-1 underline">
                   やめる
                 </button>
               </p>
@@ -490,10 +378,7 @@ export function HaichiTab({
           {canEdit && (
             <label className="mt-3 block text-sm">
               <span className="font-bold">連絡（配置表の下に出ます）</span>
-              <NoteInput
-                value={day.note}
-                onSave={(note) => save({ ...day, note })}
-              />
+              <NoteInput value={day.note} onSave={(note) => save({ ...day, note })} />
             </label>
           )}
         </div>
@@ -510,13 +395,7 @@ export function HaichiTab({
   );
 }
 
-function NoteInput({
-  value,
-  onSave,
-}: {
-  value: string;
-  onSave: (v: string) => void;
-}) {
+function NoteInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <input
@@ -536,23 +415,11 @@ function NoteInput({
 }
 
 /** 枠の編集：まとまり（収穫・売り場など）と、その中の枠の名前・並び・追加・削除 */
-function TemplateEditor({
-  template,
-  onClose,
-}: {
-  template: HaichiTemplate;
-  onClose: () => void;
-}) {
-  const [t, setT] = useState<HaichiTemplate>(
-    () => JSON.parse(JSON.stringify(template)) as HaichiTemplate,
-  );
+function TemplateEditor({ template, onClose }: { template: HaichiTemplate; onClose: () => void }) {
+  const [t, setT] = useState<HaichiTemplate>(() => JSON.parse(JSON.stringify(template)) as HaichiTemplate);
   const [msg, setMsg] = useState("");
-  const setSec = (
-    i: number,
-    f: (
-      s: HaichiTemplate["sections"][number],
-    ) => HaichiTemplate["sections"][number],
-  ) => setT({ sections: t.sections.map((s, j) => (j === i ? f(s) : s)) });
+  const setSec = (i: number, f: (s: HaichiTemplate["sections"][number]) => HaichiTemplate["sections"][number]) =>
+    setT({ sections: t.sections.map((s, j) => (j === i ? f(s) : s)) });
   const moveSec = (i: number, d: number) => {
     const j = i + d;
     if (j < 0 || j >= t.sections.length) return;
@@ -568,9 +435,7 @@ function TemplateEditor({
           .map((s) => ({
             ...s,
             name: s.name.trim().slice(0, 30),
-            slots: s.slots
-              .map((x) => ({ ...x, label: x.label.trim().slice(0, 30) }))
-              .filter((x) => x.label),
+            slots: s.slots.map((x) => ({ ...x, label: x.label.trim().slice(0, 30) })).filter((x) => x.label),
           }))
           .filter((s) => s.name),
       });
@@ -583,40 +448,25 @@ function TemplateEditor({
   return (
     <section className="mt-3 rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-sm">
       <h3 className="font-bold">枠の編集（すべての日に使う枠の並び）</h3>
-      <p className="text-xs text-gray-600">
-        まとまりの名前と、その中の枠の名前を書き換えられます。枠を消すと、その枠に入れた名前も表に出なくなります。
-      </p>
+      <p className="text-xs text-gray-600">まとまりの名前と、その中の枠の名前を書き換えられます。枠を消すと、その枠に入れた名前も表に出なくなります。</p>
       <div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {t.sections.map((s, i) => (
           <div key={s.id} className="rounded-lg border bg-white p-2">
             <div className="flex items-center gap-1">
               <input
                 value={s.name}
-                onChange={(e) =>
-                  setSec(i, (x) => ({ ...x, name: e.target.value }))
-                }
+                onChange={(e) => setSec(i, (x) => ({ ...x, name: e.target.value }))}
                 className="min-w-0 flex-1 rounded border px-2 py-1 font-bold"
                 aria-label="まとまりの名前"
               />
-              <button
-                onClick={() => moveSec(i, -1)}
-                className={small}
-                aria-label="前へ"
-              >
+              <button onClick={() => moveSec(i, -1)} className={small} aria-label="前へ">
                 ←
               </button>
-              <button
-                onClick={() => moveSec(i, 1)}
-                className={small}
-                aria-label="後ろへ"
-              >
+              <button onClick={() => moveSec(i, 1)} className={small} aria-label="後ろへ">
                 →
               </button>
               <button
-                onClick={() =>
-                  window.confirm(`まとまり「${s.name}」を消しますか？`) &&
-                  setT({ sections: t.sections.filter((_, j) => j !== i) })
-                }
+                onClick={() => window.confirm(`まとまり「${s.name}」を消しますか？`) && setT({ sections: t.sections.filter((_, j) => j !== i) })}
                 className="px-1 text-xs text-red-700 underline"
               >
                 消す
@@ -630,9 +480,7 @@ function TemplateEditor({
                     onChange={(e) =>
                       setSec(i, (x) => ({
                         ...x,
-                        slots: x.slots.map((y, m) =>
-                          m === k ? { ...y, label: e.target.value } : y,
-                        ),
+                        slots: x.slots.map((y, m) => (m === k ? { ...y, label: e.target.value } : y)),
                       }))
                     }
                     className="min-w-0 flex-1 rounded border px-2 py-0.5"
@@ -713,10 +561,7 @@ function TemplateEditor({
         >
           ＋ まとまりを足す
         </button>
-        <button
-          onClick={save}
-          className="rounded-lg bg-berry px-4 py-1.5 font-bold text-white"
-        >
+        <button onClick={save} className="rounded-lg bg-berry px-4 py-1.5 font-bold text-white">
           保存する
         </button>
         <button onClick={onClose} className="px-2 underline">
