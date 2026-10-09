@@ -31,6 +31,7 @@ import {
   type ShiftMember,
   type ShiftRequest,
 } from "@/lib/shift";
+import { HaichiTab } from "./Haichi";
 import { ShiftImport } from "./ShiftImport";
 import { ShiftTable, sortMembers } from "./ShiftTable";
 
@@ -42,7 +43,7 @@ export default function ShiftPage() {
   );
 }
 
-type Tab = "table" | "codes" | "requests" | "members" | "settings";
+type Tab = "table" | "haichi" | "codes" | "requests" | "members" | "settings";
 
 function ShiftView() {
   const { role, user } = useAuth();
@@ -53,7 +54,7 @@ function ShiftView() {
   // 選んだ日（最初は今日）を先頭に表示する
   const from = isValidYmd(q) ? q : todayJST();
   const tabQ = params.get("tab") as Tab | null;
-  const tab: Tab = isAdmin && tabQ && ["codes", "requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
+  const tab: Tab = tabQ === "haichi" ? "haichi" : isAdmin && tabQ && ["codes", "requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
   const go = (f: string, t: Tab = tab) => router.replace(`/staff/shift/?from=${f}${t !== "table" ? `&tab=${t}` : ""}`);
 
   const cfg = useShiftConfig();
@@ -312,6 +313,7 @@ function ShiftView() {
           {(
             [
               ["table", "勤務表"],
+              ["haichi", "作業配置表"],
               ["codes", "記号のリスト"],
               ["requests", `休みの希望${pending.length ? `（${pending.length}件）` : ""}`],
               ["members", "従業員リスト"],
@@ -329,12 +331,30 @@ function ShiftView() {
           {toolbar}
         </div>
       ) : (
-        <div className="mt-3 flex">{toolbar}</div>
+        <div className="mt-3 flex flex-wrap items-end gap-1 border-b print:hidden">
+          {(
+            [
+              ["table", "勤務表"],
+              ["haichi", "作業配置表"],
+            ] as [Tab, string][]
+          ).map(([t, label]) => (
+            <button
+              key={t}
+              onClick={() => go(from, t)}
+              className={`-mb-px rounded-t-lg border px-4 py-2 text-sm ${tab === t ? "border-b-white bg-white font-bold" : "bg-gray-50 text-gray-600"}`}
+            >
+              {label}
+            </button>
+          ))}
+          {toolbar}
+        </div>
       )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
       {!cfg || !members ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
+      ) : tab === "haichi" ? (
+        <HaichiTab cfg={cfg} members={members} isAdmin={isAdmin} />
       ) : tab === "requests" ? (
         <Requests cfg={cfg} members={members} requests={pending} by={user?.uid ?? ""} />
       ) : tab === "members" ? (

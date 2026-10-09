@@ -243,6 +243,22 @@ service cloud.firestore {
         && (!('cells' in request.resource.data) || request.resource.data.cells is map)
         && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 50));
     }
+    // 作業配置表：枠の並び（ひな形）と、日ごとの割り振り。見るのはスタッフと従業員、書くのは管理者
+    match /config/haichi {
+      allow read: if isStaff() || isWorker();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['sections', 'updatedAt'])
+        && request.resource.data.sections is list && request.resource.data.sections.size() <= 20;
+    }
+    match /haichi/{date} {
+      allow read: if isStaff() || isWorker();
+      allow write: if isAdmin()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['cells', 'note', 'done', 'updatedAt'])
+        && request.resource.data.cells is map
+        && request.resource.data.note is string && request.resource.data.note.size() <= 200
+        && request.resource.data.done is bool;
+    }
     // 勤務の記号・まとまり・希望の締め切り
     match /config/shift {
       allow read: if isStaff() || isWorker();

@@ -235,6 +235,21 @@ describe("カフェの呼出番号 (cafeCalls)", () => {
   });
 });
 
+describe("作業配置表 (config/haichi・haichi)", () => {
+  it("管理者だけが書け、スタッフは見るだけ", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "config/haichi"), { sections: [{ id: "a", name: "収穫", slots: [{ id: "h1", label: "1" }] }] }));
+    await assertSucceeds(getDoc(doc(staff(), "config/haichi")));
+    await assertFails(setDoc(doc(staff(), "config/haichi"), { sections: [] }));
+    await assertFails(setDoc(doc(admin(), "config/haichi"), { sections: [], x: 1 }));
+    await assertSucceeds(setDoc(doc(admin(), "haichi/2026-10-12"), { cells: { h1: { members: ["m1"], memo: "赤玉" } }, note: "", done: false }));
+    await assertSucceeds(getDoc(doc(staff(), "haichi/2026-10-12")));
+    await assertFails(setDoc(doc(staff(), "haichi/2026-10-12"), { cells: {}, note: "", done: false }));
+    await assertFails(setDoc(doc(admin(), "haichi/2026-10-12"), { cells: {}, note: "", done: "x" }));
+    await assertFails(setDoc(doc(admin(), "haichi/abc"), { cells: {}, note: "", done: false }));
+    for (const db of [guest(), noRole(), disabled()]) await assertFails(getDoc(doc(db, "haichi/2026-10-12")));
+  });
+});
+
 describe("トータル実績（ほかの売上）", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));

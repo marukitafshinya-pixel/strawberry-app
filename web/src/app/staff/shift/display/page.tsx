@@ -8,6 +8,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { addDays, isValidYmd, todayJST } from "@/lib/date";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
+import { formatJa } from "@/lib/date";
+import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
+import { HaichiBoard } from "../Haichi";
 import { ShiftTable } from "../ShiftTable";
 
 const DAY_CHOICES = [7, 14, 21, 28] as const;
@@ -42,6 +45,10 @@ function Display() {
       return "all";
     }
   });
+  /** 勤務表を映すか、作業配置表を映すか（配置表は from の日） */
+  const [view, setView] = useState<"table" | "haichi">(() => (params.get("view") === "haichi" ? "haichi" : "table"));
+  const haichiTemplate = useHaichiTemplate();
+  const haichiDay = useHaichiDay(from);
   const to = addDays(from, span - 1);
   const cfg = useShiftConfig();
   const members = useShiftMembers();
@@ -86,7 +93,7 @@ function Display() {
     if (stage.current) ro.observe(stage.current);
     if (inner.current) ro.observe(inner.current);
     return () => ro.disconnect();
-  }, [ready, span, from, mode]);
+  }, [ready, span, from, mode, view, haichiDay, haichiTemplate]);
   useEffect(() => {
     const on = () => setFull(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
@@ -134,18 +141,45 @@ function Display() {
     <div className="flex h-dvh flex-col bg-white">
       {/* 操作の帯。全画面・半分のときは隠して、マウスを上に持っていったときだけ見える */}
       <div className={`flex flex-wrap items-center gap-2 border-b bg-gray-50 px-3 py-2 transition-opacity ${hideBar ? "absolute inset-x-0 top-0 z-20 opacity-0 shadow-md hover:opacity-100" : ""}`}>
-        <span className="font-bold">勤務管理表（投影用）</span>
-        <button onClick={() => setFrom(addDays(from, -7))} className={btn}>
-          ‹ 1週前
-        </button>
-        <button onClick={() => setFrom(todayJST())} className={btn}>
-          今日から
-        </button>
-        <button onClick={() => setFrom(addDays(from, 7))} className={btn}>
-          1週後 ›
-        </button>
-        <span className="ml-2 text-sm text-gray-600">日数</span>
-        <div className="inline-flex overflow-hidden rounded-lg border bg-white text-sm">
+        <div className="inline-flex overflow-hidden rounded-lg border bg-white text-sm font-bold">
+          {(
+            [
+              ["table", "勤務表"],
+              ["haichi", "作業配置表"],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 ${view === v ? "bg-berry text-white" : ""}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {view === "haichi" ? (
+          <>
+            <button onClick={() => setFrom(addDays(from, -1))} className={btn}>
+              ‹ 前の日
+            </button>
+            <button onClick={() => setFrom(todayJST())} className={btn}>
+              今日
+            </button>
+            <button onClick={() => setFrom(addDays(from, 1))} className={btn}>
+              次の日 ›
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => setFrom(addDays(from, -7))} className={btn}>
+              ‹ 1週前
+            </button>
+            <button onClick={() => setFrom(todayJST())} className={btn}>
+              今日から
+            </button>
+            <button onClick={() => setFrom(addDays(from, 7))} className={btn}>
+              1週後 ›
+            </button>
+          </>
+        )}
+        <span className={`ml-2 text-sm text-gray-600 ${view === "haichi" ? "hidden" : ""}`}>日数</span>
+        <div className={`${view === "haichi" ? "hidden" : "inline-flex"} overflow-hidden rounded-lg border bg-white text-sm`}>
           {DAY_CHOICES.map((n) => (
             <button key={n} onClick={() => changeSpan(n)} className={`px-3 py-1.5 ${span === n ? "bg-emerald-700 font-bold text-white" : ""}`}>
               {n}日
@@ -208,7 +242,18 @@ function Display() {
             {/* 拡大は transform で（表そのものの大きさ＝枠は変えない） */}
             <div style={{ width: fit.w * fit.zoom, height: fit.h * fit.zoom }}>
               <div ref={inner} className="w-max origin-top-left" style={{ transform: `scale(${fit.zoom})` }}>
-                <ShiftTable fixed bare from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} />
+                {view === "haichi" ? (
+                  haichiTemplate && haichiDay ? (
+                    <div className="w-[1500px] p-3">
+                      <h2 className="mb-2 text-4xl font-bold">作業配置表　{formatJa(from)}</h2>
+                      <HaichiBoard big template={haichiTemplate} day={haichiDay} names={Object.fromEntries((members ?? []).map((m) => [m.id, m.name]))} />
+                    </div>
+                  ) : (
+                    <p className="p-6 text-gray-500">読み込み中…</p>
+                  )
+                ) : (
+                  <ShiftTable fixed bare from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} />
+                )}
               </div>
             </div>
           </div>
