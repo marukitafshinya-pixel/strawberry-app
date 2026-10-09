@@ -184,7 +184,6 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const [tab, setTab] = useState<"tile" | "list" | "search" | "custom">("tile");
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [openLine, setOpenLine] = useState<string | null>(null);
   const { role } = useAuth();
   /** タイルの並べ替え中の並び（null なら並べ替えしていない） */
   const [arrange, setArrange] = useState<TileLayout | null>(null);
@@ -639,63 +638,35 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
             {lines.length === 0 && <li className="px-4 py-8 text-center text-sm text-gray-400">右の商品を押すと、ここに入ります</li>}
             {lines.map((l) => (
               <li key={l.key} className="px-4 py-2.5">
-                <button onClick={() => setOpenLine(openLine === l.key ? null : l.key)} className="block w-full text-left font-semibold leading-snug break-words">
-                  {l.name}
-                </button>
-                {/* 単価×点数は大きく（見間違えないように）。押すと割引・税率・単価を変えられる */}
-                <button onClick={() => setOpenLine(openLine === l.key ? null : l.key)} className="mt-1 block w-full text-left" aria-label="割引・税率を変える">
-                  <span className="text-2xl font-semibold tabular-nums text-gray-700">
-                    {yen(l.unitPrice)} × {l.qty}
-                  </span>
-                  {l.discountRate > 0 && <span className="ml-2 text-sm font-bold text-red-700">{l.discountRate}%引</span>}
-                  {l.taxRate === 8 && <span className="ml-2 text-sm text-amber-700">8%軽減</span>}
-                </button>
-                <div className="mt-1 flex items-center justify-end gap-2">
-                  <button onClick={() => (l.qty > 1 ? update(l.key, { qty: l.qty - 1 }) : removeLine(l.key))} className="h-8 w-8 rounded border" aria-label="減らす">
-                    −
+                <div className="flex items-start gap-2">
+                  <span className="min-w-0 flex-1 font-semibold leading-snug break-words">{l.name}</span>
+                  <button
+                    onClick={() => update(l.key, { taxRate: l.taxRate === 8 ? 10 : 8 })}
+                    className={`shrink-0 rounded border px-2 py-1 text-xs ${l.taxRate === 8 ? "border-amber-400 bg-amber-50 text-amber-800" : "bg-white text-gray-500"}`}
+                    aria-label={`税率 ${l.taxRate}%（押すと切り替え）`}
+                  >
+                    {l.taxRate === 8 ? "8%軽減" : "10%"}
                   </button>
-                  <QtyInput value={l.qty} onChange={(qty) => update(l.key, { qty })} />
-                  <button onClick={() => update(l.key, { qty: Math.min(9999, l.qty + 1) })} className="h-8 w-8 rounded border" aria-label="増やす">
-                    ＋
-                  </button>
-                  <span className="w-20 text-right font-semibold tabular-nums">{yen(lineAmount(l.unitPrice, l.qty, l.discountRate))}</span>
-                  <button onClick={() => removeLine(l.key)} className="px-1 text-gray-400" aria-label="削除">
+                  <span className="shrink-0 text-lg font-bold tabular-nums">{yen(lineAmount(l.unitPrice, l.qty, l.discountRate))}</span>
+                  <button onClick={() => removeLine(l.key)} className="shrink-0 px-1 text-gray-400" aria-label="削除">
                     🗑
                   </button>
                 </div>
-                {openLine === l.key && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 text-sm">
-                    <label className="flex items-center gap-1">
-                      単価
-                      <input
-                        inputMode="numeric"
-                        value={String(l.unitPrice)}
-                        onChange={(e) => update(l.key, { unitPrice: Math.min(10_000_000, Number(toDigits(e.target.value) || 0)) })}
-                        className="w-24 rounded border px-1 py-1 text-right"
-                        aria-label="単価"
-                      />
-                      円
-                    </label>
-                    <label className="flex items-center gap-1">
-                      <input
-                        inputMode="numeric"
-                        value={l.discountRate || ""}
-                        placeholder="0"
-                        onChange={(e) => update(l.key, { discountRate: Math.min(100, Number(toDigits(e.target.value) || 0)) })}
-                        className="w-14 rounded border px-1 py-1 text-right"
-                        aria-label="割引率"
-                      />
-                      %引
-                    </label>
-                    <button
-                      onClick={() => update(l.key, { taxRate: l.taxRate === 8 ? 10 : 8 })}
-                      className={`rounded border px-2 py-1 text-xs ${l.taxRate === 8 ? "border-amber-400 bg-amber-50 text-amber-800" : "bg-white text-gray-600"}`}
-                      aria-label={`税率 ${l.taxRate}%（押すと切り替え）`}
-                    >
-                      税率 {l.taxRate === 8 ? "8%軽減" : "10%"}
-                    </button>
-                  </div>
-                )}
+                {/* 単価・点数・割引は、その数字を押すとその場で直せる */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 tabular-nums">
+                  <NumCell value={l.unitPrice} min={0} max={10_000_000} label="単価" comma onChange={(unitPrice) => update(l.key, { unitPrice })} className="w-28 text-2xl font-semibold" />
+                  <span className="text-lg text-gray-600">円 ×</span>
+                  <NumCell value={l.qty} min={1} max={9999} label="点数" onChange={(qty) => update(l.key, { qty })} className="w-14 text-2xl font-semibold" />
+                  <NumCell
+                    value={l.discountRate}
+                    min={0}
+                    max={100}
+                    label="割引率"
+                    onChange={(discountRate) => update(l.key, { discountRate })}
+                    className={`ml-2 w-12 text-lg ${l.discountRate > 0 ? "font-bold text-red-700" : "text-gray-400"}`}
+                  />
+                  <span className={`text-sm ${l.discountRate > 0 ? "font-bold text-red-700" : "text-gray-500"}`}>%引</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -1398,26 +1369,46 @@ function HandlerPicker() {
   );
 }
 
-/** 点数。数字を押すと直接入力できる（全選択されるので、そのまま打ち直せる）。確定は Enter かほかの場所を押したとき。空・0 は元に戻す */
-function QtyInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+/**
+ * 注文リストの数字（単価・点数・割引率）。押すと全選択されるので、そのまま打ち直せる。
+ * 確定は Enter かほかの場所を押したとき。Esc・空・範囲外は元に戻す。全角数字も受け付ける
+ */
+function NumCell({
+  value,
+  onChange,
+  min,
+  max,
+  label,
+  className,
+  comma,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  label: string;
+  className: string;
+  /** 入力していないときは 1,500 のようにカンマを付けて見せる */
+  comma?: boolean;
+}) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancel = useRef(false);
   function commit() {
     const n = Number(draft);
-    if (!cancel.current && draft !== null && Number.isInteger(n) && n >= 1) onChange(Math.min(9999, n));
+    if (!cancel.current && draft !== null && draft !== "" && Number.isInteger(n) && n >= min) onChange(Math.min(max, n));
     cancel.current = false;
     setDraft(null);
   }
   return (
     <input
       inputMode="numeric"
-      aria-label="点数"
-      value={draft ?? String(value)}
+      aria-label={label}
+      value={draft ?? (comma ? value.toLocaleString("ja-JP") : String(value))}
       onFocus={(e) => {
         setDraft(String(value));
         e.currentTarget.select();
       }}
-      onChange={(e) => setDraft(e.target.value.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/\D/g, "").slice(0, 4))}
+      onChange={(e) => setDraft(toDigits(e.target.value).slice(0, String(max).length))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
@@ -1426,7 +1417,7 @@ function QtyInput({ value, onChange }: { value: number; onChange: (v: number) =>
           e.currentTarget.blur();
         }
       }}
-      className="h-8 w-11 rounded border border-gray-300 bg-white text-center tabular-nums focus:border-berry focus:outline-none"
+      className={`rounded border border-transparent border-b-gray-300 bg-transparent px-1 text-right hover:border-gray-300 focus:border-berry focus:bg-white focus:outline-none ${className}`}
     />
   );
 }
