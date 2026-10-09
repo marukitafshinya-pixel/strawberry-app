@@ -26,8 +26,8 @@ export const CODE_COLORS: Record<string, string> = {
 export const DEFAULT_SHIFT_CONFIG: ShiftConfig = {
   codes: [
     { code: "〇", off: false, req: false, color: "none" },
-    { code: "希望休", off: true, req: true, color: "pink" },
-    { code: "指定休", off: true, req: false, color: "gray" },
+    { code: "希休", off: true, req: true, color: "pink" },
+    { code: "指休", off: true, req: false, color: "gray" },
     { code: "AM", off: false, req: true, color: "yellow" },
     { code: "PM", off: false, req: true, color: "yellow" },
     { code: "～12:00", off: false, req: true, color: "blue" },

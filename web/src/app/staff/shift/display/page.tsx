@@ -208,7 +208,7 @@ function Display() {
             {/* 拡大は transform で（表そのものの大きさ＝枠は変えない） */}
             <div style={{ width: fit.w * fit.zoom, height: fit.h * fit.zoom }}>
               <div ref={inner} className="w-max origin-top-left" style={{ transform: `scale(${fit.zoom})` }}>
-                <ShiftTable fixed from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} />
+                <ShiftTable fixed bare from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} />
               </div>
             </div>
           </div>

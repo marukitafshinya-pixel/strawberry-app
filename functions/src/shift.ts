@@ -121,4 +121,4 @@ export const cancelShiftRequest = onCall(async (req) => {
 });
 
 /** 設定がまだないときに、従業員が出せる希望 */
-export const DEFAULT_REQUEST_CODES = ["希望休", "AM", "PM", "～12:00", "～13:00", "～14:00", "～15:00", "～16:00"];
+export const DEFAULT_REQUEST_CODES = ["希休", "AM", "PM", "～12:00", "～13:00", "～14:00", "～15:00", "～16:00"];

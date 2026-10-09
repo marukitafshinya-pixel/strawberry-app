@@ -95,6 +95,35 @@ function ShiftView() {
     }
   }, [isAdmin, cfg, members]);
 
+  // 記号「希望休」を「希休」に、「指定休」を「指休」に変えた（管理者が開いたときに一度だけ。記号のリストと勤務表のマスの両方）
+  const codeMigrated = useRef(false);
+  useEffect(() => {
+    const FLAG = "ichigo.shiftCodeRename.2026-10";
+    const RENAME: Record<string, string> = { 希望休: "希休", 指定休: "指休" };
+    if (!isAdmin || !cfg || codeMigrated.current) return;
+    try {
+      if (localStorage.getItem(FLAG)) return;
+    } catch {
+      // 覚えておけなくても進める（同じ置き換えをもう一度しても変わらない）
+    }
+    codeMigrated.current = true;
+    const has = (c: string) => cfg.codes.some((x) => x.code === c);
+    const needList = Object.entries(RENAME).some(([o, n]) => has(o) && !has(n));
+    (needList
+      ? saveShiftConfig({ ...cfg, codes: cfg.codes.map((c) => (RENAME[c.code] && !has(RENAME[c.code]) ? { ...c, code: RENAME[c.code] } : c)) })
+      : Promise.resolve()
+    )
+      .then(() => replaceShiftCodes(RENAME))
+      .then(() => {
+        try {
+          localStorage.setItem(FLAG, "1");
+        } catch {
+          // 次に開いたときにもう一度確かめるだけ
+        }
+      })
+      .catch((e) => setError(errorText(e)));
+  }, [isAdmin, cfg]);
+
   /** 勤務表のマスで決める希望 */
   const [deciding, setDeciding] = useState<ShiftRequest | null>(null);
   const [decidingBusy, setDecidingBusy] = useState(false);

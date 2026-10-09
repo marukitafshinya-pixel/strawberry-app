@@ -40,6 +40,7 @@ export function ShiftTable({
   onCopyDay,
   onClearDay,
   fixed,
+  bare,
 }: {
   from: string;
   span: number;
@@ -66,6 +67,8 @@ export function ShiftTable({
   onClearDay?: (date: string) => void;
   /** 投影用：横に動かさず、表をそのままの大きさで出す（外側で画面に合わせて拡大する） */
   fixed?: boolean;
+  /** 投影用：「予定」の行と、まとまり（男性・女性など）の帯を出さない（まとまりの境目は太い線にする） */
+  bare?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：マスの幅（枠）はそのままで、文字ができるだけ大きくなるようにする。
@@ -151,7 +154,7 @@ export function ShiftTable({
               </td>
             ))}
           </tr>
-          <tr className="border-b">
+          <tr className={`border-b ${bare ? "hidden" : ""}`}>
             <th className={`${head} py-1 font-normal`}>予定</th>
             {dates.map((d) => (
               <td key={d} className={`break-all px-0.5 py-1 text-center ${colTone(d)} ${wk(d)}`}>
@@ -171,6 +174,7 @@ export function ShiftTable({
             <GroupRows
               key={g}
               name={g}
+              hidden={bare}
               band={
                 onCopyDay && g === groups[0]
                   ? dates.map((d) => (
@@ -204,7 +208,7 @@ export function ShiftTable({
               {sorted
                 .filter((m) => m.group === g)
                 .map((m) => (
-                  <tr key={m.id} className={`border-b ${stripe(m)}`}>
+                  <tr key={m.id} className={`border-b ${stripe(m)} ${bare && g !== groups[0] && m === sorted.find((x) => x.group === g) ? "border-t-[3px] border-t-gray-800!" : ""}`}>
                     <th className={`${headBase} py-1 font-normal ${stripe(m)} ${m.id === myMemberId ? "font-bold" : ""}`}>
                       {m.name}
                       {m.floor && <span className="ml-1 rounded bg-emerald-100 px-1 text-[0.6em] text-emerald-800">売</span>}
@@ -286,10 +290,10 @@ export function ShiftTable({
   );
 }
 
-function GroupRows({ name, band, children }: { name: string; band?: React.ReactNode; children: React.ReactNode }) {
+function GroupRows({ name, band, hidden, children }: { name: string; band?: React.ReactNode; hidden?: boolean; children: React.ReactNode }) {
   return (
     <>
-      <tr className="border-b bg-gray-50">
+      <tr className={`border-b bg-gray-50 ${hidden ? "hidden" : ""}`}>
         <th className="sticky left-0 z-10 bg-gray-50 px-2 py-0.5 text-left text-[0.7em] font-bold text-gray-600">{name}</th>
         {band ?? <td colSpan={999} />}
       </tr>
