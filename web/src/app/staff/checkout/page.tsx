@@ -185,7 +185,6 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
   const [openLine, setOpenLine] = useState<string | null>(null);
-  const [ask, setAsk] = useState<{ tile: Tile; amount: string } | null>(null);
   const { role } = useAuth();
   /** タイルの並べ替え中の並び（null なら並べ替えしていない） */
   const [arrange, setArrange] = useState<TileLayout | null>(null);
@@ -459,8 +458,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
 
   function tap(t: Tile) {
     if (arrange) return pickTile(t);
-    // 値段が0円の商品は、その場で金額を入れる（Airレジの「金額入力」と同じ）
-    if (t.price === 0) return setAsk({ tile: t, amount: "" });
+    // 値段が0円（金額が決まっていない）商品も、そのまま0円で注文リストに入れる。金額は明細を押して単価で直せる
     addTile(t, t.price);
   }
   function addTile(t: Tile, price: number) {
@@ -915,7 +913,7 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                               <li key={t.key}>
                                 <button onClick={() => tap(t)} className="flex w-full items-center justify-between px-3 py-2.5 text-left active:bg-gray-100">
                                   <span>{t.name}</span>
-                                  <span className="text-sm tabular-nums">{t.price === 0 ? "金額入力" : yen(t.price)}</span>
+                                  <span className="text-sm tabular-nums">{yen(t.price)}</span>
                                 </button>
                               </li>
                             ))}
@@ -1159,41 +1157,6 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         </div>
       )}
 
-      {/* 金額入力（値段が0円の商品） */}
-      {ask && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setAsk(null)}>
-          <form
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (ask.amount === "") return;
-              addTile(ask.tile, Number(ask.amount));
-              setAsk(null);
-            }}
-            className="w-full max-w-xs rounded-2xl bg-white p-4 shadow-lg"
-          >
-            <p className="font-bold">{ask.tile.name}</p>
-            <label className="mt-2 block text-sm">
-              <span className="text-gray-600">金額（税込）</span>
-              <input
-                autoFocus
-                inputMode="numeric"
-                value={ask.amount}
-                onChange={(e) => setAsk({ ...ask, amount: toDigits(e.target.value).slice(0, 7) })}
-                className="mt-1 w-full rounded-lg border px-3 py-3 text-right text-2xl"
-              />
-            </label>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setAsk(null)} className="rounded-lg border py-3">
-                やめる
-              </button>
-              <button type="submit" disabled={ask.amount === ""} className="rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-40">
-                追加
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 }
@@ -1222,7 +1185,7 @@ function TileButton({
       <span className="line-clamp-2 leading-tight">{t.name}</span>
       <span className="flex items-end justify-between gap-1">
         {t.special ? <span className="rounded bg-sky-600 px-1 text-[10px] font-bold text-white">顧客価格</span> : <span />}
-        <span className={`text-sm tabular-nums ${t.special ? "font-bold text-sky-800" : ""}`}>{t.price === 0 ? "金額入力" : yen(t.price)}</span>
+        <span className={`text-sm tabular-nums ${t.special ? "font-bold text-sky-800" : ""}`}>{yen(t.price)}</span>
       </span>
     </button>
   );
