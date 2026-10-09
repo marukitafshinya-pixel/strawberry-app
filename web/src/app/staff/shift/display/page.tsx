@@ -54,6 +54,9 @@ function Display() {
   const inner = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ zoom: 1, w: 0, h: 0 });
   const [full, setFull] = useState(false);
+  /** 左半分・右半分にしたとき：全画面と同じように、操作の帯を隠して表を画面いっぱいにする */
+  const [halfSide, setHalfSide] = useState<"left" | "right" | null>(null);
+  const hideBar = full || halfSide !== null;
   const ready = !!(cfg && members && days);
   useLayoutEffect(() => {
     if (!ready) return;
@@ -102,12 +105,15 @@ function Display() {
     const top = sc.availTop ?? 0;
     const w = Math.floor(sc.availWidth / 2);
     // 全画面をやめた直後は大きさを変えられないことがあるので、少し待ってから
+    setHalfSide(side);
     setTimeout(() => {
       window.resizeTo(w, sc.availHeight);
       window.moveTo(side === "left" ? left : left + w, top);
       setTimeout(() => {
-        if (Math.abs(window.outerWidth - w) > 40)
+        if (Math.abs(window.outerWidth - w) > 40) {
+          setHalfSide(null);
           window.alert("ウィンドウの大きさを変えられませんでした。勤務管理表の「📽 投影用の画面」ボタンから開いたウィンドウで使ってください。");
+        }
       }, 400);
     }, 150);
   }
@@ -115,8 +121,8 @@ function Display() {
   const btn = "rounded-lg border bg-white px-3 py-1.5 text-sm";
   return (
     <div className="flex h-dvh flex-col bg-white">
-      {/* 操作の帯。全画面のときは、マウスを上に持っていったときだけ見える */}
-      <div className={`flex flex-wrap items-center gap-2 border-b bg-gray-50 px-3 py-2 transition-opacity ${full ? "absolute inset-x-0 top-0 z-20 opacity-0 hover:opacity-100" : ""}`}>
+      {/* 操作の帯。全画面・半分のときは隠して、マウスを上に持っていったときだけ見える */}
+      <div className={`flex flex-wrap items-center gap-2 border-b bg-gray-50 px-3 py-2 transition-opacity ${hideBar ? "absolute inset-x-0 top-0 z-20 opacity-0 shadow-md hover:opacity-100" : ""}`}>
         <span className="font-bold">勤務管理表（投影用）</span>
         <button onClick={() => setFrom(addDays(from, -7))} className={btn}>
           ‹ 1週前
@@ -168,6 +174,11 @@ function Display() {
               右半分 ◨
             </button>
           </div>
+          {halfSide && !full && (
+            <button onClick={() => setHalfSide(null)} title="この操作の帯を、いつも見えるように戻す" className={btn}>
+              帯を表示
+            </button>
+          )}
           <button onClick={toggleFull} className="rounded-lg bg-berry px-4 py-1.5 text-sm font-bold text-white">
             {full ? "全画面をやめる（Esc）" : "全画面にする"}
           </button>
