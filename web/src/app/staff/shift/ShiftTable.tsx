@@ -87,6 +87,8 @@ export function ShiftTable({
     const base = Math.max(w("31"), ...codes.filter((c) => [...c].length <= 2).map((c) => of[c]), 1);
     setWidths({ base, of });
   }, [codesKey]);
+  // 投影用（fixed）は、余白を足す前の幅のまま（画面に合わせて拡大するので、詰めたほうが文字が大きく映る）
+  const colPx = fixed ? FONT_COL_PX : COL_PX;
   const room = FONT_COL_PX - CELL_INSET;
   const fontPx = Math.max(9, Math.min(FONT_COL_PX * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
   /** 長い記号は、そのマスに収まるところまで小さくする */
@@ -127,7 +129,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
             {dates.map((d, i) => (
-              <th key={d} style={{ width: COL_PX, minWidth: COL_PX, maxWidth: COL_PX }} className={`overflow-visible whitespace-nowrap px-0.5 py-1 text-left font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
+              <th key={d} style={{ width: colPx, minWidth: colPx, maxWidth: colPx }} className={`overflow-visible whitespace-nowrap px-0.5 py-1 text-left font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
                 {i === 0 || d.endsWith("-01") ? `${Number(d.slice(5, 7))}月` : ""}
               </th>
             ))}
