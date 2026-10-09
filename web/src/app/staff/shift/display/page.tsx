@@ -64,11 +64,22 @@ function Display() {
       const s = stage.current;
       const t = inner.current;
       if (!s || !t) return;
+      // 縦に伸ばした分をいったん外して、表そのものの大きさを測る
+      const table = t.querySelector("table");
+      if (table) table.style.height = "";
       const w = t.offsetWidth;
       const h = t.offsetHeight;
       if (!w || !h) return;
       const byW = (s.clientWidth - (mode === "width" ? 16 : 0)) / w;
-      setFit({ zoom: Math.max(0.3, mode === "width" ? byW : Math.min(byW, s.clientHeight / h)), w, h });
+      const zoom = Math.max(0.3, mode === "width" ? byW : Math.min(byW, s.clientHeight / h));
+      // 「全部を画面に」で下が余るとき（半分の大きさなど縦長のウィンドウ）は、行の高さを広げて縦いっぱいにする。
+      // 文字はゆがめない（縦横同じ倍率のまま）
+      let hh = h;
+      if (mode === "all" && table && h * zoom < s.clientHeight - 1) {
+        hh = s.clientHeight / zoom;
+        table.style.height = `${hh - (h - table.offsetHeight)}px`;
+      }
+      setFit({ zoom, w, h: hh });
     };
     fit();
     const ro = new ResizeObserver(fit);
