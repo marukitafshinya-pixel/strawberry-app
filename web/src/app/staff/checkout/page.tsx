@@ -642,14 +642,15 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
                 <button onClick={() => setOpenLine(openLine === l.key ? null : l.key)} className="block w-full text-left font-semibold leading-snug break-words">
                   {l.name}
                 </button>
-                <div className="mt-1 flex items-center gap-2">
-                  <button onClick={() => setOpenLine(openLine === l.key ? null : l.key)} className="min-w-0 flex-1 text-left" aria-label="割引・税率を変える">
-                    <span className="text-xs text-gray-500">
-                      {yen(l.unitPrice)} × {l.qty}
-                      {l.discountRate > 0 && <span className="ml-1 text-red-700">{l.discountRate}%引</span>}
-                      {l.taxRate === 8 && <span className="ml-1 text-amber-700">8%軽減</span>}
-                    </span>
-                  </button>
+                {/* 単価×点数は大きく（見間違えないように）。押すと割引・税率・単価を変えられる */}
+                <button onClick={() => setOpenLine(openLine === l.key ? null : l.key)} className="mt-1 block w-full text-left" aria-label="割引・税率を変える">
+                  <span className="text-2xl font-semibold tabular-nums text-gray-700">
+                    {yen(l.unitPrice)} × {l.qty}
+                  </span>
+                  {l.discountRate > 0 && <span className="ml-2 text-sm font-bold text-red-700">{l.discountRate}%引</span>}
+                  {l.taxRate === 8 && <span className="ml-2 text-sm text-amber-700">8%軽減</span>}
+                </button>
+                <div className="mt-1 flex items-center justify-end gap-2">
                   <button onClick={() => (l.qty > 1 ? update(l.key, { qty: l.qty - 1 }) : removeLine(l.key))} className="h-8 w-8 rounded border" aria-label="減らす">
                     −
                   </button>
