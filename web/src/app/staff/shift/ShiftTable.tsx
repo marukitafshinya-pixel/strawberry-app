@@ -98,14 +98,14 @@ export function ShiftTable({
   const groups = [...new Set(sorted.map((m) => m.group))];
   /** 横に見やすいよう、従業員の行を一段おきに色を付ける（まとまりをまたいで数える） */
   const rowNo = new Map(groups.flatMap((g) => sorted.filter((m) => m.group === g)).map((m, i) => [m.id, i]));
-  const stripe = (m: ShiftMember) => (m.id === myMemberId ? "bg-emerald-50" : (rowNo.get(m.id) ?? 0) % 2 === 1 ? "bg-slate-100" : "bg-white");
+  const stripe = (m: ShiftMember) => (m.id === myMemberId ? "bg-emerald-50" : (rowNo.get(m.id) ?? 0) % 2 === 1 ? "bg-slate-200" : "bg-white");
   const req = new Map((requests ?? []).map((r) => [`${r.memberId}_${r.date}`, r]));
   const working = (d: string, m: ShiftMember) => isWorking(cfg, days[d]?.cells[m.id]);
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
   const headBase = "sticky left-0 z-10 whitespace-nowrap border-r px-2 text-left";
   const head = `${headBase} bg-white`;
   /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
-  const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-500" : "");
+  const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-800!" : "");
 
   return (
     <div
@@ -116,7 +116,8 @@ export function ShiftTable({
         if (onMore && el.scrollLeft + el.clientWidth > el.scrollWidth - 400) onMore();
       }}
     >
-      <table className="border-collapse tabular-nums leading-tight" style={{ fontSize: fontPx }}>
+      {/* マス目の線は濃いめ（プロジェクターで映しても見えるように） */}
+      <table className="border-collapse tabular-nums leading-tight [&_td]:border-gray-500 [&_th]:border-gray-500 [&_tr]:border-gray-500" style={{ fontSize: fontPx }}>
         <thead>
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
