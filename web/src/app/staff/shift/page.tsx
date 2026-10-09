@@ -252,6 +252,18 @@ function ShiftView() {
       <button onClick={() => window.print()} className="px-1 text-sm text-gray-600 underline">
         印刷
       </button>
+      <button
+        onClick={() => {
+          // タブやブックマークの出ない小さなウィンドウで開く（そのウィンドウだけ全画面にできる。ブラウザの設定は変えない）
+          const w = window.open(`/staff/shift/display/?from=${from}`, "ichigo-shift-display", "popup=yes,width=1280,height=800");
+          if (w) w.focus();
+          else window.alert("ウィンドウを開けませんでした。ブラウザでポップアップを許可してください。");
+        }}
+        title="プロジェクター用に、タブなしの別ウィンドウで大きく表示します"
+        className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-bold text-white"
+      >
+        📽 投影用の画面
+      </button>
     </div>
   );
 

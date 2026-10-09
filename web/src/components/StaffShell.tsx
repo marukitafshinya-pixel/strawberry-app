@@ -83,6 +83,9 @@ function useNewVersion(): boolean {
 const WORKER_PATH = "/staff/shift/me/";
 
 /** スタッフ画面の共通部分。ログインしていなければログイン画面へ移動する */
+/** 勤務管理表の投影用の画面 */
+const DISPLAY_PATH = "/staff/shift/display";
+
 function Guard({ children }: { children: ReactNode }) {
   const { loading, user, role, logout } = useAuth();
   const pathname = usePathname();
@@ -104,6 +107,8 @@ function Guard({ children }: { children: ReactNode }) {
   if (!role) return <NoRole />;
   // 従業員は、勤務管理表（自分の画面）だけ
   if (role === "worker" && !pathname?.startsWith(WORKER_PATH)) return <p className="p-6 text-gray-500">読み込み中…</p>;
+  // 投影用の画面（勤務管理表をプロジェクターに映す）は、上の帯も余白も付けず、画面いっぱいに出す
+  if (pathname?.startsWith(DISPLAY_PATH)) return <>{children}</>;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">

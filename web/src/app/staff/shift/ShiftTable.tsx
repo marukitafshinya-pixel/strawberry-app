@@ -6,10 +6,12 @@ import { addDays, todayJST } from "@/lib/date";
 import { isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
-/** 日付の列の幅（px）。表の文字は、いちばん長い記号がこの幅にぎりぎり収まる大きさにそろえる */
+/** 日付の列の幅（px）。表の文字は、記号がこの幅にぎりぎり収まる大きさにする */
 const COL_PX = 52;
 /** マスの左右の余白と、希望の点線の枠の分（px） */
-const CELL_INSET = 8;
+const CELL_INSET = 6;
+/** 文字のいちばん大きい大きさは、列の幅の何倍までにするか（行が高くなりすぎないように） */
+const FONT_CAP = 0.54;
 const wdOf = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
 
 /** まとまりの順、その中は並び順で並べる */
@@ -37,6 +39,7 @@ export function ShiftTable({
   onRequest,
   onCopyDay,
   onClearDay,
+  fixed,
 }: {
   from: string;
   span: number;
@@ -61,18 +64,31 @@ export function ShiftTable({
   onCopyDay?: (date: string) => void;
   /** 2番目のまとまりの帯に出す「－」：その日の記号を全部消す（管理者） */
   onClearDay?: (date: string) => void;
+  /** 投影用：横に動かさず、表をそのままの大きさで出す（外側で画面に合わせて拡大する） */
+  fixed?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  // 表の文字の大きさ：記号のうちいちばん横に長いものが、マスの幅にぎりぎり収まる大きさ（全部この大きさにそろえる）
-  const [fontPx, setFontPx] = useState(12);
+  // 表の文字の大きさ：マスの幅（枠）はそのままで、文字ができるだけ大きくなるようにする。
+  // 表全体は、2文字までの記号と日付（31）がマスにぎりぎり収まる大きさ。それより長い記号だけ、そのマスで小さくする
+  const [widths, setWidths] = useState<{ base: number; of: Record<string, number> }>({ base: 2, of: {} });
   const codesKey = cfg.codes.map((c) => c.code).join("|");
   useEffect(() => {
     const ctx = document.createElement("canvas").getContext("2d");
     if (!ctx || !box.current) return;
-    ctx.font = `100px ${getComputedStyle(box.current).fontFamily}`;
-    const widest = Math.max(...codesKey.split("|").map((c) => ctx.measureText(c).width / 100), ctx.measureText("31").width / 100, 1);
-    setFontPx(Math.max(9, Math.min(20, Math.floor(((COL_PX - CELL_INSET) / widest) * 10) / 10)));
+    ctx.font = `bold 100px ${getComputedStyle(box.current).fontFamily}`;
+    const w = (t: string) => ctx.measureText(t).width / 100;
+    const codes = codesKey.split("|").filter(Boolean);
+    const of = Object.fromEntries(codes.map((c) => [c, w(c)]));
+    const base = Math.max(w("31"), ...codes.filter((c) => [...c].length <= 2).map((c) => of[c]), 1);
+    setWidths({ base, of });
   }, [codesKey]);
+  const room = COL_PX - CELL_INSET;
+  const fontPx = Math.max(9, Math.min(COL_PX * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
+  /** 長い記号は、そのマスに収まるところまで小さくする */
+  const codeFont = (code: string) => {
+    const u = widths.of[code];
+    return u && u * fontPx > room ? Math.floor((room / u) * 10) / 10 : undefined;
+  };
   useEffect(() => {
     if (box.current) box.current.scrollLeft = 0;
   }, [from, resetKey]);
@@ -94,7 +110,7 @@ export function ShiftTable({
   return (
     <div
       ref={box}
-      className="overflow-x-auto rounded-xl border bg-white"
+      className={fixed ? "inline-block bg-white" : "overflow-x-auto rounded-xl border bg-white"}
       onScroll={(e) => {
         const el = e.currentTarget;
         if (onMore && el.scrollLeft + el.clientWidth > el.scrollWidth - 400) onMore();
@@ -105,7 +121,7 @@ export function ShiftTable({
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
             {dates.map((d, i) => (
-              <th key={d} style={{ width: COL_PX, minWidth: COL_PX, maxWidth: COL_PX }} className={`px-0.5 py-1 font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
+              <th key={d} style={{ width: COL_PX, minWidth: COL_PX, maxWidth: COL_PX }} className={`overflow-visible whitespace-nowrap px-0.5 py-1 text-left font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
                 {i === 0 || d.endsWith("-01") ? `${Number(d.slice(5, 7))}月` : ""}
               </th>
             ))}
@@ -190,17 +206,23 @@ export function ShiftTable({
                   <tr key={m.id} className={`border-b ${stripe(m)}`}>
                     <th className={`${headBase} py-1 font-normal ${stripe(m)} ${m.id === myMemberId ? "font-bold" : ""}`}>
                       {m.name}
-                      {m.floor && <span className="ml-1 rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">売</span>}
-                      {m.harvest && <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] text-rose-800">収</span>}
+                      {m.floor && <span className="ml-1 rounded bg-emerald-100 px-1 text-[0.6em] text-emerald-800">売</span>}
+                      {m.harvest && <span className="ml-1 rounded bg-rose-100 px-1 text-[0.6em] text-rose-800">収</span>}
                     </th>
                     {dates.map((d) => {
                       const code = days[d]?.cells[m.id];
                       const r = req.get(`${m.id}_${d}`);
                       const body = (
                         <>
-                          {code ?? ""}
+                          {code ? (
+                            <span className="font-bold" style={{ fontSize: codeFont(code) }}>
+                              {code}
+                            </span>
+                          ) : (
+                            ""
+                          )}
                           {r && (
-                            <span className="block whitespace-nowrap rounded border border-dashed border-purple-500 text-purple-800" title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
+                            <span className="block whitespace-nowrap rounded border border-dashed border-purple-500 text-purple-800" style={{ fontSize: codeFont(r.code) }} title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
                               {r.code}
                             </span>
                           )}
@@ -267,7 +289,7 @@ function GroupRows({ name, band, children }: { name: string; band?: React.ReactN
   return (
     <>
       <tr className="border-b bg-gray-50">
-        <th className="sticky left-0 z-10 bg-gray-50 px-2 py-0.5 text-left text-[11px] font-bold text-gray-600">{name}</th>
+        <th className="sticky left-0 z-10 bg-gray-50 px-2 py-0.5 text-left text-[0.7em] font-bold text-gray-600">{name}</th>
         {band ?? <td colSpan={999} />}
       </tr>
       {children}
