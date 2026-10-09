@@ -1,7 +1,7 @@
 "use client";
 
 // 勤務管理表：従業員・日ごとの勤務・休みの希望
-import { collection, deleteField, doc, documentId, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, deleteField, doc, documentId, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 
@@ -235,6 +235,44 @@ export async function renameMemberGroup(members: ShiftMember[], from: string, to
   const batch = writeBatch(db);
   for (const m of targets) batch.update(doc(db, `shiftMembers/${m.id}`), { group: to, updatedAt: serverTimestamp() });
   await batch.commit();
+}
+
+/** 勤務表（全部の日）で使われている記号と、そのマスの数 */
+export async function countShiftCodes(): Promise<Record<string, number>> {
+  const { db } = await getFirebase();
+  const snap = await getDocs(collection(db, "shiftDays"));
+  const out: Record<string, number> = {};
+  for (const d of snap.docs) for (const v of Object.values((d.get("cells") as Record<string, string>) ?? {})) if (v) out[v] = (out[v] ?? 0) + 1;
+  return out;
+}
+
+/**
+ * 勤務表（全部の日）のマスの記号を置き換える（記号のリストで名前を変えたとき）。
+ * map は 古い記号 → 新しい記号。置き換えたマスの数を返す
+ */
+export async function replaceShiftCodes(map: Record<string, string>): Promise<number> {
+  const olds = Object.keys(map).filter((k) => map[k] && map[k] !== k);
+  if (olds.length === 0) return 0;
+  const { db } = await getFirebase();
+  const snap = await getDocs(collection(db, "shiftDays"));
+  let count = 0;
+  let batch = writeBatch(db);
+  let n = 0;
+  for (const d of snap.docs) {
+    const cells = (d.get("cells") as Record<string, string>) ?? {};
+    const changed: Record<string, string> = {};
+    for (const [m, v] of Object.entries(cells)) if (olds.includes(v)) changed[m] = map[v];
+    if (Object.keys(changed).length === 0) continue;
+    count += Object.keys(changed).length;
+    batch.set(d.ref, { cells: changed, updatedAt: serverTimestamp() }, { merge: true });
+    if (++n >= 400) {
+      await batch.commit();
+      batch = writeBatch(db);
+      n = 0;
+    }
+  }
+  if (n > 0) await batch.commit();
+  return count;
 }
 
 /** 出勤に数える記号か */

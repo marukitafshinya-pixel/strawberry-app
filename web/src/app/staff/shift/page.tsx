@@ -13,7 +13,9 @@ import {
   writeShiftCells,
   decideRequest,
   isWorking,
+  countShiftCodes,
   renameMemberGroup,
+  replaceShiftCodes,
   saveMember,
   saveShiftConfig,
   setShiftCell,
@@ -717,7 +719,8 @@ function LoginCell({ m }: { m: ShiftMember }) {
 /** 記号・まとまり・希望の締め切り */
 /** 設定（part="codes" は記号のリストのタブ、"other" はまとまり・締め切りの設定タブ） */
 function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMember[]; part: "codes" | "other" }) {
-  const [codes, setCodes] = useState<ShiftCode[]>(cfg.codes);
+  // was＝保存してあった記号（書き換えたら、勤務表のマスもその記号に置き換える）
+  const [codes, setCodes] = useState<(ShiftCode & { was?: string })[]>(() => cfg.codes.map((c) => ({ ...c, was: c.code })));
   const [groups, setGroups] = useState(cfg.groups.join("\n"));
   const [cutoff, setCutoff] = useState(String(cfg.cutoffDays));
   const [msg, setMsg] = useState("");
@@ -730,15 +733,24 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
         .map((x) => x.trim())
         .filter(Boolean);
       const next = g.length ? g : cfg.groups;
+      const list = codes.map(({ was, ...c }) => ({ ...c, code: c.code.trim(), was })).filter((c) => c.code);
       await saveShiftConfig({
-        codes: codes.filter((c) => c.code.trim()),
+        codes: list.map((c) => ({ code: c.code, off: c.off, req: c.req, color: c.color })),
         groups: next,
         cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)),
       });
       // 同じ行のまとまりの名前を変えたら、その従業員も新しい名前にする
       if (next.length === cfg.groups.length)
         for (let i = 0; i < next.length; i++) if (next[i] !== cfg.groups[i] && !next.includes(cfg.groups[i])) await renameMemberGroup(members, cfg.groups[i], next[i]);
-      setMsg("保存しました");
+      // 記号を書き換えたら、勤務表（全部の日）のマスもその記号に置き換える
+      const renames = Object.fromEntries(list.filter((c) => c.was && c.was !== c.code && !list.some((x) => x.code === c.was)).map((c) => [c.was!, c.code]));
+      const replaced = Object.keys(renames).length ? await replaceShiftCodes(renames) : 0;
+      setCodes(list.map((c) => ({ ...c, was: c.code })));
+      setMsg(
+        replaced > 0
+          ? `保存しました。勤務表のマス ${replaced}か所の記号も書き換えました（${Object.entries(renames).map(([a, b]) => `${a}→${b}`).join("、")}）`
+          : "保存しました",
+      );
     } catch (e) {
       setMsg(errorText(e));
     }
@@ -810,6 +822,8 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
               追加
             </button>
           </div>
+          <p className="mt-2 text-xs text-gray-500">記号を書き換えて「保存する」を押すと、勤務表（過去・先の日も全部）のその記号のマスも、新しい記号に書き換わります。</p>
+          <UnknownCodes cfg={cfg} />
         </div>
       )}
       {part === "other" && (
@@ -834,5 +848,74 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
       </button>
       {msg && <span className="ml-3 text-gray-600">{msg}</span>}
     </section>
+  );
+}
+
+/** 勤務表のマスにあるのに、記号のリストにない記号（前に名前を変えた記号など）を、リストの記号に置き換える */
+function UnknownCodes({ cfg }: { cfg: ShiftConfig }) {
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [map, setMap] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const known = new Set(cfg.codes.map((c) => c.code));
+  const unknown = Object.entries(counts ?? {}).filter(([c]) => !known.has(c));
+  async function scan() {
+    setBusy(true);
+    setMsg("");
+    try {
+      setCounts(await countShiftCodes());
+    } catch (e) {
+      setMsg(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function apply() {
+    const m = Object.fromEntries(Object.entries(map).filter(([, v]) => v));
+    if (Object.keys(m).length === 0) return;
+    if (!window.confirm(`${Object.entries(m).map(([a, b]) => `「${a}」→「${b}」`).join("、")} に置き換えます。よろしいですか？`)) return;
+    setBusy(true);
+    try {
+      const n = await replaceShiftCodes(m);
+      setMsg(`${n}か所を置き換えました`);
+      setMap({});
+      setCounts(await countShiftCodes());
+    } catch (e) {
+      setMsg(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-4 rounded-xl border border-dashed p-3">
+      <h3 className="font-bold">勤務表にある、リストにない記号</h3>
+      <p className="text-xs text-gray-500">前に名前を変えた記号などが、勤務表のマスに古いまま残っていないかを調べて、リストの記号に置き換えます。</p>
+      <button onClick={scan} disabled={busy} className="mt-2 rounded border px-3 py-1 disabled:opacity-50">
+        {busy && !counts ? "調べています…" : "勤務表を調べる"}
+      </button>
+      {counts && unknown.length === 0 && <p className="mt-2 text-emerald-700">リストにない記号はありません。</p>}
+      {unknown.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {unknown.map(([c, n]) => (
+            <label key={c} className="flex flex-wrap items-center gap-2">
+              <span className="w-24 rounded bg-gray-100 px-2 py-1 font-bold">{c}</span>
+              <span className="text-xs text-gray-500">{n}か所</span>→
+              <select value={map[c] ?? ""} onChange={(e) => setMap({ ...map, [c]: e.target.value })} className="rounded border px-1 py-1">
+                <option value="">（そのまま）</option>
+                {cfg.codes.map((k) => (
+                  <option key={k.code} value={k.code}>
+                    {k.code}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          <button onClick={apply} disabled={busy || !Object.values(map).some(Boolean)} className="mt-1 rounded-lg bg-berry px-4 py-1.5 font-bold text-white disabled:opacity-40">
+            置き換える
+          </button>
+        </div>
+      )}
+      {msg && <p className="mt-2 text-gray-700">{msg}</p>}
+    </div>
   );
 }
