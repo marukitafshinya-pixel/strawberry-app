@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { cafeOrderSlip, isCafeLine, nextCafeCallNo } from "@/lib/cafe";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { CUSTOMER_PRICES, matchCustomer, useCustomers, type Customer } from "@/lib/customers";
 import { formatJa, todayJST } from "@/lib/date";
@@ -124,6 +125,27 @@ function savePending(p: Pending | null) {
     // 保存できなくても会計は進める（戻ったときに確かめられないだけ）
   }
 }
+/** カフェの注文書を印刷するとき、プリンターのアプリから戻っても注文リストが消えないよう控えておく */
+const ORDER_DRAFT_KEY = "ichigo.orderDraft";
+type OrderDraft = { lines: Line[]; customerName: string; memo: string; callNo: number | null; path: string; at: number };
+function loadOrderDraft(): OrderDraft | null {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(ORDER_DRAFT_KEY) ?? "null") as OrderDraft | null;
+    window.localStorage.removeItem(ORDER_DRAFT_KEY);
+    // 同じ画面に、2時間以内に戻ってきたときだけ使う
+    if (!v || !Array.isArray(v.lines) || v.path !== window.location.pathname + window.location.search || Date.now() - v.at > 2 * 3600_000) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+function saveOrderDraft(d: Omit<OrderDraft, "at">) {
+  try {
+    window.localStorage.setItem(ORDER_DRAFT_KEY, JSON.stringify({ ...d, at: Date.now() }));
+  } catch {
+    // 保存できなくても印刷はする
+  }
+}
 function newRequestId(): string {
   const a = new Uint8Array(12);
   crypto.getRandomValues(a);
@@ -133,8 +155,12 @@ function newRequestId(): string {
 function Checkout({ settings, reservation: r, editing }: { settings: Settings; reservation: Reservation | null; editing: Sale | null }) {
   // プリンターのアプリから戻ってきたところなら、控えておいた会計を使う
   const [resume] = useState<Pending | null>(() => (typeof window !== "undefined" && !editing ? loadPending() : null));
+  // カフェの注文書を印刷して戻ってきたところなら、その前の注文リストに戻す
+  const [orderDraft] = useState<OrderDraft | null>(() => (typeof window !== "undefined" && !editing && !resume ? loadOrderDraft() : null));
   const [lines, setLines] = useState<Line[]>(() =>
-    resume
+    orderDraft
+      ? orderDraft.lines
+      : resume
       ? resume.lines
       : editing
       ? editing.lines.map((l) => ({
@@ -150,10 +176,13 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
         }))
       : initialLines(settings, r),
   );
-  const [customerName, setCustomerName] = useState(resume?.customerName ?? editing?.customerName ?? r?.customerName ?? "");
+  const [customerName, setCustomerName] = useState(orderDraft?.customerName ?? resume?.customerName ?? editing?.customerName ?? r?.customerName ?? "");
   const [payment, setPayment] = useState<PaymentMethod>(resume?.payment ?? editing?.payment ?? "cash");
   const [dueDate, setDueDate] = useState("");
-  const [memo, setMemo] = useState(resume?.memo ?? editing?.memo ?? "");
+  const [memo, setMemo] = useState(orderDraft?.memo ?? resume?.memo ?? editing?.memo ?? "");
+  /** カフェの呼出番号（注文書を印刷したら決まる。印刷し直しても同じ番号） */
+  const [callNo, setCallNo] = useState<number | null>(orderDraft?.callNo ?? null);
+  const [cafePrinting, setCafePrinting] = useState(false);
   const [received, setReceived] = useState(resume?.received ?? "");
   const [allRate, setAllRate] = useState("");
   const [error, setError] = useState("");
@@ -225,6 +254,28 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
   const update = (key: string, patch: Partial<Line>) => setLines(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
   const removeLine = (key: string) => setLines(lines.filter((l) => l.key !== key));
+  const cafeLines = lines.filter(isCafeLine);
+
+  /** カフェの分だけの注文書（売り場控え・お客様控えの2枚）を、支払いの前に印刷する */
+  async function printCafeOrder() {
+    if (cafeLines.length === 0 || cafePrinting) return;
+    setError("");
+    setCafePrinting(true);
+    try {
+      const no = callNo ?? (await nextCafeCallNo());
+      setCallNo(no);
+      const here = window.location.pathname + window.location.search;
+      saveOrderDraft({ lines, customerName, memo, callNo: no, path: here });
+      const o = { no, lines: cafeLines.map((l) => ({ name: l.name, qty: l.qty })), customerName: customerName.trim() || undefined };
+      printReceipt([cafeOrderSlip(settings, { ...o, copy: "売り場控え" }), cafeOrderSlip(settings, { ...o, copy: "お客様控え" })], here);
+      // ふつうの印刷（AirPrint）やホーム画面のアプリのときは、この画面のまま続けるので控えは要らない
+      if (loadPrinter().method !== "sii" || isHomeScreenApp()) window.localStorage.removeItem(ORDER_DRAFT_KEY);
+    } catch (e) {
+      setError(`呼出番号を決められませんでした：${errorText(e)}`);
+    } finally {
+      setCafePrinting(false);
+    }
+  }
 
   /** 同じ商品はまとめて数量を増やす */
   function addLine(line: Omit<Line, "key" | "qty" | "discountRate">) {
@@ -671,6 +722,16 @@ function Checkout({ settings, reservation: r, editing }: { settings: Settings; r
             ))}
           </ul>
           <div className="border-t px-4 py-3">
+            {cafeLines.length > 0 && (
+              <button
+                onClick={printCafeOrder}
+                disabled={cafePrinting}
+                className="mb-3 flex w-full items-center justify-between rounded-lg border-2 border-amber-600 bg-amber-50 px-3 py-2 font-bold text-amber-900 disabled:opacity-50"
+              >
+                <span>☕ カフェ注文書を印刷（{cafeLines.reduce((n, l) => n + l.qty, 0)}点・2枚）</span>
+                {callNo !== null ? <span className="text-2xl tabular-nums">No.{callNo}</span> : <span className="text-sm font-normal">呼出番号を出す</span>}
+              </button>
+            )}
             <div className="flex items-baseline justify-between">
               <span className="font-semibold">合計 {count}点</span>
               <span className="text-2xl font-bold text-berry tabular-nums">{yen(total)}</span>

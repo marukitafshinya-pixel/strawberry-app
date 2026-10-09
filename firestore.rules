@@ -151,6 +151,17 @@ service cloud.firestore {
     match /weather/{month} {
       allow read: if isStaff();
     }
+    // カフェの呼出番号（1日ごとの連番）。スタッフが1つずつ進めるだけ（戻したり飛ばしたりはできない）
+    match /cafeCalls/{date} {
+      allow read: if isStaff();
+      allow create: if isStaff()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['last', 'updatedAt'])
+        && request.resource.data.last == 1;
+      allow update: if isStaff()
+        && request.resource.data.keys().hasOnly(['last', 'updatedAt'])
+        && request.resource.data.last == resource.data.last + 1;
+    }
     // トータル実績の、ほかの売上（玉ねぎ・そば・作業委託＆冷蔵庫リース）の月ごとの金額：管理者だけ
     match /otherSales/{year} {
       allow read: if isAdmin();

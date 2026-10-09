@@ -217,6 +217,24 @@ describe("気象データ", () => {
   });
 });
 
+describe("カフェの呼出番号 (cafeCalls)", () => {
+  it("スタッフは1番から1つずつ進めるだけ", async () => {
+    await assertSucceeds(setDoc(doc(staff(), "cafeCalls/2026-10-09"), { last: 1 }));
+    await assertSucceeds(getDoc(doc(staff(), "cafeCalls/2026-10-09")));
+    await assertSucceeds(setDoc(doc(staff(), "cafeCalls/2026-10-09"), { last: 2 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/2026-10-09"), { last: 2 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/2026-10-09"), { last: 5 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/2026-10-09"), { last: 1 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/2026-10-10"), { last: 3 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/2026-10-11"), { last: 1, x: 1 }));
+    await assertFails(setDoc(doc(staff(), "cafeCalls/abc"), { last: 1 }));
+    for (const db of [guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "cafeCalls/2026-10-09")));
+      await assertFails(setDoc(doc(db, "cafeCalls/2026-10-12"), { last: 1 }));
+    }
+  });
+});
+
 describe("トータル実績（ほかの売上）", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));

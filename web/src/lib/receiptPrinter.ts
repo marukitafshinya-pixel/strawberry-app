@@ -373,12 +373,9 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** 画像（JPEG）1枚を、紙の幅ぴったりのページにした PDF（Base64） */
-export function canvasToPdfBase64(canvas: HTMLCanvasElement): string {
-  const jpeg = base64ToBytes(canvas.toDataURL("image/jpeg", 0.9).split(",")[1]);
-  // 印刷できる幅（80mm紙は72mm、58mm紙は48mm）に合わせる
-  const printMm = canvas.width / 8;
-  const wPt = (printMm / 25.4) * 72;
-  const hPt = (wPt * canvas.height) / canvas.width;
+export function canvasToPdfBase64(canvas: HTMLCanvasElement | HTMLCanvasElement[]): string {
+  // 1枚の画像を1ページにする。複数渡すと、ページごとに紙が切られる（2枚つづりの控えなど）
+  const pages = Array.isArray(canvas) ? canvas : [canvas];
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   const offsets: number[] = [];
@@ -395,20 +392,31 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement): string {
     else body.forEach(push);
     push("\nendobj\n");
   };
-  const content = `q ${wPt.toFixed(2)} 0 0 ${hPt.toFixed(2)} 0 0 cm /Im0 Do Q`;
+  // 1:目録 2:ページの束 そのあと1ページにつき3つ（ページ・画像・描く命令）
+  const pageNo = (k: number) => 3 + k * 3;
   push("%PDF-1.4\n");
   obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
-  obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-  obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(2)} ${hPt.toFixed(2)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
-  obj(4, [
-    `<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
-    jpeg,
-    "\nendstream",
-  ]);
-  obj(5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  obj(2, `<< /Type /Pages /Kids [${pages.map((_, k) => `${pageNo(k)} 0 R`).join(" ")}] /Count ${pages.length} >>`);
+  pages.forEach((c, k) => {
+    const jpeg = base64ToBytes(c.toDataURL("image/jpeg", 0.9).split(",")[1]);
+    // 印刷できる幅（80mm紙は72mm、58mm紙は48mm）に合わせる
+    const printMm = c.width / 8;
+    const wPt = (printMm / 25.4) * 72;
+    const hPt = (wPt * c.height) / c.width;
+    const n = pageNo(k);
+    const content = `q ${wPt.toFixed(2)} 0 0 ${hPt.toFixed(2)} 0 0 cm /Im0 Do Q`;
+    obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(2)} ${hPt.toFixed(2)}] /Resources << /XObject << /Im0 ${n + 1} 0 R >> >> /Contents ${n + 2} 0 R >>`);
+    obj(n + 1, [
+      `<< /Type /XObject /Subtype /Image /Width ${c.width} /Height ${c.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
+      jpeg,
+      "\nendstream",
+    ]);
+    obj(n + 2, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  const count = 3 + pages.length * 3;
   const xref = length;
-  push(`xref\n0 6\n0000000000 65535 f \n${[1, 2, 3, 4, 5].map((n) => `${String(offsets[n]).padStart(10, "0")} 00000 n \n`).join("")}`);
-  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  push(`xref\n0 ${count}\n0000000000 65535 f \n${Array.from({ length: count - 1 }, (_, i) => `${String(offsets[i + 1]).padStart(10, "0")} 00000 n \n`).join("")}`);
+  push(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   const all = new Uint8Array(length);
   let p = 0;
   for (const part of parts) {
@@ -436,8 +444,9 @@ function callbackParams(returnUrl: string): string[] {
 }
 
 /** SII URL Print Agent を呼んで印刷する。終わると returnUrl に戻ってくる（Safari のとき） */
-export function printWithSii(lines: RLine[], c: PrinterConfig, returnUrl: string, opts: { drawer?: boolean } = {}) {
-  const pdf = canvasToPdfBase64(renderReceipt(lines, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
+export function printWithSii(lines: RLine[] | RLine[][], c: PrinterConfig, returnUrl: string, opts: { drawer?: boolean } = {}) {
+  const pages = (isPages(lines) ? lines : [lines]).map((l) => renderReceipt(l, c.paper, { fullHead: true, shiftMm: c.shiftMm, fontSize: c.fontSize }));
+  const pdf = canvasToPdfBase64(pages);
   const params = [
     ...callbackParams(returnUrl),
     `BtKeepConnect=${c.keepConnect ? "always" : "no"}`,
@@ -479,15 +488,16 @@ export function openDrawerWithSii(c: PrinterConfig, returnUrl: string) {
 }
 
 /** ふつうの印刷（AirPrint など）で、レシートの画像だけを印刷する */
-export function printInBrowser(lines: RLine[], paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal") {
-  const img = renderReceipt(lines, paper, { fontSize }).toDataURL("image/png");
+export function printInBrowser(lines: RLine[] | RLine[][], paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal") {
+  const imgs = (isPages(lines) ? lines : [lines]).map((l) => renderReceipt(l, paper, { fontSize }).toDataURL("image/png"));
   const box = document.createElement("div");
   box.id = "receipt-print-box";
-  box.innerHTML = `<img src="${img}" style="width:${paper === 80 ? 72 : 48}mm" alt="">`;
+  // 2枚以上のときは、1枚ずつ別のページにする
+  box.innerHTML = imgs.map((img, k) => `<img src="${img}" style="display:block;width:${paper === 80 ? 72 : 48}mm${k > 0 ? ";break-before:page" : ""}" alt="">`).join("");
   const style = document.createElement("style");
   style.textContent = `#receipt-print-box{display:none}@media print{body>*:not(#receipt-print-box){display:none!important}#receipt-print-box{display:block}@page{margin:3mm}}`;
   document.body.append(box, style);
-  const img2 = box.querySelector("img")!;
+  const img2 = box.querySelector("img:last-child") as HTMLImageElement;
   const go = () => {
     window.print();
     setTimeout(() => {
@@ -669,7 +679,13 @@ export function printInvoice(s: Settings, sale: Sale, o: InvoiceOpts, returnUrl:
 }
 
 /** 設定に合わせて印刷する。kind でドロアーを開けるかを決める */
-export function printReceipt(lines: RLine[], returnUrl: string, kind: "sale-cash" | "settle" | "other" = "other") {
+/** 複数枚（1枚ずつ紙を切る）か */
+function isPages(x: RLine[] | RLine[][]): x is RLine[][] {
+  return x.length > 0 && Array.isArray(x[0]);
+}
+
+/** 設定に合わせて印刷する。kind でドロアーを開けるかを決める。RLine[][] を渡すと、1枚ずつ紙を切って続けて出す */
+export function printReceipt(lines: RLine[] | RLine[][], returnUrl: string, kind: "sale-cash" | "settle" | "other" = "other") {
   const c = loadPrinter();
   const drawer = (kind === "settle" && c.drawerOnSettle) || (kind === "sale-cash" && c.drawerOnCashConfirm);
   if (c.method === "sii") printWithSii(lines, c, returnUrl, { drawer });
