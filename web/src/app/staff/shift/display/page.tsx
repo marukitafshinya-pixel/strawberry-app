@@ -91,6 +91,26 @@ function Display() {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen?.().catch(() => {});
   }
+  /**
+   * このウィンドウを、いま映っている画面（プロジェクター）の左半分・右半分の大きさにする。
+   * 高さは画面いっぱい。ブラウザの設定は変えない（このウィンドウの大きさと位置だけ）
+   */
+  async function half(side: "left" | "right") {
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    const sc = window.screen as Screen & { availLeft?: number; availTop?: number };
+    const left = sc.availLeft ?? 0;
+    const top = sc.availTop ?? 0;
+    const w = Math.floor(sc.availWidth / 2);
+    // 全画面をやめた直後は大きさを変えられないことがあるので、少し待ってから
+    setTimeout(() => {
+      window.resizeTo(w, sc.availHeight);
+      window.moveTo(side === "left" ? left : left + w, top);
+      setTimeout(() => {
+        if (Math.abs(window.outerWidth - w) > 40)
+          window.alert("ウィンドウの大きさを変えられませんでした。勤務管理表の「📽 投影用の画面」ボタンから開いたウィンドウで使ってください。");
+      }, 400);
+    }, 150);
+  }
 
   const btn = "rounded-lg border bg-white px-3 py-1.5 text-sm";
   return (
@@ -140,6 +160,14 @@ function Display() {
         </div>
         <span className="text-xs text-gray-500">日数を少なくするか「横幅いっぱい」にすると、文字が大きくなります</span>
         <div className="ml-auto flex gap-2">
+          <div className="inline-flex overflow-hidden rounded-lg border bg-white text-sm">
+            <button onClick={() => half("left")} title="画面の左半分の大きさにする" className="px-3 py-1.5">
+              ◧ 左半分
+            </button>
+            <button onClick={() => half("right")} title="画面の右半分の大きさにする" className="border-l px-3 py-1.5">
+              右半分 ◨
+            </button>
+          </div>
           <button onClick={toggleFull} className="rounded-lg bg-berry px-4 py-1.5 text-sm font-bold text-white">
             {full ? "全画面をやめる（Esc）" : "全画面にする"}
           </button>
