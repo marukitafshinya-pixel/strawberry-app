@@ -6,8 +6,10 @@ import { addDays, todayJST } from "@/lib/date";
 import { isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
-/** 日付の列の幅（px）。表の文字は、記号がこの幅にぎりぎり収まる大きさにする */
-const COL_PX = 52;
+/** 日付の列の幅（px）。文字の大きさを決める幅（FONT_COL_PX）より2割ほど広くして、左右に余白をとる */
+const COL_PX = 62;
+/** 文字の大きさを決める幅（px）。記号がこの幅にぎりぎり収まる大きさにする */
+const FONT_COL_PX = 52;
 /** マスの左右の余白と、希望の点線の枠の分（px） */
 const CELL_INSET = 6;
 /** 文字のいちばん大きい大きさは、列の幅の何倍までにするか（行が高くなりすぎないように） */
@@ -85,8 +87,8 @@ export function ShiftTable({
     const base = Math.max(w("31"), ...codes.filter((c) => [...c].length <= 2).map((c) => of[c]), 1);
     setWidths({ base, of });
   }, [codesKey]);
-  const room = COL_PX - CELL_INSET;
-  const fontPx = Math.max(9, Math.min(COL_PX * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
+  const room = FONT_COL_PX - CELL_INSET;
+  const fontPx = Math.max(9, Math.min(FONT_COL_PX * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
   /** 長い記号は、そのマスに収まるところまで小さくする */
   const codeFont = (code: string) => {
     const u = widths.of[code];
