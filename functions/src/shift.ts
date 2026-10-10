@@ -140,10 +140,13 @@ export const submitShiftRequest = onCall(async (req) => {
   const codes = (cfg.get("codes") as { code: string; req?: boolean }[] | undefined) ?? DEFAULT_REQUEST_CODES.map((c) => ({ code: c, req: true }));
   // 定時出勤（〇）は、「希望で出せる」にしていなくても出せる
   if (!codes.some((c) => c.code === code && (c.req || c.code === "〇" || c.code === "○"))) throw new HttpsError("invalid-argument", "この希望は出せません");
+  // 定時出勤（〇）は明日から出せる。休みなどの希望は締め切り（cutoffDays日前）まで
+  const isWork = code === "〇" || code === "○";
+  if (isWork && date < addDays(todayJST(), 1)) throw new HttpsError("failed-precondition", "定時出勤の希望は、明日から出せます");
   const cutoff = Number(cfg.get("cutoffDays") ?? 14);
   const first = addDays(todayJST(), cutoff);
   const contact = String(cfg.get("contact") ?? "").trim() || "管理者";
-  if (date < first)
+  if (!isWork && date < first)
     throw new HttpsError(
       "failed-precondition",
       `希望は${cutoff}日前までです（${Number(first.slice(5, 7))}月${Number(first.slice(8))}日から出せます）。それより前の日の希望・変更は、${contact}に直接確認してください`,

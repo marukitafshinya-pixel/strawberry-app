@@ -315,7 +315,18 @@ function ShiftView() {
           ← メニュー
         </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">勤務管理表</h1>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-bold">勤務管理表</h1>
+        {/* まだ決まっていない休みの希望（申請）があれば知らせる */}
+        {isAdmin && pending.length > 0 && (
+          <button
+            onClick={() => go(from, "requests")}
+            className="animate-pulse rounded-full border-2 border-purple-600 bg-purple-50 px-3 py-1 text-sm font-bold text-purple-800 hover:animate-none hover:bg-purple-100 print:hidden"
+          >
+            新しい申請があります（{pending.length}件）→ 確認
+          </button>
+        )}
+      </div>
 
       {isAdmin ? (
         <div className="mt-3 flex flex-wrap items-end gap-1 border-b print:hidden">
