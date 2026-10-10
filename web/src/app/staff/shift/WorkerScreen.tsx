@@ -10,6 +10,8 @@ import { ShiftTable } from "./ShiftTable";
 
 /** 定時出勤の記号（〇。似た字の ○ も同じに扱う） */
 const WORK_CODES = ["〇", "○"];
+/** 締め切り（2週間前）がある休みの希望の記号 */
+const REST_CODES = ["希休", "希望休"];
 
 /** 希望のボタンの名前 */
 const codeLabel = (c: string) => (c === "AM" ? "AM（午前だけ）" : c === "PM" ? "PM（午後だけ）" : WORK_CODES.includes(c) ? `定時出勤（${c}）` : c);
@@ -117,11 +119,11 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
 /** asMember＝管理者がその従業員の分として出すとき（携帯画面タブ） */
 function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: number; contact: string; codes: string[]; asMember?: string }) {
   const restFirst = addDays(todayJST(), cutoffDays);
-  /** 定時出勤（〇）は明日から出せる。休みなどの希望は締め切り（2週間前）まで */
+  /** 休みの希望（希休）だけ締め切り（2週間前）まで。そのほか（定時出勤・AM・PM・時間など）は明日から出せる */
   const workFirst = addDays(todayJST(), 1);
   const [date, setDate] = useState(restFirst);
   const [code, setCode] = useState(codes[0] ?? "");
-  const isWork = WORK_CODES.includes(code);
+  const isWork = !REST_CODES.includes(code);
   const first = isWork ? workFirst : restFirst;
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -131,7 +133,7 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
     if (!isValidYmd(date) || date < first)
       return setMsg(
         isWork
-          ? { ok: false, text: `定時出勤の希望は、明日（${formatJa(workFirst)}）から出せます` }
+          ? { ok: false, text: `「${codeLabel(code)}」の希望は、明日（${formatJa(workFirst)}）から出せます` }
           : { ok: false, text: `休みの希望は${cutoffDays}日前までです。${formatJa(restFirst)}から選べます。それより前の日は、${contact}に直接確認してください` },
       );
     setBusy(true);
@@ -151,10 +153,10 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
       <div className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
         <p>
           休みの希望は、その日の<b>{cutoffDays === 14 ? "2週間前" : `${cutoffDays}日前`}まで</b>に出してください（{formatJa(restFirst)}から出せます）。
-          <span className="block">「定時出勤」の希望は、<b>明日から</b>出せます。</span>
+          <span className="block">「希休」のほか（定時出勤・AM・PM・時間の希望）は、<b>明日から</b>出せます。</span>
         </p>
         <p className="mt-0.5">
-          明日から{cutoffDays}日以内の日の希望・変更は、<b>{contact}に直接確認</b>してください。
+          明日から{cutoffDays}日以内の日の休みの希望・変更は、<b>{contact}に直接確認</b>してください。
         </p>
         <p className="mt-0.5">
           休みは、基本<b>週2日まで</b>にしてください。
