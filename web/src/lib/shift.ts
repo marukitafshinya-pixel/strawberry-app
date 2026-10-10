@@ -163,14 +163,19 @@ export function useReservedPeople(from: string, to: string): Record<string, numb
 }
 
 /** 休みの希望。uid を渡すとその人の分だけ（従業員用）、渡さなければ決まっていない希望すべて（管理者用） */
-export function useShiftRequests(uid?: string): ShiftRequest[] | null {
+/** 休みの希望。uid を渡すとその人のログインの分、memberId を渡すとその従業員の分、どちらもなければまだ決まっていない全員の分 */
+export function useShiftRequests(uid?: string, memberId?: string): ShiftRequest[] | null {
   const [v, setV] = useState<ShiftRequest[] | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
     getFirebase().then(({ db }) => {
       if (cancelled) return;
-      const q = uid ? query(collection(db, "shiftRequests"), where("uid", "==", uid)) : query(collection(db, "shiftRequests"), where("status", "==", "pending"));
+      const q = uid
+        ? query(collection(db, "shiftRequests"), where("uid", "==", uid))
+        : memberId
+          ? query(collection(db, "shiftRequests"), where("memberId", "==", memberId))
+          : query(collection(db, "shiftRequests"), where("status", "==", "pending"));
       unsub = onSnapshot(
         q,
         (snap) => setV(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ShiftRequest, "id">) })).sort((a, b) => a.date.localeCompare(b.date))),
@@ -181,7 +186,7 @@ export function useShiftRequests(uid?: string): ShiftRequest[] | null {
       cancelled = true;
       unsub();
     };
-  }, [uid]);
+  }, [uid, memberId]);
   return v;
 }
 

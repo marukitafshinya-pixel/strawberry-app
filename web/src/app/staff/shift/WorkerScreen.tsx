@@ -1,0 +1,200 @@
+"use client";
+
+// 従業員の画面の中身：自分の勤務・休みの希望・全員の勤務表（見るだけ）。
+// 従業員が自分の携帯で見る画面と、管理者の「携帯画面」タブ（確認用・送信はしない）の両方で使う
+import { useState } from "react";
+import { callFunction, errorText } from "@/lib/callFunction";
+import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
+import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
+import { ShiftTable } from "./ShiftTable";
+
+const STATUS: Record<ShiftRequest["status"], { label: string; cls: string }> = {
+  pending: { label: "確認待ち", cls: "bg-amber-100 text-amber-900" },
+  approved: { label: "承認", cls: "bg-emerald-100 text-emerald-900" },
+  rejected: { label: "却下", cls: "bg-gray-200 text-gray-700" },
+};
+
+/** preview＝管理者の確認用（希望を出す・取り消すはできない） */
+export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: ShiftConfig; members: ShiftMember[]; me: ShiftMember; requests: ShiftRequest[] | null; preview?: boolean }) {
+  const today = todayJST();
+  const [from, setFrom] = useState(today);
+  const [span, more] = useGrowingSpan(from);
+  const [reset, setReset] = useState(0);
+  const days = useShiftDays(from, addDays(from, span - 1));
+  const mine = useShiftDays(today, addDays(today, 13));
+  const reserved = useReservedPeople(from, addDays(from, span - 1));
+  const active = members.filter((m) => m.active);
+
+  return (
+    <div className="space-y-5">
+      <h1 className="text-xl font-bold">{me.name} さんの勤務</h1>
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <h2 className="font-bold">これから2週間</h2>
+        {!mine ? (
+          <p className="mt-2 text-gray-500">読み込み中…</p>
+        ) : (
+          <ul className="mt-2 divide-y">
+            {Array.from({ length: 14 }, (_, i) => addDays(today, i)).map((d) => {
+              const code = mine[d]?.cells[me.id];
+              return (
+                <li key={d} className="flex items-center gap-3 py-1.5">
+                  <span className={`w-32 whitespace-nowrap ${d === today ? "font-bold" : ""}`}>{formatJa(d)}</span>
+                  <span className={`min-w-[4rem] rounded px-2 py-0.5 text-center font-bold ${code ? codeColor(cfg, code) || "bg-gray-50" : "text-gray-300"}`}>{code ?? "－"}</span>
+                  {mine[d]?.note && <span className="text-xs text-gray-600">{mine[d].note}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <RequestForm key={cfg.cutoffDays} preview={preview} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <h2 className="font-bold">出した希望</h2>
+        {!requests ? (
+          <p className="mt-2 text-gray-500">読み込み中…</p>
+        ) : requests.filter((r) => r.date >= today).length === 0 ? (
+          <p className="mt-2 text-sm text-gray-500">まだありません。</p>
+        ) : (
+          <ul className="mt-2 divide-y">
+            {requests
+              .filter((r) => r.date >= today)
+              .map((r) => (
+                <MyRequest key={r.id} r={r} preview={preview} />
+              ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-bold">みんなの勤務表</h2>
+          <span className="flex-1" />
+          <button onClick={() => setFrom(addDays(from, -7))} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+            ‹ 前の週
+          </button>
+          <button
+            onClick={() => {
+              setFrom(today);
+              setReset(reset + 1);
+            }}
+            className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+            今日
+          </button>
+          <button onClick={() => setFrom(addDays(from, 7))} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+            次の週 ›
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">表は横に動かせます。緑の行があなたです。</p>
+        <div className="mt-2">{days ? <ShiftTable compact from={from} span={span} onMore={more} resetKey={reset} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
+      </section>
+    </div>
+  );
+}
+
+
+function RequestForm({ cutoffDays, contact, codes, preview }: { cutoffDays: number; contact: string; codes: string[]; preview?: boolean }) {
+  const first = addDays(todayJST(), cutoffDays);
+  const [date, setDate] = useState(first);
+  const [code, setCode] = useState(codes[0] ?? "");
+  const [memo, setMemo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function send() {
+    setMsg(null);
+    if (!isValidYmd(date) || date < first)
+      return setMsg({ ok: false, text: `希望は${cutoffDays}日前までです。${formatJa(first)}から選べます。それより前の日は、${contact}に直接確認してください` });
+    if (preview) return setMsg({ ok: false, text: "（確認用の画面なので、希望は送りません）" });
+    setBusy(true);
+    try {
+      await callFunction("submitShiftRequest", { date, code, memo });
+      setMsg({ ok: true, text: `${formatJa(date)}「${code}」の希望を出しました` });
+      setMemo("");
+    } catch (e) {
+      setMsg({ ok: false, text: errorText(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="rounded-2xl border-2 border-berry/30 bg-white p-4 shadow-sm">
+      <h2 className="font-bold">休みの希望を出す</h2>
+      <div className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <p>
+          休みの希望は、その日の<b>{cutoffDays === 14 ? "2週間前" : `${cutoffDays}日前`}まで</b>に出してください（{formatJa(first)}から出せます）。
+        </p>
+        <p className="mt-0.5">
+          明日から{cutoffDays}日以内の日の希望・変更は、<b>{contact}に直接確認</b>してください。
+        </p>
+        <p className="mt-0.5">
+          休みは、基本<b>週2日まで</b>にしてください。
+        </p>
+        <p className="mt-0.5">
+          希望日は、<b>用事がある日だけ</b>にしてください。
+          <span className="block text-xs text-amber-800">
+            ＊週2日の休みを全部希望日として出されると、ほかの人の休みが入れられなくなります。
+          </span>
+        </p>
+      </div>
+      <p className="mt-1 text-xs text-gray-500">時間だけの希望（午前だけ・14時まで など）も選べます。</p>
+      <div className="mt-2 space-y-2">
+        <label className="block">
+          <span className="text-sm text-gray-600">日にち</span>
+          <input type="date" min={first} value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+        </label>
+        <div>
+          <span className="text-sm text-gray-600">希望</span>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {codes.map((c) => (
+              <button key={c} onClick={() => setCode(c)} className={`rounded-lg border px-3 py-2 font-bold ${code === c ? "border-berry bg-berry text-white" : "bg-white"}`}>
+                {c === "AM" ? "AM（午前だけ）" : c === "PM" ? "PM（午後だけ）" : c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block">
+          <span className="text-sm text-gray-600">ひとこと（任意）</span>
+          <input value={memo} maxLength={100} onChange={(e) => setMemo(e.target.value)} placeholder="例：通院のため" className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+        </label>
+        <button disabled={busy || !code} onClick={send} className="w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
+          {busy ? "送っています…" : "希望を出す"}
+        </button>
+        {msg && <p className={`text-sm ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</p>}
+      </div>
+    </section>
+  );
+}
+
+function MyRequest({ r, preview }: { r: ShiftRequest; preview?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const s = STATUS[r.status];
+  async function cancel() {
+    if (preview) return setError("（確認用の画面なので、取り消しはしません）");
+    if (!window.confirm(`${formatJa(r.date)}の希望を取り消しますか？`)) return;
+    setBusy(true);
+    try {
+      await callFunction("cancelShiftRequest", { id: r.id });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <li className="flex flex-wrap items-center gap-2 py-2">
+      <span className="w-32 whitespace-nowrap">{formatJa(r.date)}</span>
+      <span className="font-bold">{r.code}</span>
+      <span className={`rounded-full px-2 py-0.5 text-xs ${s.cls}`}>{s.label}</span>
+      {r.memo && <span className="text-xs text-gray-500">{r.memo}</span>}
+      {r.status === "pending" && (
+        <button disabled={busy} onClick={cancel} className="ml-auto rounded border px-2 py-1 text-xs disabled:opacity-50">
+          取り消す
+        </button>
+      )}
+      {error && <span className="w-full text-xs text-red-600">{error}</span>}
+    </li>
+  );
+}

@@ -32,6 +32,7 @@ import {
   type ShiftRequest,
 } from "@/lib/shift";
 import { HaichiTab } from "./Haichi";
+import { PhonePreview } from "./PhonePreview";
 import { ShiftImport } from "./ShiftImport";
 import { ShiftTable, sortMembers } from "./ShiftTable";
 
@@ -43,7 +44,7 @@ export default function ShiftPage() {
   );
 }
 
-type Tab = "table" | "haichi" | "codes" | "requests" | "members" | "settings";
+type Tab = "table" | "haichi" | "phone" | "codes" | "requests" | "members" | "settings";
 
 function ShiftView() {
   const { role, user } = useAuth();
@@ -54,7 +55,7 @@ function ShiftView() {
   // 選んだ日（最初は今日）を先頭に表示する
   const from = isValidYmd(q) ? q : todayJST();
   const tabQ = params.get("tab") as Tab | null;
-  const tab: Tab = tabQ === "haichi" ? "haichi" : isAdmin && tabQ && ["codes", "requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
+  const tab: Tab = tabQ === "haichi" ? "haichi" : isAdmin && tabQ && ["phone", "codes", "requests", "members", "settings"].includes(tabQ) ? tabQ : "table";
   const go = (f: string, t: Tab = tab) => router.replace(`/staff/shift/?from=${f}${t !== "table" ? `&tab=${t}` : ""}`);
 
   const cfg = useShiftConfig();
@@ -322,6 +323,7 @@ function ShiftView() {
             [
               ["table", "勤務表"],
               ["haichi", "作業配置表"],
+              ["phone", "携帯画面"],
               ["codes", "記号のリスト"],
               ["requests", `休みの希望${pending.length ? `（${pending.length}件）` : ""}`],
               ["members", "従業員リスト"],
@@ -361,6 +363,8 @@ function ShiftView() {
 
       {!cfg || !members ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
+      ) : tab === "phone" ? (
+        <PhonePreview cfg={cfg} members={members} />
       ) : tab === "haichi" ? (
         <HaichiTab cfg={cfg} members={members} isAdmin={isAdmin} />
       ) : tab === "requests" ? (
