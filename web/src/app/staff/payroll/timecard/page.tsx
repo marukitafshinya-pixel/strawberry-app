@@ -14,7 +14,6 @@ import {
   cardsIn,
   computePerson,
   employeeForCard,
-  guessFormat,
   hm,
   hours2,
   importTimecard,
@@ -25,11 +24,9 @@ import {
   saveTimecardEdit,
   useTimecardConfig,
   useTimecardMonths,
-  workText,
   type BreakRule,
   type ParsedTimecard,
   type TimecardConfig,
-  type TimeFormat,
 } from "@/lib/timecard";
 import { TimecardSheet } from "./Sheet";
 
@@ -54,7 +51,6 @@ export default function TimecardPage() {
   const people = cfg && data && employees ? cardsIn(month, data, cfg).map((c) => ({ p: computePerson(c, month, data, cfg), e: employeeForCard(c, cfg, employees) })) : null;
   const nameOf = (c: string) => (cfg && employees ? (employeeForCard(c, cfg, employees)?.name ?? `（カード${c}・従業員が未設定）`) : "");
   const selected = card && cfg && data ? computePerson(card, month, data, cfg) : null;
-  const f: TimeFormat = cfg?.format ?? "dec";
 
   return (
     <>
@@ -71,7 +67,7 @@ export default function TimecardPage() {
       </p>
       <h1 className="mt-2 text-xl font-bold">タイムカード</h1>
 
-      <ImportBox cfg={cfg} />
+      <ImportBox />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
@@ -130,8 +126,8 @@ export default function TimecardPage() {
                   </td>
                   <td className="px-3 py-2 text-right">{p.workDays}日</td>
                   <td className="px-3 py-2 text-right font-bold">
-                    {workText(p.work, f)}
-                    <span className="ml-1 text-xs font-normal text-gray-500">（{f === "dec" ? hm(p.work) : `${hours2(p.work)}h`}）</span>
+                    {hm(p.work)}
+                    <span className="ml-1 text-xs font-normal text-gray-500">（{hours2(p.work)}h）</span>
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
@@ -151,7 +147,7 @@ export default function TimecardPage() {
                   合計 {people.length}人
                 </td>
                 <td className="px-3 py-2 text-right">{people.reduce((a, x) => a + x.p.workDays, 0)}日</td>
-                <td className="px-3 py-2 text-right">{workText(people.reduce((a, x) => a + x.p.work, 0), f)}</td>
+                <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.work, 0))}</td>
                 <td className="px-3 py-2 text-xs text-red-700">
                   {people.some((x) => x.p.problems) ? `要確認 ${people.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
                 </td>
@@ -170,7 +166,7 @@ export default function TimecardPage() {
               🖨 この人の集計表を印刷
             </Link>
           </div>
-          <TimecardSheet person={selected} name={nameOf(card)} title={title} format={f} edit={(date, e) => saveTimecardEdit(date, card, e)} />
+          <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={(date, e) => saveTimecardEdit(date, card, e)} />
         </div>
       )}
     </>
@@ -178,7 +174,7 @@ export default function TimecardPage() {
 }
 
 /** USBのCSVを選んで、中身を確かめてから取り込む */
-function ImportBox({ cfg }: { cfg: TimecardConfig | null }) {
+function ImportBox() {
   const [parsed, setParsed] = useState<{ data: ParsedTimecard; name: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -195,8 +191,6 @@ function ImportBox({ cfg }: { cfg: TimecardConfig | null }) {
     setBusy(true);
     try {
       await importTimecard(parsed.data, parsed.name);
-      // はじめて取り込んだときに、時刻の形（10進法・60進法）を数字から決めておく
-      if (cfg && !cfg.format) await saveTimecardConfig({ format: guessFormat(parsed.data) });
       setMsg({ ok: true, text: `取り込みました（${parsed.data.count}件）。画面で直した時刻はそのまま残っています` });
       setParsed(null);
     } catch (e) {
@@ -257,10 +251,9 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
   const [roundIn, setRoundIn] = useState(cfg.roundIn);
   const [roundOut, setRoundOut] = useState(cfg.roundOut);
   const [closeDay, setCloseDay] = useState(cfg.closeDay);
-  const [format, setFormat] = useState<TimeFormat>(cfg.format ?? "dec");
   const [breaks, setBreaks] = useState<{ over: string; minutes: string }[]>(cfg.breaks.map((b) => ({ over: hm(b.over), minutes: String(b.minutes) })));
   const [msg, setMsg] = useState("");
-  const summary = `時刻 ${(cfg.format ?? "dec") === "dec" ? "10進法（10.50＝10時30分）" : "60進法（10:30）"}・出勤 ${cfg.roundIn === 1 ? "丸めない" : `${cfg.roundIn}分単位で切り上げ`}・退勤 ${cfg.roundOut === 1 ? "丸めない" : `${cfg.roundOut}分単位で切り捨て`}・休憩 ${
+  const summary = `出勤 ${cfg.roundIn === 1 ? "丸めない" : `${cfg.roundIn}分単位で切り上げ`}・退勤 ${cfg.roundOut === 1 ? "丸めない" : `${cfg.roundOut}分単位で切り捨て`}・休憩 ${
     cfg.breaks.length ? cfg.breaks.map((b) => `${hm(b.over)}をこえたら${b.minutes}分`).join("、") : "引かない"
   }・締め日 ${cfg.closeDay >= 28 ? "月末" : `${cfg.closeDay}日`}`;
   async function save() {
@@ -274,7 +267,7 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
       list.push({ over, minutes });
     }
     list.sort((a, b) => a.over - b.over);
-    await saveTimecardConfig({ format, roundIn, roundOut, closeDay, breaks: list });
+    await saveTimecardConfig({ roundIn, roundOut, closeDay, breaks: list });
     setMsg("保存しました");
   }
   if (!open)
@@ -286,7 +279,6 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
             setRoundIn(cfg.roundIn);
             setRoundOut(cfg.roundOut);
             setCloseDay(cfg.closeDay);
-            setFormat(cfg.format ?? "dec");
             setBreaks(cfg.breaks.map((b) => ({ over: hm(b.over), minutes: String(b.minutes) })));
             setMsg("");
             setOpen(true);
@@ -309,13 +301,6 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
   return (
     <div className="mt-3 space-y-2 rounded-xl border bg-white p-3 text-sm">
       <p className="font-bold">計算のルール</p>
-      <p>
-        タイムカードの時刻の形：
-        <select value={format} onChange={(e) => setFormat(e.target.value as TimeFormat)} className="rounded border px-2 py-1">
-          <option value="dec">10進法（10.50＝10時30分。1時間＝100）</option>
-          <option value="hm">60進法（10:30＝10時30分）</option>
-        </select>
-      </p>
       <p>
         出勤の時刻：{sel(roundIn, setRoundIn, (n) => (n === 1 ? "丸めない" : `${n}分単位で切り上げ`))}
         <span className="ml-4">退勤の時刻：{sel(roundOut, setRoundOut, (n) => (n === 1 ? "丸めない" : `${n}分単位で切り捨て`))}</span>

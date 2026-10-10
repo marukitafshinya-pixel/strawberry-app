@@ -46,7 +46,7 @@ function PrintView() {
       </div>
       <div className="space-y-8 bg-white print:space-y-0">
         {cards.map((c) => (
-          <TimecardSheet key={c} person={computePerson(c, month, data, cfg)} name={employeeForCard(c, cfg, employees)?.name ?? `（カード${c}）`} title={title} format={cfg.format ?? "dec"} />
+          <TimecardSheet key={c} person={computePerson(c, month, data, cfg)} name={employeeForCard(c, cfg, employees)?.name ?? `（カード${c}）`} title={title} />
         ))}
       </div>
     </>

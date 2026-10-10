@@ -11,8 +11,8 @@ import { getFirebase } from "./firebase";
 import { shiftMonth } from "./date";
 
 /**
- * 1日の打刻。時刻はタイムカードに出る数字のまま（例 3.38 → 338）。x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）。
- * タイムレコーダーが10進法（1時間＝100）なら 338 は 3.38時間＝3時22.8分、60進法なら 3時38分
+ * 1日の打刻。時刻は0時からの分（USBのデータのまま。例 347 → 5:47、1041 → 17:21）。
+ * x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）
  */
 export type TcPunch = { i: number | null; o: number | null; x?: string };
 /** 1日分。e＝画面で直した時刻（あれば、こちらを使う） */
@@ -21,11 +21,7 @@ export type TcDay = TcPunch & { e?: { i: number | null; o: number | null } };
 export type TimecardMonth = { cards: Record<string, Record<string, TcDay>>; fileName?: string };
 
 export type BreakRule = { over: number; minutes: number };
-/** タイムカードの時刻の形：dec＝10進法（3.38＝3時間と0.38時間）、hm＝60進法（3:38） */
-export type TimeFormat = "dec" | "hm";
 export type TimecardConfig = {
-  /** タイムカードの時刻の形（取り込んだときに数字から自動で決める。あとで変えられる） */
-  format?: TimeFormat;
   /** カード番号 → 従業員のID（給与の従業員） */
   cards: Record<string, string>;
   /** 出勤は何分単位で切り上げるか（1＝丸めない） */
@@ -42,62 +38,32 @@ export const DEFAULT_TIMECARD_CONFIG: TimecardConfig = { cards: {}, roundIn: 1, 
 export const ROUND_CHOICES = [1, 5, 10, 15, 30] as const;
 export const CLOSE_DAY_CHOICES = [31, 5, 10, 15, 20, 25] as const;
 
-/** " 338" → 338。空なら null。読めなければ undefined */
+/** " 347" → 347（5:47）。空なら null。読めなければ undefined */
 function readTime(v: string | undefined): number | null | undefined {
   const s = (v ?? "").trim();
   if (s === "") return null;
   if (!/^\d{1,4}$/.test(s)) return undefined;
   const n = Number(s);
-  return Math.floor(n / 100) >= 48 ? undefined : n;
+  return n >= 48 * 60 ? undefined : n;
 }
 
-/** タイムカードの数字 → 0時からの分（10進法なら小数になることがある） */
-export function toMin(raw: number, f: TimeFormat): number {
-  return Math.floor(raw / 100) * 60 + (raw % 100) * (f === "dec" ? 0.6 : 1);
-}
-
-/** タイムカードの数字を、カードと同じ形で（10進法 "3.38"・60進法 "3:38"） */
-export function cardTime(raw: number | null | undefined, f: TimeFormat): string {
-  if (raw === null || raw === undefined) return "";
-  return `${Math.floor(raw / 100)}${f === "dec" ? "." : ":"}${String(raw % 100).padStart(2, "0")}`;
-}
-
-/** 0時からの分を、カードと同じ形で（丸めたあとの時刻に使う） */
-export function minToCard(min: number | null, f: TimeFormat): string {
-  if (min === null) return "";
-  const h = Math.floor(min / 60);
-  const rest = min - h * 60;
-  const sub = f === "dec" ? Math.round(rest / 0.6) : Math.round(rest);
-  return cardTime(h * 100 + Math.min(sub, f === "dec" ? 99 : 59), f);
-}
-
-/** 分 → "6:46" */
+/** 分 → "5:47" */
 export function hm(min: number | null | undefined): string {
   if (min === null || min === undefined) return "";
   const a = Math.round(Math.abs(min));
   return `${min < 0 ? "-" : ""}${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}`;
 }
 
-/** 分 → 時間（小数2けた。10進法のカードの合計と同じになる） */
+/** 分 → 時間（小数2けた） */
 export const hours2 = (min: number) => (Math.round((min / 60) * 100) / 100).toFixed(2);
 
-/** 働いた時間の表し方（10進法のカードなら「6.86時間」、60進法なら「6:46」） */
-export const workText = (min: number, f: TimeFormat) => (f === "dec" ? `${hours2(min)}時間` : hm(min));
-
-/** 入力した時刻（"10.30" "10:30"）→ タイムカードの数字（1030）。空なら null。読めなければ undefined */
-export function parseCardTime(s: string, f: TimeFormat): number | null | undefined {
+/** "17:21" や "17.21" → 1041。空なら null。読めなければ undefined */
+export function parseHm(s: string): number | null | undefined {
   const t = s.trim().replace("：", ":").replace("．", ".");
   if (t === "") return null;
-  const m = /^(\d{1,2})[.:](\d{2})$/.exec(t);
-  if (!m || (f === "hm" && Number(m[2]) >= 60) || Number(m[1]) >= 48) return undefined;
-  return Number(m[1]) * 100 + Number(m[2]);
-}
-
-/** 打刻の数字から、時刻の形を決める（下2けたが60以上のものがあれば10進法） */
-export function guessFormat(p: ParsedTimecard): TimeFormat {
-  for (const cards of Object.values(p.months))
-    for (const days of Object.values(cards)) for (const d of Object.values(days)) if ((d.i ?? 0) % 100 >= 60 || (d.o ?? 0) % 100 >= 60) return "dec";
-  return "hm";
+  const m = /^(\d{1,2})[:.](\d{2})$/.exec(t);
+  if (!m || Number(m[2]) >= 60 || Number(m[1]) >= 48) return undefined;
+  return Number(m[1]) * 60 + Number(m[2]);
 }
 
 export type ParsedTimecard = {
@@ -169,23 +135,19 @@ export type DayResult = {
   problem: string | null;
 };
 
-/** 1日分の計算（i・o はカードの数字、ri・ro・brk・work は分） */
+/** 1日分の計算（時刻・時間はすべて分） */
 export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig): DayResult {
   const src = raw?.e ?? raw;
   const i = src?.i ?? null;
   const o = src?.o ?? null;
-  const f = cfg.format ?? "dec";
   const edited = !!raw?.e;
   const base = { date, raw, i, o, edited };
   if (!raw || (i === null && o === null)) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: null };
   if (i === null || o === null) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: i === null ? "出勤の打刻がありません" : "退勤の打刻がありません" };
-  const mi = toMin(i, f);
-  const mo = toMin(o, f);
-  // 丸めない（1分）ときは、10進法の端数もそのまま使う
-  const ri = cfg.roundIn > 1 ? Math.ceil(mi / cfg.roundIn - 1e-9) * cfg.roundIn : mi;
+  const ri = Math.ceil(i / cfg.roundIn) * cfg.roundIn;
   // 退勤が出勤より前なら、日をまたいだとみなす
-  const oo = mo < mi ? mo + 1440 : mo;
-  const ro = cfg.roundOut > 1 ? Math.floor(oo / cfg.roundOut + 1e-9) * cfg.roundOut : oo;
+  const oo = o < i ? o + 1440 : o;
+  const ro = Math.floor(oo / cfg.roundOut) * cfg.roundOut;
   const span = Math.max(0, ro - ri);
   const brk = cfg.breaks.filter((b) => span > b.over).reduce((a, b) => Math.max(a, b.minutes), 0);
   const work = Math.max(0, span - brk);

@@ -3,7 +3,7 @@
 // 個人別タイムカード集計表（1人分）。画面と印刷で同じものを使う。edit があれば、行ごとに時刻を直せる
 import { useState } from "react";
 import { weekday } from "@/lib/date";
-import { cardTime, hm, hours2, minToCard, parseCardTime, type DayResult, type PersonResult, type TimeFormat } from "@/lib/timecard";
+import { hm, hours2, parseHm, type DayResult, type PersonResult } from "@/lib/timecard";
 
 const md = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
@@ -11,13 +11,11 @@ export function TimecardSheet({
   person,
   name,
   title,
-  format: f,
   edit,
 }: {
   person: PersonResult;
   name: string;
   title: string;
-  format: TimeFormat;
   edit?: (date: string, e: { i: number | null; o: number | null } | null) => Promise<void>;
 }) {
   const shown = person.days.filter((d) => d.raw || edit);
@@ -39,14 +37,14 @@ export function TimecardSheet({
             <th>出勤（丸め後）</th>
             <th>退勤（丸め後）</th>
             <th>休憩</th>
-            <th>労働時間{f === "dec" ? "（時間）" : ""}</th>
+            <th>労働時間</th>
             <th>確認</th>
             {edit && <th className="print:hidden">直す</th>}
           </tr>
         </thead>
         <tbody>
           {shown.map((d) => (
-            <Row key={d.date} d={d} f={f} edit={edit} />
+            <Row key={d.date} d={d} edit={edit} />
           ))}
         </tbody>
         <tfoot>
@@ -55,9 +53,9 @@ export function TimecardSheet({
             <td colSpan={4} className="text-right">
               合計
             </td>
-            <td className="text-right">{f === "dec" ? hours2(person.work) : hm(person.work)}</td>
+            <td className="text-right">{hm(person.work)}</td>
             <td colSpan={edit ? 2 : 1} className="text-xs font-normal">
-              {f === "dec" ? `${hm(person.work)}（時:分）` : `${hours2(person.work)}時間`}
+              {hours2(person.work)}時間
             </td>
           </tr>
         </tfoot>
@@ -66,7 +64,7 @@ export function TimecardSheet({
   );
 }
 
-function Row({ d, f, edit }: { d: DayResult; f: TimeFormat; edit?: (date: string, e: { i: number | null; o: number | null } | null) => Promise<void> }) {
+function Row({ d, edit }: { d: DayResult; edit?: (date: string, e: { i: number | null; o: number | null } | null) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [i, setI] = useState("");
   const [o, setO] = useState("");
@@ -75,8 +73,8 @@ function Row({ d, f, edit }: { d: DayResult; f: TimeFormat; edit?: (date: string
   const w = weekday(d.date);
   const day = <span className={w === "日" ? "text-red-600" : w === "土" ? "text-blue-700" : ""}>{`${md(d.date)}（${w}）`}</span>;
   const startEdit = () => {
-    setI(cardTime(d.i, f));
-    setO(cardTime(d.o, f));
+    setI(hm(d.i));
+    setO(hm(d.o));
     setErr("");
     setOpen(true);
   };
@@ -84,9 +82,9 @@ function Row({ d, f, edit }: { d: DayResult; f: TimeFormat; edit?: (date: string
     if (!edit) return;
     let e: { i: number | null; o: number | null } | null = null;
     if (!reset) {
-      const ii = parseCardTime(i, f);
-      const oo = parseCardTime(o, f);
-      if (ii === undefined || oo === undefined) return setErr(f === "dec" ? "時刻はカードと同じ形（10.24 など）で入れてください" : "時刻は 8:30 のように入れてください");
+      const ii = parseHm(i);
+      const oo = parseHm(o);
+      if (ii === undefined || oo === undefined) return setErr("時刻は 17:21 のように入れてください");
       e = { i: ii, o: oo };
     }
     setBusy(true);
@@ -103,17 +101,17 @@ function Row({ d, f, edit }: { d: DayResult; f: TimeFormat; edit?: (date: string
     <tr className={d.problem ? "bg-red-50" : d.edited ? "bg-amber-50" : ""}>
       <td className="whitespace-nowrap">{day}</td>
       <td className="text-right">
-        {cardTime(d.i, f)}
-        {d.edited && d.raw?.i !== d.i && <span className="block text-[10px] text-gray-500 line-through">{cardTime(d.raw?.i, f)}</span>}
+        {hm(d.i)}
+        {d.edited && d.raw?.i !== d.i && <span className="block text-[10px] text-gray-500 line-through">{hm(d.raw?.i)}</span>}
       </td>
       <td className="text-right">
-        {cardTime(d.o, f)}
-        {d.edited && d.raw?.o !== d.o && <span className="block text-[10px] text-gray-500 line-through">{cardTime(d.raw?.o, f)}</span>}
+        {hm(d.o)}
+        {d.edited && d.raw?.o !== d.o && <span className="block text-[10px] text-gray-500 line-through">{hm(d.raw?.o)}</span>}
       </td>
-      <td className="text-right">{minToCard(d.ri, f)}</td>
-      <td className="text-right">{d.ro !== null && d.ro >= 1440 ? `翌${minToCard(d.ro - 1440, f)}` : minToCard(d.ro, f)}</td>
+      <td className="text-right">{hm(d.ri)}</td>
+      <td className="text-right">{d.ro !== null && d.ro >= 1440 ? `翌${hm(d.ro - 1440)}` : hm(d.ro)}</td>
       <td className="text-right">{d.brk ? `${d.brk}分` : ""}</td>
-      <td className="text-right font-bold">{d.work ? (f === "dec" ? hours2(d.work) : hm(d.work)) : ""}</td>
+      <td className="text-right font-bold">{d.work ? hm(d.work) : ""}</td>
       <td className="text-xs">
         {d.problem && <span className="font-bold text-red-700">{d.problem}</span>}
         {d.edited && <span className="text-amber-800">{d.problem ? "・" : ""}直した時刻</span>}
@@ -122,9 +120,9 @@ function Row({ d, f, edit }: { d: DayResult; f: TimeFormat; edit?: (date: string
         <td className="whitespace-nowrap print:hidden">
           {open ? (
             <span className="inline-flex flex-wrap items-center gap-1">
-              <input value={i} onChange={(e) => setI(e.target.value)} placeholder={f === "dec" ? "3.38" : "3:38"} className="w-16 rounded border px-1 py-0.5" />
+              <input value={i} onChange={(e) => setI(e.target.value)} placeholder="5:47" className="w-16 rounded border px-1 py-0.5" />
               〜
-              <input value={o} onChange={(e) => setO(e.target.value)} placeholder={f === "dec" ? "10.24" : "10:24"} className="w-16 rounded border px-1 py-0.5" />
+              <input value={o} onChange={(e) => setO(e.target.value)} placeholder="17:21" className="w-16 rounded border px-1 py-0.5" />
               <button disabled={busy} onClick={() => save(false)} className="rounded bg-berry px-2 py-0.5 text-white">
                 保存
               </button>
