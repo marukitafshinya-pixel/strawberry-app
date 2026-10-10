@@ -70,6 +70,10 @@ export default function TimecardPage() {
         </Link>
       </p>
       <h1 className="mt-2 text-xl font-bold">タイムカード</h1>
+      {/* 給与のしくみができあがるまではテスト。ここの数字は、給与の打ち込み（payrolls）には書き込まない */}
+      <p className="mt-2 rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">
+        テスト中：この画面の数字は、「給与の打ち込み」や給与集計表には反映されません（確定した給与はそのままです）。
+      </p>
 
       <ImportBox />
 
