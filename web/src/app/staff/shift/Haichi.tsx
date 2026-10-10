@@ -60,9 +60,9 @@ export function HaichiBoard({
                             className={`border-t border-gray-400 align-middle ${edit?.selected ? "cursor-copy hover:bg-amber-50" : ""}`}
                           >
                             <th
-                              className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 text-left font-bold ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
+                              className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 font-bold ${isHouseNo(slot.label) ? "text-center" : "text-left"} ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
                             >
-                              {slot.label}
+                              {isHouseNo(slot.label) ? `No.${slot.label}` : slot.label}
                             </th>
                             {sectionArrows(sec) && (
                               <td className={`border-r border-gray-300 text-center ${big ? "w-14" : "w-12"}`}>
@@ -126,6 +126,9 @@ export function HaichiBoard({
     </div>
   );
 }
+
+/** 枠の名前が数字だけ（ハウスの番号）なら、「No.1」のように出して真ん中にそろえる */
+const isHouseNo = (label: string) => /^\d+$/.test(label.trim());
 
 /** 次に向かうハウスの方向（収穫の枠に付ける矢印） */
 export const ARROWS = ["", "→", "←", "↑", "↓", "↗", "↘", "↙", "↖"] as const;
