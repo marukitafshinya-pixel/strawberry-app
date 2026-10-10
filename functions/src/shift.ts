@@ -138,7 +138,8 @@ export const submitShiftRequest = onCall(async (req) => {
 
   const cfg = await db.doc("config/shift").get();
   const codes = (cfg.get("codes") as { code: string; req?: boolean }[] | undefined) ?? DEFAULT_REQUEST_CODES.map((c) => ({ code: c, req: true }));
-  if (!codes.some((c) => c.code === code && c.req)) throw new HttpsError("invalid-argument", "この希望は出せません");
+  // 定時出勤（〇）は、「希望で出せる」にしていなくても出せる
+  if (!codes.some((c) => c.code === code && (c.req || c.code === "〇" || c.code === "○"))) throw new HttpsError("invalid-argument", "この希望は出せません");
   const cutoff = Number(cfg.get("cutoffDays") ?? 14);
   const first = addDays(todayJST(), cutoff);
   const contact = String(cfg.get("contact") ?? "").trim() || "管理者";

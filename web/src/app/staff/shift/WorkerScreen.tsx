@@ -8,6 +8,25 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
 
+/** 定時出勤の記号（〇。似た字の ○ も同じに扱う） */
+const WORK_CODES = ["〇", "○"];
+
+/** 希望のボタンの名前 */
+const codeLabel = (c: string) => (c === "AM" ? "AM（午前だけ）" : c === "PM" ? "PM（午後だけ）" : WORK_CODES.includes(c) ? `定時出勤（${c}）` : c);
+
+/**
+ * 希望で出せる記号の並び。「希望で出せる」にした記号に加えて、定時出勤（〇）を希休のすぐ後ろに入れる
+ * （〇は「希望で出せる」にしていなくても出せる）
+ */
+function requestCodes(cfg: ShiftConfig): string[] {
+  const work = cfg.codes.find((c) => WORK_CODES.includes(c.code))?.code;
+  const list = cfg.codes.filter((c) => c.req && c.code !== work).map((c) => c.code);
+  if (!work) return list;
+  const at = list.findIndex((c) => c === "希休" || c === "希望休");
+  list.splice(at < 0 ? 0 : at + 1, 0, work);
+  return list;
+}
+
 const STATUS: Record<ShiftRequest["status"], { label: string; cls: string }> = {
   pending: { label: "確認待ち", cls: "bg-amber-100 text-amber-900" },
   approved: { label: "承認", cls: "bg-emerald-100 text-emerald-900" },
@@ -49,7 +68,7 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
         )}
       </section>
 
-      <RequestForm key={cfg.cutoffDays} asMember={preview ? me.id : undefined} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
+      <RequestForm key={cfg.cutoffDays} asMember={preview ? me.id : undefined} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={requestCodes(cfg)} />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">出した希望</h2>
@@ -110,7 +129,7 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
     setBusy(true);
     try {
       await callFunction("submitShiftRequest", { date, code, memo, ...(asMember ? { memberId: asMember } : {}) });
-      setMsg({ ok: true, text: `${formatJa(date)}「${code}」の希望を出しました` });
+      setMsg({ ok: true, text: `${formatJa(date)}「${codeLabel(code)}」の希望を出しました` });
       setMemo("");
     } catch (e) {
       setMsg({ ok: false, text: errorText(e) });
@@ -149,7 +168,7 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
           <div className="mt-1 flex flex-wrap gap-2">
             {codes.map((c) => (
               <button key={c} onClick={() => setCode(c)} className={`rounded-lg border px-3 py-2 font-bold ${code === c ? "border-berry bg-berry text-white" : "bg-white"}`}>
-                {c === "AM" ? "AM（午前だけ）" : c === "PM" ? "PM（午後だけ）" : c}
+                {codeLabel(c)}
               </button>
             ))}
           </div>
@@ -185,7 +204,7 @@ function MyRequest({ r, asMember }: { r: ShiftRequest; asMember?: string }) {
   return (
     <li className="flex flex-wrap items-center gap-2 py-2">
       <span className="w-32 whitespace-nowrap">{formatJa(r.date)}</span>
-      <span className="font-bold">{r.code}</span>
+      <span className="font-bold">{codeLabel(r.code)}</span>
       <span className={`rounded-full px-2 py-0.5 text-xs ${s.cls}`}>{s.label}</span>
       {r.memo && <span className="text-xs text-gray-500">{r.memo}</span>}
       {r.status === "pending" && (
