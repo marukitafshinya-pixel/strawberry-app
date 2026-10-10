@@ -1,0 +1,342 @@
+"use client";
+
+// タイムカード（MAXのタイムレコーダーのUSBデータ）。管理者だけが使う。
+// - 取り込んだ打刻は、暦の月ごとに timecards/{YYYY-MM} に入れる（カード番号 → 日 → 出勤・退勤）
+// - 画面で直した時刻は、元の打刻とは別に e に入れる（取り込み直しても消えない）
+// - 丸め・休憩・締め日・カード番号と従業員のひも付けは config/timecard
+import { deleteField, doc, FieldPath, onSnapshot, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { parseCsv } from "./csv";
+import { getFirebase } from "./firebase";
+import { shiftMonth } from "./date";
+
+/**
+ * 1日の打刻。時刻はタイムカードに出る数字のまま（例 3.38 → 338）。x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）。
+ * タイムレコーダーが10進法（1時間＝100）なら 338 は 3.38時間＝3時22.8分、60進法なら 3時38分
+ */
+export type TcPunch = { i: number | null; o: number | null; x?: string };
+/** 1日分。e＝画面で直した時刻（あれば、こちらを使う） */
+export type TcDay = TcPunch & { e?: { i: number | null; o: number | null } };
+/** timecards/{YYYY-MM}：カード番号 → 日（"01"〜"31"）→ 打刻 */
+export type TimecardMonth = { cards: Record<string, Record<string, TcDay>>; fileName?: string };
+
+export type BreakRule = { over: number; minutes: number };
+/** タイムカードの時刻の形：dec＝10進法（3.38＝3時間と0.38時間）、hm＝60進法（3:38） */
+export type TimeFormat = "dec" | "hm";
+export type TimecardConfig = {
+  /** タイムカードの時刻の形（取り込んだときに数字から自動で決める。あとで変えられる） */
+  format?: TimeFormat;
+  /** カード番号 → 従業員のID（給与の従業員） */
+  cards: Record<string, string>;
+  /** 出勤は何分単位で切り上げるか（1＝丸めない） */
+  roundIn: number;
+  /** 退勤は何分単位で切り捨てるか（1＝丸めない） */
+  roundOut: number;
+  /** 休憩：働いた時間が over 分を超えたら minutes 分を引く（当てはまるうち、いちばん長いもの） */
+  breaks: BreakRule[];
+  /** 締め日（31＝月末） */
+  closeDay: number;
+};
+
+export const DEFAULT_TIMECARD_CONFIG: TimecardConfig = { cards: {}, roundIn: 1, roundOut: 1, breaks: [], closeDay: 31 };
+export const ROUND_CHOICES = [1, 5, 10, 15, 30] as const;
+export const CLOSE_DAY_CHOICES = [31, 5, 10, 15, 20, 25] as const;
+
+/** " 338" → 338。空なら null。読めなければ undefined */
+function readTime(v: string | undefined): number | null | undefined {
+  const s = (v ?? "").trim();
+  if (s === "") return null;
+  if (!/^\d{1,4}$/.test(s)) return undefined;
+  const n = Number(s);
+  return Math.floor(n / 100) >= 48 ? undefined : n;
+}
+
+/** タイムカードの数字 → 0時からの分（10進法なら小数になることがある） */
+export function toMin(raw: number, f: TimeFormat): number {
+  return Math.floor(raw / 100) * 60 + (raw % 100) * (f === "dec" ? 0.6 : 1);
+}
+
+/** タイムカードの数字を、カードと同じ形で（10進法 "3.38"・60進法 "3:38"） */
+export function cardTime(raw: number | null | undefined, f: TimeFormat): string {
+  if (raw === null || raw === undefined) return "";
+  return `${Math.floor(raw / 100)}${f === "dec" ? "." : ":"}${String(raw % 100).padStart(2, "0")}`;
+}
+
+/** 0時からの分を、カードと同じ形で（丸めたあとの時刻に使う） */
+export function minToCard(min: number | null, f: TimeFormat): string {
+  if (min === null) return "";
+  const h = Math.floor(min / 60);
+  const rest = min - h * 60;
+  const sub = f === "dec" ? Math.round(rest / 0.6) : Math.round(rest);
+  return cardTime(h * 100 + Math.min(sub, f === "dec" ? 99 : 59), f);
+}
+
+/** 分 → "6:46" */
+export function hm(min: number | null | undefined): string {
+  if (min === null || min === undefined) return "";
+  const a = Math.round(Math.abs(min));
+  return `${min < 0 ? "-" : ""}${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}`;
+}
+
+/** 分 → 時間（小数2けた。10進法のカードの合計と同じになる） */
+export const hours2 = (min: number) => (Math.round((min / 60) * 100) / 100).toFixed(2);
+
+/** 働いた時間の表し方（10進法のカードなら「6.86時間」、60進法なら「6:46」） */
+export const workText = (min: number, f: TimeFormat) => (f === "dec" ? `${hours2(min)}時間` : hm(min));
+
+/** 入力した時刻（"10.30" "10:30"）→ タイムカードの数字（1030）。空なら null。読めなければ undefined */
+export function parseCardTime(s: string, f: TimeFormat): number | null | undefined {
+  const t = s.trim().replace("：", ":").replace("．", ".");
+  if (t === "") return null;
+  const m = /^(\d{1,2})[.:](\d{2})$/.exec(t);
+  if (!m || (f === "hm" && Number(m[2]) >= 60) || Number(m[1]) >= 48) return undefined;
+  return Number(m[1]) * 100 + Number(m[2]);
+}
+
+/** 打刻の数字から、時刻の形を決める（下2けたが60以上のものがあれば10進法） */
+export function guessFormat(p: ParsedTimecard): TimeFormat {
+  for (const cards of Object.values(p.months))
+    for (const days of Object.values(cards)) for (const d of Object.values(days)) if ((d.i ?? 0) % 100 >= 60 || (d.o ?? 0) % 100 >= 60) return "dec";
+  return "hm";
+}
+
+export type ParsedTimecard = {
+  /** 暦の月 → カード番号 → 日 → 打刻 */
+  months: Record<string, Record<string, Record<string, TcPunch>>>;
+  count: number;
+};
+
+/**
+ * MAXのタイムレコーダーのCSV（ER201001.csv など）を読む。
+ * 1行＝「部門,カード番号,…,日付(YY/MM/DD),出勤,退勤,（ほかの打刻4つ）,…」。
+ * SIFT〜の行（設定）と LAST_MONTH / THIS_MONTH の行（月の区切り）は飛ばす
+ */
+export function parseMaxTimecardCsv(text: string): { data?: ParsedTimecard; error?: string } {
+  const rows = parseCsv(text);
+  const months: ParsedTimecard["months"] = {};
+  let count = 0;
+  for (const [n, r] of rows.entries()) {
+    const date = (r[3] ?? "").trim();
+    if (!/^\d{2}\/\d{2}\/\d{2}$/.test(date)) continue;
+    const card = (r[1] ?? "").trim();
+    if (!/^\d{1,6}$/.test(card)) return { error: `${n + 1}行目：カード番号「${card}」が読めません` };
+    const [yy, mm, dd] = date.split("/");
+    if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return { error: `${n + 1}行目：日付「${date}」が読めません` };
+    const i = readTime(r[4]);
+    const o = readTime(r[5]);
+    if (i === undefined || o === undefined) return { error: `${n + 1}行目（カード${card}・${date}）：時刻「${(r[4] ?? "").trim()}」「${(r[5] ?? "").trim()}」が読めません` };
+    const other = [6, 7, 8, 9].map((k) => (r[k] ?? "").trim());
+    const p: TcPunch = { i, o };
+    if (other.some((s) => s !== "")) p.x = other.join("/");
+    const month = `20${yy}-${mm}`;
+    ((months[month] ??= {})[card] ??= {})[dd] = p;
+    count++;
+  }
+  if (count === 0) return { error: "打刻の行が見つかりません。タイムレコーダーのCSV（ER201001.csv など）を選んでください" };
+  return { data: { months, count } };
+}
+
+/**
+ * 取り込んだ打刻を、今の月のデータに重ねる。
+ * 元の打刻は新しいもので置き換え、画面で直した時刻（e）は残す。CSVにない日はそのまま残す
+ */
+export function mergeTimecard(cur: TimecardMonth["cards"] | undefined, add: Record<string, Record<string, TcPunch>>): TimecardMonth["cards"] {
+  const out: TimecardMonth["cards"] = structuredClone(cur ?? {});
+  for (const [card, days] of Object.entries(add)) {
+    const c = (out[card] ??= {});
+    for (const [dd, p] of Object.entries(days)) {
+      const e = c[dd]?.e;
+      c[dd] = { ...p, ...(e ? { e } : {}) };
+    }
+  }
+  return out;
+}
+
+export type DayResult = {
+  date: string;
+  raw: TcDay | null;
+  /** 使う出勤・退勤（直した時刻があればそちら） */
+  i: number | null;
+  o: number | null;
+  edited: boolean;
+  /** 丸めたあとの出勤・退勤 */
+  ri: number | null;
+  ro: number | null;
+  /** 休憩（分）と、働いた時間（分） */
+  brk: number;
+  work: number;
+  /** 打刻もれなど、確かめてほしいこと */
+  problem: string | null;
+};
+
+/** 1日分の計算（i・o はカードの数字、ri・ro・brk・work は分） */
+export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig): DayResult {
+  const src = raw?.e ?? raw;
+  const i = src?.i ?? null;
+  const o = src?.o ?? null;
+  const f = cfg.format ?? "dec";
+  const edited = !!raw?.e;
+  const base = { date, raw, i, o, edited };
+  if (!raw || (i === null && o === null)) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: null };
+  if (i === null || o === null) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: i === null ? "出勤の打刻がありません" : "退勤の打刻がありません" };
+  const mi = toMin(i, f);
+  const mo = toMin(o, f);
+  // 丸めない（1分）ときは、10進法の端数もそのまま使う
+  const ri = cfg.roundIn > 1 ? Math.ceil(mi / cfg.roundIn - 1e-9) * cfg.roundIn : mi;
+  // 退勤が出勤より前なら、日をまたいだとみなす
+  const oo = mo < mi ? mo + 1440 : mo;
+  const ro = cfg.roundOut > 1 ? Math.floor(oo / cfg.roundOut + 1e-9) * cfg.roundOut : oo;
+  const span = Math.max(0, ro - ri);
+  const brk = cfg.breaks.filter((b) => span > b.over).reduce((a, b) => Math.max(a, b.minutes), 0);
+  const work = Math.max(0, span - brk);
+  const problem = raw.x && !edited ? `ほかの欄にも打刻があります（${raw.x}）` : span > 16 * 60 ? "16時間をこえています" : null;
+  return { ...base, ri, ro, brk, work, problem };
+}
+
+/** 給与の月（"YYYY-MM"）の日にちの並び。締め日が月末でなければ、前の月の締め日の翌日から */
+export function periodDays(month: string, closeDay: number): string[] {
+  const [y, m] = month.split("-").map(Number);
+  const last = (yy: number, mm: number) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const out: string[] = [];
+  if (closeDay >= 28) {
+    for (let d = 1; d <= last(y, m); d++) out.push(`${month}-${String(d).padStart(2, "0")}`);
+    return out;
+  }
+  const prev = shiftMonth(month, -1);
+  const [py, pm] = prev.split("-").map(Number);
+  for (let d = closeDay + 1; d <= last(py, pm); d++) out.push(`${prev}-${String(d).padStart(2, "0")}`);
+  for (let d = 1; d <= closeDay; d++) out.push(`${month}-${String(d).padStart(2, "0")}`);
+  return out;
+}
+
+/** その給与の月に使う、暦の月のデータ（締め日が月末でなければ前の月も） */
+export function periodMonths(month: string, closeDay: number): string[] {
+  return closeDay >= 28 ? [month] : [shiftMonth(month, -1), month];
+}
+
+export type PersonResult = { card: string; days: DayResult[]; workDays: number; work: number; problems: number; edited: number };
+
+/** 1人分（1枚のカード）の給与の月の集計 */
+export function computePerson(card: string, month: string, data: Record<string, TimecardMonth | null>, cfg: TimecardConfig): PersonResult {
+  const days = periodDays(month, cfg.closeDay).map((date) => computeDay(date, data[date.slice(0, 7)]?.cards[card]?.[date.slice(8)] ?? null, cfg));
+  return {
+    card,
+    days,
+    workDays: days.filter((d) => d.work > 0).length,
+    work: days.reduce((a, d) => a + d.work, 0),
+    problems: days.filter((d) => d.problem).length,
+    edited: days.filter((d) => d.edited).length,
+  };
+}
+
+/** その給与の月に打刻がある（または直した）カード番号 */
+export function cardsIn(month: string, data: Record<string, TimecardMonth | null>, cfg: TimecardConfig): string[] {
+  const dates = new Set(periodDays(month, cfg.closeDay));
+  const set = new Set<string>();
+  for (const ym of periodMonths(month, cfg.closeDay))
+    for (const [card, days] of Object.entries(data[ym]?.cards ?? {})) if (Object.keys(days).some((dd) => dates.has(`${ym}-${dd}`))) set.add(card);
+  return [...set].sort();
+}
+
+/** カード番号から従業員を探す（ひも付けがなければ、社員番号が同じ人） */
+export function employeeForCard<E extends { id: string; code: string }>(card: string, cfg: TimecardConfig, employees: E[]): E | null {
+  const id = cfg.cards[card];
+  if (id) return employees.find((e) => e.id === id) ?? null;
+  const n = Number(card);
+  return employees.find((e) => /^\d+$/.test(e.code.trim()) && Number(e.code) === n) ?? null;
+}
+
+export function useTimecardConfig(): { value: TimecardConfig | null; error: string } {
+  const [value, setValue] = useState<TimecardConfig | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "config/timecard"),
+        (s) => setValue({ ...DEFAULT_TIMECARD_CONFIG, ...((s.data() as Partial<TimecardConfig> | undefined) ?? {}) }),
+        () => setError("タイムカードの設定を読めませんでした"),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return { value, error };
+}
+
+export async function saveTimecardConfig(cfg: Partial<TimecardConfig>) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/timecard"), { ...cfg, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** 暦の月のデータをいくつか見る（"YYYY-MM" → データ。まだなければ null） */
+export function useTimecardMonths(months: string[]): Record<string, TimecardMonth | null> | null {
+  const key = months.join(",");
+  const [state, setState] = useState<{ key: string; data: Record<string, TimecardMonth | null> } | null>(null);
+  useEffect(() => {
+    const list = key.split(",");
+    const unsubs: (() => void)[] = [];
+    let cancelled = false;
+    const got: Record<string, TimecardMonth | null> = {};
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      for (const ym of list)
+        unsubs.push(
+          onSnapshot(
+            doc(db, `timecards/${ym}`),
+            (s) => {
+              got[ym] = s.exists() ? ({ cards: {}, ...s.data() } as TimecardMonth) : null;
+              if (list.every((m) => m in got)) setState({ key, data: { ...got } });
+            },
+            () => {},
+          ),
+        );
+    });
+    return () => {
+      cancelled = true;
+      unsubs.forEach((u) => u());
+    };
+  }, [key]);
+  return state && state.key === key ? state.data : null;
+}
+
+/** 取り込み：月ごとに、今のデータに重ねて保存する */
+export async function importTimecard(parsed: ParsedTimecard, fileName: string) {
+  const { db } = await getFirebase();
+  for (const [ym, cards] of Object.entries(parsed.months)) {
+    const ref = doc(db, `timecards/${ym}`);
+    const cur = await getDoc(ref);
+    const merged = mergeTimecard((cur.data() as TimecardMonth | undefined)?.cards, cards);
+    await setDoc(ref, { cards: merged, fileName: fileName.slice(0, 100), importedAt: serverTimestamp() });
+  }
+}
+
+/** 1日分の時刻を直す（null＝元の打刻に戻す） */
+export async function saveTimecardEdit(date: string, card: string, e: { i: number | null; o: number | null } | null) {
+  const { db } = await getFirebase();
+  const ref = doc(db, `timecards/${date.slice(0, 7)}`);
+  const path = new FieldPath("cards", card, date.slice(8), "e");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    if (!e) return;
+    await setDoc(ref, { cards: { [card]: { [date.slice(8)]: { i: null, o: null, e } } }, updatedAt: serverTimestamp() });
+    return;
+  }
+  const day = (snap.data() as TimecardMonth).cards?.[card]?.[date.slice(8)];
+  if (!day) {
+    if (!e) return;
+    // 打刻がない日に時刻を入れる
+    await updateDoc(ref, new FieldPath("cards", card, date.slice(8)), { i: null, o: null, e }, "updatedAt", serverTimestamp());
+    return;
+  }
+  if (!e && day.i === null && day.o === null && !day.x) {
+    // 打刻がなく、直した時刻だけだった日は、日ごと消す
+    await updateDoc(ref, new FieldPath("cards", card, date.slice(8)), deleteField(), "updatedAt", serverTimestamp());
+    return;
+  }
+  await updateDoc(ref, path, e ?? deleteField(), "updatedAt", serverTimestamp());
+}

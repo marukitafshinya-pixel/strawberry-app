@@ -60,6 +60,9 @@ function PayrollView() {
         <Link href="/staff/payroll/employees/" className="ml-4 text-gray-500 underline">
           従業員の登録
         </Link>
+        <Link href="/staff/payroll/timecard/" className="ml-4 text-gray-500 underline">
+          タイムカード
+        </Link>
       </p>
       <h1 className="mt-2 text-xl font-bold">給与の打ち込み</h1>
       <div className="mt-3 flex flex-wrap items-center gap-2">

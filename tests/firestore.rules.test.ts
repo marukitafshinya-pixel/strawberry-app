@@ -206,6 +206,28 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("タイムカード（管理者のみ）", () => {
+  it("打刻と計算のルールは管理者だけが読み書きできる", async () => {
+    const tc = { cards: { "001": { "01": { i: 338, o: 1024 }, "02": { i: 339, o: null, e: { i: 339, o: 1020 } } } }, fileName: "ER201001.csv" };
+    await assertSucceeds(setDoc(doc(admin(), "timecards/2026-09"), tc));
+    await assertSucceeds(getDoc(doc(admin(), "timecards/2026-09")));
+    await assertSucceeds(setDoc(doc(admin(), "config/timecard"), { format: "dec", cards: { "001": "e1" }, roundIn: 15, roundOut: 15, breaks: [{ over: 360, minutes: 45 }], closeDay: 31 }));
+    for (const db of [staff(), guest(), noRole(), disabled(), env.authenticatedContext("w1", { role: "worker" }).firestore()]) {
+      await assertFails(getDoc(doc(db, "timecards/2026-09")));
+      await assertFails(setDoc(doc(db, "timecards/2026-09"), tc));
+      await assertFails(getDoc(doc(db, "config/timecard")));
+      await assertFails(setDoc(doc(db, "config/timecard"), { roundIn: 1 }));
+    }
+  });
+  it("月の形や項目が違うものは保存できない", async () => {
+    await assertFails(setDoc(doc(admin(), "timecards/2026-9"), { cards: {} }));
+    await assertFails(setDoc(doc(admin(), "timecards/2026-09"), { cards: {}, secret: 1 }));
+    await assertFails(setDoc(doc(admin(), "config/timecard"), { roundIn: 0 }));
+    await assertFails(setDoc(doc(admin(), "config/timecard"), { closeDay: 40 }));
+    await assertFails(setDoc(doc(admin(), "config/timecard"), { format: "abc" }));
+  });
+});
+
 describe("気象データ", () => {
   it("スタッフは見るだけ（書き込みはサーバー側）", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
