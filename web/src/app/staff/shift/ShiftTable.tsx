@@ -10,6 +10,8 @@ const WD = ["日", "月", "火", "水", "木", "金", "土"];
 const COL_PX = 62;
 /** 文字の大きさを決める幅（px）。記号がこの幅にぎりぎり収まる大きさにする */
 const FONT_COL_PX = 52;
+/** 携帯で見るとき（compact）の日付の列の幅（px）。文字もこの幅に合わせて小さくなる */
+const COMPACT_COL_PX = 32;
 /** マスの左右の余白と、希望の点線の枠の分（px） */
 const CELL_INSET = 6;
 /** 文字のいちばん大きい大きさは、列の幅の何倍までにするか（行が高くなりすぎないように） */
@@ -43,6 +45,7 @@ export function ShiftTable({
   onClearDay,
   fixed,
   bare,
+  compact,
 }: {
   from: string;
   span: number;
@@ -71,6 +74,8 @@ export function ShiftTable({
   fixed?: boolean;
   /** 投影用：「予定」の行と、まとまり（男性・女性など）の帯を出さない（まとまりの境目は太い線にする） */
   bare?: boolean;
+  /** 従業員の携帯の画面：マスも文字も小さくして、全体を見渡しやすくする */
+  compact?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：マスの幅（枠）はそのままで、文字ができるだけ大きくなるようにする。
@@ -88,9 +93,12 @@ export function ShiftTable({
     setWidths({ base, of });
   }, [codesKey]);
   // 投影用（fixed）は、余白を足す前の幅のまま（画面に合わせて拡大するので、詰めたほうが文字が大きく映る）
-  const colPx = fixed ? FONT_COL_PX : COL_PX;
-  const room = FONT_COL_PX - CELL_INSET;
-  const fontPx = Math.max(9, Math.min(FONT_COL_PX * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
+  const fontCol = compact ? COMPACT_COL_PX : FONT_COL_PX;
+  const colPx = compact ? COMPACT_COL_PX : fixed ? FONT_COL_PX : COL_PX;
+  const room = fontCol - CELL_INSET;
+  const fontPx = Math.max(9, Math.min(fontCol * FONT_CAP, Math.floor((room / widths.base) * 10) / 10));
+  /** マスの高さ（携帯では低く） */
+  const cellBox = compact ? "min-h-[1.4rem] py-0.5" : "min-h-[2rem] py-1";
   /** 長い記号は、そのマスに収まるところまで小さくする */
   const codeFont = (code: string) => {
     const u = widths.of[code];
@@ -109,7 +117,7 @@ export function ShiftTable({
   const req = new Map((requests ?? []).map((r) => [`${r.memberId}_${r.date}`, r]));
   const working = (d: string, m: ShiftMember) => isWorking(cfg, days[d]?.cells[m.id]);
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
-  const headBase = "sticky left-0 z-10 whitespace-nowrap border-r px-2 text-left";
+  const headBase = `sticky left-0 z-10 whitespace-nowrap border-r text-left ${compact ? "px-1" : "px-2"}`;
   const head = `${headBase} bg-white`;
   /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
   const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-800!" : "");
@@ -151,7 +159,7 @@ export function ShiftTable({
             ))}
           </tr>
           <tr className="border-b">
-            <th className={`${head} py-1 font-normal`}>いちご狩り予約数</th>
+            <th className={`${head} py-1 font-normal`}>{compact ? "予約" : "いちご狩り予約数"}</th>
             {dates.map((d) => (
               <td key={d} className={`px-0.5 py-1 text-center font-semibold text-berry-dark ${colTone(d)} ${wk(d)}`}>
                 {reserved?.[d] ? reserved[d] : ""}
@@ -243,17 +251,17 @@ export function ShiftTable({
                           {r && onRequest ? (
                             <button
                               onClick={() => onRequest(r)}
-                              className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-purple-500"
+                              className={`flex ${cellBox} w-full flex-col items-center justify-center px-0.5 hover:outline hover:outline-2 hover:outline-purple-500`}
                               aria-label={`${m.name}さんの休みの希望を決める`}
                             >
                               {body}
                             </button>
                           ) : onCell ? (
-                            <button onClick={(e) => onCell(d, m.id, e.currentTarget.getBoundingClientRect())} aria-label={`${m.name}さんの${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`} className="flex min-h-[2rem] w-full flex-col items-center justify-center px-0.5 py-1 hover:outline hover:outline-2 hover:outline-sky-400">
+                            <button onClick={(e) => onCell(d, m.id, e.currentTarget.getBoundingClientRect())} aria-label={`${m.name}さんの${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`} className={`flex ${cellBox} w-full flex-col items-center justify-center px-0.5 hover:outline hover:outline-2 hover:outline-sky-400`}>
                               {body}
                             </button>
                           ) : (
-                            <div className="flex min-h-[2rem] flex-col items-center justify-center px-0.5 py-1">{body}</div>
+                            <div className={`flex ${cellBox} flex-col items-center justify-center px-0.5`}>{body}</div>
                           )}
                         </td>
                       );
@@ -265,7 +273,7 @@ export function ShiftTable({
         </tbody>
         <tfoot>
           <tr className="border-t-2">
-            <th className={`${head} py-1`}>売り場対応人数</th>
+            <th className={`${head} py-1`}>{compact ? "売り場" : "売り場対応人数"}</th>
             {dates.map((d) => (
               <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => m.floor && working(d, m)).length || ""}
@@ -273,7 +281,7 @@ export function ShiftTable({
             ))}
           </tr>
           <tr className="border-t">
-            <th className={`${head} py-1`}>収穫人数</th>
+            <th className={`${head} py-1`}>{compact ? "収穫" : "収穫人数"}</th>
             {dates.map((d) => (
               <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => m.harvest && working(d, m)).length || ""}
@@ -281,7 +289,7 @@ export function ShiftTable({
             ))}
           </tr>
           <tr className="border-t">
-            <th className={`${head} py-1`}>出勤人数</th>
+            <th className={`${head} py-1`}>{compact ? "出勤" : "出勤人数"}</th>
             {dates.map((d) => (
               <td key={d} className={`px-0.5 py-1 text-center font-bold ${colTone(d)} ${wk(d)}`}>
                 {sorted.filter((m) => working(d, m)).length || ""}

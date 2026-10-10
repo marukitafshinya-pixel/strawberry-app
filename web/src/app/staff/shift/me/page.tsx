@@ -100,7 +100,7 @@ export default function MyShiftPage() {
           </button>
         </div>
         <p className="text-xs text-gray-500">表は横に動かせます。緑の行があなたです。</p>
-        <div className="mt-2">{days ? <ShiftTable from={from} span={span} onMore={more} resetKey={reset} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
+        <div className="mt-2">{days ? <ShiftTable compact from={from} span={span} onMore={more} resetKey={reset} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
       </section>
     </div>
   );
