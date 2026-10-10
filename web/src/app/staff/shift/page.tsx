@@ -125,6 +125,14 @@ function ShiftView() {
       .catch((e) => setError(errorText(e)));
   }, [isAdmin, cfg]);
 
+  // 休みの希望のルール：2週間前（14日前）まで。それより近い日の希望・変更は平山さんに直接確認（管理者が開いたときに一度だけ設定する。あとは「設定」で変えられる）
+  const ruleSet = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || !cfg || cfg.contact !== undefined || ruleSet.current) return;
+    ruleSet.current = true;
+    saveShiftConfig({ ...cfg, cutoffDays: 14, contact: "平山" }).catch((e) => setError(errorText(e)));
+  }, [isAdmin, cfg]);
+
   /** 勤務表のマスで決める希望 */
   const [deciding, setDeciding] = useState<ShiftRequest | null>(null);
   const [decidingBusy, setDecidingBusy] = useState(false);
@@ -797,6 +805,7 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
   const [codes, setCodes] = useState<(ShiftCode & { was?: string })[]>(() => cfg.codes.map((c) => ({ ...c, was: c.code })));
   const [groups, setGroups] = useState(cfg.groups.join("\n"));
   const [cutoff, setCutoff] = useState(String(cfg.cutoffDays));
+  const [contact, setContact] = useState(cfg.contact ?? "");
   const [msg, setMsg] = useState("");
   const newCode = useRef<HTMLInputElement>(null);
   async function save() {
@@ -811,7 +820,8 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
       await saveShiftConfig({
         codes: list.map((c) => ({ code: c.code, off: c.off, req: c.req, color: c.color })),
         groups: next,
-        cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 7)),
+        cutoffDays: Math.max(0, Math.min(60, Number(cutoff) || 14)),
+        contact,
       });
       // 同じ行のまとまりの名前を変えたら、その従業員も新しい名前にする
       if (next.length === cfg.groups.length)
@@ -913,6 +923,11 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
               その日の
               <input inputMode="numeric" value={cutoff} onChange={(e) => setCutoff(e.target.value.replace(/\D/g, ""))} className="w-16 rounded border px-2 py-1 text-right" />
               日前まで出せる
+            </label>
+            <label className="mt-2 flex flex-wrap items-center gap-2">
+              それより近い日の希望・変更は
+              <input value={contact} maxLength={20} onChange={(e) => setContact(e.target.value)} placeholder="例：平山" className="w-32 rounded border px-2 py-1" />
+              に直接確認（従業員の画面に出ます）
             </label>
           </div>
         </>

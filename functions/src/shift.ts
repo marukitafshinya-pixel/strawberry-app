@@ -123,9 +123,14 @@ export const submitShiftRequest = onCall(async (req) => {
   const cfg = await db.doc("config/shift").get();
   const codes = (cfg.get("codes") as { code: string; req?: boolean }[] | undefined) ?? DEFAULT_REQUEST_CODES.map((c) => ({ code: c, req: true }));
   if (!codes.some((c) => c.code === code && c.req)) throw new HttpsError("invalid-argument", "この希望は出せません");
-  const cutoff = Number(cfg.get("cutoffDays") ?? 7);
+  const cutoff = Number(cfg.get("cutoffDays") ?? 14);
   const first = addDays(todayJST(), cutoff);
-  if (date < first) throw new HttpsError("failed-precondition", `希望は${cutoff}日前までです（${Number(first.slice(5, 7))}月${Number(first.slice(8))}日から出せます）`);
+  const contact = String(cfg.get("contact") ?? "").trim() || "管理者";
+  if (date < first)
+    throw new HttpsError(
+      "failed-precondition",
+      `希望は${cutoff}日前までです（${Number(first.slice(5, 7))}月${Number(first.slice(8))}日から出せます）。それより前の日の希望・変更は、${contact}に直接確認してください`,
+    );
   if (date > addDays(todayJST(), 400)) throw new HttpsError("invalid-argument", "先すぎる日付です");
 
   const ref = db.doc(`shiftRequests/${memberId}_${date}`);

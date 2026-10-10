@@ -267,7 +267,8 @@ service cloud.firestore {
     match /config/shift {
       allow read: if isStaff() || isWorker();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['codes', 'groups', 'cutoffDays', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['codes', 'groups', 'cutoffDays', 'contact', 'updatedAt'])
+        && (!('contact' in request.resource.data) || (request.resource.data.contact is string && request.resource.data.contact.size() <= 20))
         && request.resource.data.codes is list && request.resource.data.codes.size() <= 30
         && request.resource.data.groups is list && request.resource.data.groups.size() <= 10
         && request.resource.data.cutoffDays is int;

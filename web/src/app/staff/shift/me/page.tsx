@@ -61,7 +61,7 @@ export default function MyShiftPage() {
         )}
       </section>
 
-      <RequestForm cutoffDays={cfg.cutoffDays} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
+      <RequestForm cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">出した希望</h2>
@@ -106,7 +106,7 @@ export default function MyShiftPage() {
   );
 }
 
-function RequestForm({ cutoffDays, codes }: { cutoffDays: number; codes: string[] }) {
+function RequestForm({ cutoffDays, contact, codes }: { cutoffDays: number; contact: string; codes: string[] }) {
   const first = addDays(todayJST(), cutoffDays);
   const [date, setDate] = useState(first);
   const [code, setCode] = useState(codes[0] ?? "");
@@ -115,7 +115,8 @@ function RequestForm({ cutoffDays, codes }: { cutoffDays: number; codes: string[
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   async function send() {
     setMsg(null);
-    if (!isValidYmd(date) || date < first) return setMsg({ ok: false, text: `希望は${cutoffDays}日前までです。${formatJa(first)}から選べます` });
+    if (!isValidYmd(date) || date < first)
+      return setMsg({ ok: false, text: `希望は${cutoffDays}日前までです。${formatJa(first)}から選べます。それより前の日は、${contact}に直接確認してください` });
     setBusy(true);
     try {
       await callFunction("submitShiftRequest", { date, code, memo });
@@ -130,7 +131,15 @@ function RequestForm({ cutoffDays, codes }: { cutoffDays: number; codes: string[
   return (
     <section className="rounded-2xl border-2 border-berry/30 bg-white p-4 shadow-sm">
       <h2 className="font-bold">休みの希望を出す</h2>
-      <p className="text-xs text-gray-500">その日の{cutoffDays}日前まで出せます。時間だけの希望（午前だけ・14時まで など）も選べます。</p>
+      <div className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <p>
+          休みの希望は、その日の<b>{cutoffDays === 14 ? "2週間前" : `${cutoffDays}日前`}まで</b>に出してください（{formatJa(first)}から出せます）。
+        </p>
+        <p className="mt-0.5">
+          明日から{cutoffDays}日以内の日の希望・変更は、<b>{contact}に直接確認</b>してください。
+        </p>
+      </div>
+      <p className="mt-1 text-xs text-gray-500">時間だけの希望（午前だけ・14時まで など）も選べます。</p>
       <div className="mt-2 space-y-2">
         <label className="block">
           <span className="text-sm text-gray-600">日にち</span>

@@ -395,6 +395,9 @@ describe("意向勤務管理表（従業員 worker）", () => {
     await assertSucceeds(getDoc(doc(worker(), "shiftDays/2026-10-10")));
     await assertSucceeds(getDoc(doc(worker(), "shiftMembers/m1")));
     await assertSucceeds(getDoc(doc(worker(), "config/shift")));
+    await assertSucceeds(setDoc(doc(admin(), "config/shift"), { codes: [], groups: [], cutoffDays: 14, contact: "平山" }));
+    await assertFails(setDoc(doc(admin(), "config/shift"), { codes: [], groups: [], cutoffDays: 14, contact: 5 }));
+    await assertFails(setDoc(doc(admin(), "config/shift"), { codes: [], groups: [], cutoffDays: 14, contact: "x".repeat(21) }));
     await assertSucceeds(getDoc(doc(worker(), "shiftRequests/m1_2026-10-20")));
     await assertFails(getDoc(doc(worker(), "shiftRequests/m9_2026-10-20")));
     await assertFails(setDoc(doc(worker(), "shiftDays/2026-10-10"), { cells: { m1: "希望休" } }));

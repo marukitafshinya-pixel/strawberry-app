@@ -7,7 +7,8 @@ import { getFirebase } from "./firebase";
 
 /** 勤務の記号。off＝休み（出勤人数に数えない）、req＝従業員が希望として出せる */
 export type ShiftCode = { code: string; off: boolean; req: boolean; color: string };
-export type ShiftConfig = { codes: ShiftCode[]; groups: string[]; cutoffDays: number };
+/** contact＝締め切りを過ぎた希望の変更を直接確認する相手（従業員の画面に出す）。まだ決めていなければ undefined */
+export type ShiftConfig = { codes: ShiftCode[]; groups: string[]; cutoffDays: number; contact?: string };
 export type ShiftMember = { id: string; name: string; group: string; floor: boolean; /** 収穫ができる */ harvest?: boolean; order: number; active: boolean; uid?: string; loginId?: string };
 export type ShiftDay = { cells: Record<string, string>; note: string };
 export type ShiftRequest = { id: string; memberId: string; uid: string; date: string; code: string; memo: string; status: "pending" | "approved" | "rejected" };
@@ -37,7 +38,7 @@ export const DEFAULT_SHIFT_CONFIG: ShiftConfig = {
     { code: "～16:00", off: false, req: true, color: "blue" },
   ],
   groups: ["男性", "売り場担当可", "女性"],
-  cutoffDays: 7,
+  cutoffDays: 14,
 };
 
 function useDoc<T>(path: string, parse: (d: Record<string, unknown> | undefined) => T): T | null {
@@ -67,7 +68,12 @@ export function useShiftConfig(): ShiftConfig | null {
     if (!d) return DEFAULT_SHIFT_CONFIG;
     const codes = Array.isArray(d.codes) ? (d.codes as ShiftCode[]).filter((c) => c && typeof c.code === "string") : DEFAULT_SHIFT_CONFIG.codes;
     const groups = Array.isArray(d.groups) ? (d.groups as string[]).filter((g) => typeof g === "string") : DEFAULT_SHIFT_CONFIG.groups;
-    return { codes, groups: groups.length ? groups : DEFAULT_SHIFT_CONFIG.groups, cutoffDays: Number(d.cutoffDays ?? 7) || 7 };
+    return {
+      codes,
+      groups: groups.length ? groups : DEFAULT_SHIFT_CONFIG.groups,
+      cutoffDays: Number(d.cutoffDays ?? 14) || 14,
+      contact: typeof d.contact === "string" ? d.contact : undefined,
+    };
   });
 }
 
@@ -217,7 +223,13 @@ export async function decideRequest(r: ShiftRequest, approve: boolean, by: strin
 
 export async function saveShiftConfig(c: ShiftConfig) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "config/shift"), { codes: c.codes, groups: c.groups, cutoffDays: Math.round(c.cutoffDays), updatedAt: serverTimestamp() });
+  await setDoc(doc(db, "config/shift"), {
+    codes: c.codes,
+    groups: c.groups,
+    cutoffDays: Math.round(c.cutoffDays),
+    ...(c.contact !== undefined ? { contact: c.contact.trim().slice(0, 20) } : {}),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function saveMember(m: Omit<ShiftMember, "id" | "uid" | "loginId"> & { id?: string }) {
