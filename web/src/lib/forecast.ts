@@ -54,3 +54,16 @@ export function weatherIcon(code: string | null, text: string | null): string {
   const c = code?.[0] ?? (text?.includes("雪") ? "4" : text?.includes("雨") ? "3" : text?.includes("くもり") || text?.includes("曇") ? "2" : text?.includes("晴") ? "1" : "");
   return c === "1" ? "☀️" : c === "2" ? "☁️" : c === "3" ? "☔" : c === "4" ? "⛄" : "";
 }
+
+/**
+ * その日の最高気温と最低気温（3時間ごとの予報から）。
+ * 最高＝その日の 9:00〜14:00 のいちばん高い気温、最低＝その日の 21:00〜翌日 8:00 のいちばん低い気温。予報がなければ null
+ */
+export function dayHighLow(f: Forecast, date: string): { high: number | null; low: number | null } {
+  const at = (s: ForecastSlot) => Date.parse(s.time);
+  const start = (h: number, plusDay = 0) => Date.parse(`${date}T${String(h).padStart(2, "0")}:00:00+09:00`) + plusDay * 86400_000;
+  const within = (from: number, to: number) => f.slots.filter((s) => s.temp !== null && at(s) >= from && at(s) <= to).map((s) => s.temp as number);
+  const hi = within(start(9), start(14));
+  const lo = within(start(21), start(8, 1));
+  return { high: hi.length ? Math.max(...hi) : null, low: lo.length ? Math.min(...lo) : null };
+}

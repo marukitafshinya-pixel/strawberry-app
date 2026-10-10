@@ -9,6 +9,7 @@ import { errorText } from "@/lib/callFunction";
 import { newSlotId, saveHaichiDay, saveHaichiTemplate, sectionArrows, sectionSide, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
 import { isWorking, useShiftDays, type ShiftConfig, type ShiftMember } from "@/lib/shift";
 import { ForecastStrip } from "./ForecastStrip";
+import { TempBadge } from "./TempBadge";
 import { sortMembers } from "./ShiftTable";
 
 /** 配置表（見るだけの形と、割り振る形の両方で使う） */
@@ -300,6 +301,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
           ‹ 前の日
         </button>
         <span className="text-lg font-bold">{formatJa(date)}</span>
+        <TempBadge date={date} />
         <button onClick={() => setDate(addDays(date, 1))} className={btn}>
           次の日 ›
         </button>

@@ -11,6 +11,7 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
 import { ForecastStrip } from "../ForecastStrip";
+import { TempBadge } from "../TempBadge";
 import { HaichiBoard } from "../Haichi";
 import { ShiftTable } from "../ShiftTable";
 
@@ -131,7 +132,10 @@ function Display() {
       {haichiTemplate && haichiDay ? (
         // 半分のときは2段（縦長の場所に合わせる）、全画面のときは3段
         <div className={`p-3 ${layout === "split" ? "w-[1000px]" : "w-[1500px]"}`}>
-          <h2 className="mb-2 text-4xl font-bold">作業配置表　{formatJa(hDate)}</h2>
+          <h2 className="mb-2 flex flex-wrap items-baseline gap-x-8 text-4xl font-bold">
+            <span>作業配置表　{formatJa(hDate)}</span>
+            <TempBadge date={hDate} big />
+          </h2>
           <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} />
           {showForecast && <ForecastStrip big />}
         </div>
