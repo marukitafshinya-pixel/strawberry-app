@@ -11,6 +11,7 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
 import { FitPane } from "../FitPane";
+import { ForecastStrip } from "../ForecastStrip";
 import { TempBadge } from "../TempBadge";
 import { HaichiBoard } from "../Haichi";
 import { ShiftTable } from "../ShiftTable";
@@ -80,6 +81,8 @@ function Display() {
   /** 左半分・右半分にしたとき：全画面と同じように、操作の帯を隠して表を画面いっぱいにする */
   const [halfSide, setHalfSide] = useState<"left" | "right" | null>(null);
   const hideBar = full || halfSide !== null;
+  /** 天気予報の小窓（画面の上に重ねて出す） */
+  const [showForecast, setShowForecast] = useState(false);
   useEffect(() => {
     const on = () => setFull(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
@@ -176,15 +179,12 @@ function Display() {
             <button onClick={() => setHDate(addDays(hDate, 1))} className={btn}>
               次の日 ›
             </button>
-            {/* 天気予報は、別の小さなウィンドウ（ポップアップ）で単独に出す */}
+            {/* 天気予報は、この画面の上に重ねる小窓で単独に出す（別のウィンドウだと全画面が解けてしまうため） */}
             <button
-              onClick={() => {
-                const w = window.open("/staff/shift/display/weather/", "ichigo-weather", "popup=yes,width=1280,height=480");
-                w?.focus();
-              }}
-              className="rounded-lg border border-sky-700 bg-white px-3 py-1.5 font-bold text-sky-800"
+              onClick={() => setShowForecast(!showForecast)}
+              className={`rounded-lg border px-3 py-1.5 font-bold ${showForecast ? "border-sky-700 bg-sky-700 text-white" : "border-sky-700 bg-white text-sky-800"}`}
             >
-              🌤 天気予報
+              🌤 天気予報{showForecast ? "を閉じる" : ""}
             </button>
           </span>
         )}
@@ -283,6 +283,24 @@ function Display() {
           </>
         )}
       </div>
+      {showForecast && (
+        // 画面の上に重ねる天気予報の小窓。まわりの暗いところか「閉じる」を押すと閉じる（全画面はそのまま）
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" onClick={() => setShowForecast(false)}>
+          <div className="flex max-h-[92vh] w-[94vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b bg-sky-50 px-3 py-1.5">
+              <span className="font-bold text-sky-900">🌤 天気予報</span>
+              <button onClick={() => setShowForecast(false)} className="rounded-lg border bg-white px-4 py-1.5 font-bold">
+                ✕ 閉じる
+              </button>
+            </div>
+            <FitPane fitMode="width" deps={[]}>
+              <div className="w-[1200px] p-3 pt-0.5">
+                <ForecastStrip big />
+              </div>
+            </FitPane>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
