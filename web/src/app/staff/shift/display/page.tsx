@@ -6,11 +6,11 @@
 // 表の枠はそのままで、それぞれの場所いっぱいに拡大して出す。見るだけ（入力は元の勤務管理表で）。
 // 「全画面」はこのウィンドウだけを全画面にする（Esc で戻る）。ブラウザの設定は変えない。
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
-import { ForecastStrip } from "../ForecastStrip";
+import { FitPane } from "../FitPane";
 import { TempBadge } from "../TempBadge";
 import { HaichiBoard } from "../Haichi";
 import { ShiftTable } from "../ShiftTable";
@@ -77,8 +77,6 @@ function Display() {
   const names = Object.fromEntries((members ?? []).map((m) => [m.id, m.name]));
 
   const [full, setFull] = useState(false);
-  /** 天気予報は、ボタンを押したときだけ出す */
-  const [showForecast, setShowForecast] = useState(false);
   /** 左半分・右半分にしたとき：全画面と同じように、操作の帯を隠して表を画面いっぱいにする */
   const [halfSide, setHalfSide] = useState<"left" | "right" | null>(null);
   const hideBar = full || halfSide !== null;
@@ -128,7 +126,7 @@ function Display() {
   const seg = (on: boolean) => `px-3 py-1.5 ${on ? "bg-slate-700 font-bold text-white" : ""}`;
 
   const haichiPane = (
-    <FitPane fitMode="all" deps={[hDate, haichiDay, haichiTemplate, layout, showForecast]}>
+    <FitPane fitMode="all" deps={[hDate, haichiDay, haichiTemplate, layout]}>
       {haichiTemplate && haichiDay ? (
         // 半分のときは2段（縦長の場所に合わせる）、全画面のときは3段
         <div className={`p-3 ${layout === "split" ? "w-[1000px]" : "w-[1500px]"}`}>
@@ -137,7 +135,6 @@ function Display() {
             <TempBadge date={hDate} big />
           </h2>
           <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} />
-          {showForecast && <ForecastStrip big />}
         </div>
       ) : (
         <p className="p-6 text-gray-500">読み込み中…</p>
@@ -179,11 +176,15 @@ function Display() {
             <button onClick={() => setHDate(addDays(hDate, 1))} className={btn}>
               次の日 ›
             </button>
+            {/* 天気予報は、別の小さなウィンドウ（ポップアップ）で単独に出す */}
             <button
-              onClick={() => setShowForecast(!showForecast)}
-              className={`rounded-lg border px-3 py-1.5 font-bold ${showForecast ? "border-sky-700 bg-sky-700 text-white" : "border-sky-700 bg-white text-sky-800"}`}
+              onClick={() => {
+                const w = window.open("/staff/shift/display/weather/", "ichigo-weather", "popup=yes,width=1280,height=480");
+                w?.focus();
+              }}
+              className="rounded-lg border border-sky-700 bg-white px-3 py-1.5 font-bold text-sky-800"
             >
-              🌤 天気予報{showForecast ? "を隠す" : ""}
+              🌤 天気予報
             </button>
           </span>
         )}
@@ -316,55 +317,6 @@ function PaneBox({
         )}
       </div>
       {children}
-    </div>
-  );
-}
-
-/**
- * 中身を、場所（幅と高さ）にぎりぎり収まるところまで拡大する。
- * stretchTable のとき、「全部を入れる」で下が余れば、表の行の高さを広げて縦いっぱいにする（文字はゆがめない）
- */
-function FitPane({ children, fitMode, stretchTable, deps }: { children: ReactNode; fitMode: "all" | "width"; stretchTable?: boolean; deps: unknown[] }) {
-  const stage = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState({ zoom: 1, w: 0, h: 0 });
-  useLayoutEffect(() => {
-    const run = () => {
-      const s = stage.current;
-      const t = inner.current;
-      if (!s || !t) return;
-      // 縦に伸ばした分をいったん外して、表そのものの大きさを測る
-      const table = stretchTable ? t.querySelector("table") : null;
-      if (table) table.style.height = "";
-      const w = t.offsetWidth;
-      const h = t.offsetHeight;
-      if (!w || !h) return;
-      const byW = (s.clientWidth - (fitMode === "width" ? 16 : 0)) / w;
-      const zoom = Math.max(0.2, fitMode === "width" ? byW : Math.min(byW, s.clientHeight / h));
-      let hh = h;
-      if (fitMode === "all" && table && h * zoom < s.clientHeight - 1) {
-        hh = s.clientHeight / zoom;
-        table.style.height = `${hh - (h - table.offsetHeight)}px`;
-      }
-      setFit({ zoom, w, h: hh });
-    };
-    run();
-    const ro = new ResizeObserver(run);
-    if (stage.current) ro.observe(stage.current);
-    if (inner.current) ro.observe(inner.current);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitMode, stretchTable, ...deps]);
-  return (
-    <div ref={stage} className={`relative min-h-0 flex-1 ${fitMode === "width" ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"}`}>
-      <div className="flex h-full w-full items-start justify-center">
-        {/* 拡大は transform で（表そのものの大きさ＝枠は変えない） */}
-        <div style={{ width: fit.w * fit.zoom, height: fit.h * fit.zoom }}>
-          <div ref={inner} className="w-max origin-top-left" style={{ transform: `scale(${fit.zoom})` }}>
-            {children}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
