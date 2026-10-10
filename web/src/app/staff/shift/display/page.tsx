@@ -76,6 +76,8 @@ function Display() {
   const names = Object.fromEntries((members ?? []).map((m) => [m.id, m.name]));
 
   const [full, setFull] = useState(false);
+  /** 天気予報は、ボタンを押したときだけ出す */
+  const [showForecast, setShowForecast] = useState(false);
   /** 左半分・右半分にしたとき：全画面と同じように、操作の帯を隠して表を画面いっぱいにする */
   const [halfSide, setHalfSide] = useState<"left" | "right" | null>(null);
   const hideBar = full || halfSide !== null;
@@ -125,13 +127,13 @@ function Display() {
   const seg = (on: boolean) => `px-3 py-1.5 ${on ? "bg-slate-700 font-bold text-white" : ""}`;
 
   const haichiPane = (
-    <FitPane fitMode="all" deps={[hDate, haichiDay, haichiTemplate, layout]}>
+    <FitPane fitMode="all" deps={[hDate, haichiDay, haichiTemplate, layout, showForecast]}>
       {haichiTemplate && haichiDay ? (
         // 半分のときは2段（縦長の場所に合わせる）、全画面のときは3段
         <div className={`p-3 ${layout === "split" ? "w-[1000px]" : "w-[1500px]"}`}>
           <h2 className="mb-2 text-4xl font-bold">作業配置表　{formatJa(hDate)}</h2>
           <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} />
-          <ForecastStrip big />
+          {showForecast && <ForecastStrip big />}
         </div>
       ) : (
         <p className="p-6 text-gray-500">読み込み中…</p>
@@ -172,6 +174,12 @@ function Display() {
             </button>
             <button onClick={() => setHDate(addDays(hDate, 1))} className={btn}>
               次の日 ›
+            </button>
+            <button
+              onClick={() => setShowForecast(!showForecast)}
+              className={`rounded-lg border px-3 py-1.5 font-bold ${showForecast ? "border-sky-700 bg-sky-700 text-white" : "border-sky-700 bg-white text-sky-800"}`}
+            >
+              🌤 天気予報{showForecast ? "を隠す" : ""}
             </button>
           </span>
         )}

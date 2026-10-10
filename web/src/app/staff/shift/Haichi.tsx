@@ -180,6 +180,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
   const [error, setError] = useState("");
   const [editingTemplate, setEditingTemplate] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [showForecast, setShowForecast] = useState(false);
   /** 押して選んだ名前（そのあと枠を押すと入る）。from はどの枠から（リストなら null） */
   const [selected, setSelected] = useState<{
     memberId: string;
@@ -318,6 +319,9 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
         >
           📽 投影用の画面
         </button>
+        <button onClick={() => setShowForecast(!showForecast)} className={`rounded-lg border px-3 py-1.5 text-sm font-bold ${showForecast ? "border-sky-700 bg-sky-700 text-white" : "border-sky-700 bg-white text-sky-800"}`}>
+          🌤 天気予報{showForecast ? "を隠す" : ""}
+        </button>
         {isAdmin && (
           <div className="ml-auto flex gap-2">
             {done ? (
@@ -425,7 +429,8 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
               <NoteInput value={day.note} onSave={(note) => save({ ...day, note })} />
             </label>
           )}
-          <ForecastStrip big={done} />
+          {/* 天気予報は、ボタンを押したときだけ出す（押したときに気象庁の予報を確かめる） */}
+          {showForecast && <ForecastStrip big={done} />}
         </div>
       </div>
       {drag && (
