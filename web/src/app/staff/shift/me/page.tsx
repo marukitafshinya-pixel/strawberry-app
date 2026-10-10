@@ -138,6 +138,15 @@ function RequestForm({ cutoffDays, contact, codes }: { cutoffDays: number; conta
         <p className="mt-0.5">
           明日から{cutoffDays}日以内の日の希望・変更は、<b>{contact}に直接確認</b>してください。
         </p>
+        <p className="mt-0.5">
+          休みは、基本<b>週2日まで</b>にしてください。
+        </p>
+        <p className="mt-0.5">
+          希望日は、<b>用事がある日だけ</b>にしてください。
+          <span className="block text-xs text-amber-800">
+            ＊週2日の休みを全部希望日として出されると、ほかの人の休みが入れられなくなります。
+          </span>
+        </p>
       </div>
       <p className="mt-1 text-xs text-gray-500">時間だけの希望（午前だけ・14時まで など）も選べます。</p>
       <div className="mt-2 space-y-2">
