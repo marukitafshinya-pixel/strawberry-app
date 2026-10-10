@@ -34,10 +34,11 @@ export function TimecardSheet({
             <th>日付</th>
             <th>出勤</th>
             <th>退勤</th>
-            <th>出勤（丸め後）</th>
-            <th>退勤（丸め後）</th>
+            <th>出勤（計算）</th>
+            <th>退勤（計算）</th>
             <th>休憩</th>
             <th>労働時間</th>
+            <th>うち残業</th>
             <th>確認</th>
             {edit && <th className="print:hidden">直す</th>}
           </tr>
@@ -54,8 +55,9 @@ export function TimecardSheet({
               合計
             </td>
             <td className="text-right">{hm(person.work)}</td>
+            <td className="text-right">{person.over ? hm(person.over) : ""}</td>
             <td colSpan={edit ? 2 : 1} className="text-xs font-normal">
-              {hours2(person.work)}時間
+              {hours2(person.work)}時間（うち残業 {hours2(person.over)}時間・残業でない分 {hours2(person.work - person.over)}時間）
             </td>
           </tr>
         </tfoot>
@@ -112,6 +114,7 @@ function Row({ d, edit }: { d: DayResult; edit?: (date: string, e: { i: number |
       <td className="text-right">{d.ro !== null && d.ro >= 1440 ? `翌${hm(d.ro - 1440)}` : hm(d.ro)}</td>
       <td className="text-right">{d.brk ? `${d.brk}分` : ""}</td>
       <td className="text-right font-bold">{d.work ? hm(d.work) : ""}</td>
+      <td className="text-right">{d.over ? hm(d.over) : ""}</td>
       <td className="text-xs">
         {d.problem && <span className="font-bold text-red-700">{d.problem}</span>}
         {d.edited && <span className="text-amber-800">{d.problem ? "・" : ""}直した時刻</span>}

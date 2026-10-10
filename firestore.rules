@@ -200,7 +200,11 @@ service cloud.firestore {
     match /config/timecard {
       allow read: if isAdmin();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['format', 'cards', 'roundIn', 'roundOut', 'breaks', 'closeDay', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['format', 'cards', 'startTimes', 'roundIn', 'inDir', 'roundOut', 'outDir', 'breaks', 'overtimeOver', 'closeDay', 'updatedAt'])
+        && (!('startTimes' in request.resource.data) || (request.resource.data.startTimes is list && request.resource.data.startTimes.size() <= 50))
+        && (!('inDir' in request.resource.data) || request.resource.data.inDir in ['up', 'down'])
+        && (!('outDir' in request.resource.data) || request.resource.data.outDir in ['up', 'down'])
+        && (!('overtimeOver' in request.resource.data) || (request.resource.data.overtimeOver is int && request.resource.data.overtimeOver > 0 && request.resource.data.overtimeOver <= 1440))
         && (!('format' in request.resource.data) || request.resource.data.format in ['dec', 'hm'])
         && (!('cards' in request.resource.data) || (request.resource.data.cards is map && request.resource.data.cards.size() <= 300))
         && (!('roundIn' in request.resource.data) || (request.resource.data.roundIn is int && request.resource.data.roundIn >= 1 && request.resource.data.roundIn <= 60))

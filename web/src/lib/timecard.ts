@@ -20,21 +20,40 @@ export type TcDay = TcPunch & { e?: { i: number | null; o: number | null } };
 /** timecards/{YYYY-MM}：カード番号 → 日（"01"〜"31"）→ 打刻 */
 export type TimecardMonth = { cards: Record<string, Record<string, TcDay>>; fileName?: string };
 
-export type BreakRule = { over: number; minutes: number };
+/** 休憩の時間帯（分。例 12:00〜13:00 → { start: 720, end: 780 }）。働いた時間と重なる分だけ引く */
+export type BreakWindow = { start: number; end: number };
+/** 会社の出勤時刻（時期によって変わる）。from の日から使う */
+export type StartTime = { from: string; time: number };
+export type RoundDir = "up" | "down";
 export type TimecardConfig = {
   /** カード番号 → 従業員のID（給与の従業員） */
   cards: Record<string, string>;
-  /** 出勤は何分単位で切り上げるか（1＝丸めない） */
+  /** 会社の出勤時刻。これより前に押した分は数えない */
+  startTimes: StartTime[];
+  /** 出勤・退勤の時刻を何分単位で丸めるか（1＝丸めない）と、切り上げ・切り捨て */
   roundIn: number;
-  /** 退勤は何分単位で切り捨てるか（1＝丸めない） */
+  inDir: RoundDir;
   roundOut: number;
-  /** 休憩：働いた時間が over 分を超えたら minutes 分を引く（当てはまるうち、いちばん長いもの） */
-  breaks: BreakRule[];
+  outDir: RoundDir;
+  /** 休憩の時間帯 */
+  breaks: BreakWindow[];
+  /** 1日にこの分数をこえて働いた分は残業 */
+  overtimeOver: number;
   /** 締め日（31＝月末） */
   closeDay: number;
 };
 
-export const DEFAULT_TIMECARD_CONFIG: TimecardConfig = { cards: {}, roundIn: 1, roundOut: 1, breaks: [], closeDay: 31 };
+export const DEFAULT_TIMECARD_CONFIG: TimecardConfig = {
+  cards: {},
+  startTimes: [],
+  roundIn: 15,
+  inDir: "down",
+  roundOut: 15,
+  outDir: "up",
+  breaks: [{ start: 720, end: 780 }],
+  overtimeOver: 480,
+  closeDay: 31,
+};
 export const ROUND_CHOICES = [1, 5, 10, 15, 30] as const;
 export const CLOSE_DAY_CHOICES = [31, 5, 10, 15, 20, 25] as const;
 
@@ -128,12 +147,24 @@ export type DayResult = {
   /** 丸めたあとの出勤・退勤 */
   ri: number | null;
   ro: number | null;
-  /** 休憩（分）と、働いた時間（分） */
+  /** 休憩（分）と、働いた時間（分）、そのうちの残業（分） */
   brk: number;
   work: number;
+  over: number;
+  /** その日の会社の出勤時刻（決めていなければ null） */
+  start: number | null;
   /** 打刻もれなど、確かめてほしいこと */
   problem: string | null;
 };
+
+const roundTo = (min: number, unit: number, dir: RoundDir) => (unit <= 1 ? min : (dir === "up" ? Math.ceil(min / unit) : Math.floor(min / unit)) * unit);
+
+/** その日の会社の出勤時刻（その日までに始まったうち、いちばん新しいもの） */
+export function startTimeOn(date: string, cfg: TimecardConfig): number | null {
+  let best: StartTime | null = null;
+  for (const s of cfg.startTimes) if (s.from <= date && (!best || s.from > best.from)) best = s;
+  return best ? best.time : null;
+}
 
 /** 1日分の計算（時刻・時間はすべて分） */
 export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig): DayResult {
@@ -141,18 +172,23 @@ export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig)
   const i = src?.i ?? null;
   const o = src?.o ?? null;
   const edited = !!raw?.e;
-  const base = { date, raw, i, o, edited };
-  if (!raw || (i === null && o === null)) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: null };
-  if (i === null || o === null) return { ...base, ri: null, ro: null, brk: 0, work: 0, problem: i === null ? "出勤の打刻がありません" : "退勤の打刻がありません" };
-  const ri = Math.ceil(i / cfg.roundIn) * cfg.roundIn;
+  const start = startTimeOn(date, cfg);
+  const base = { date, raw, i, o, edited, start };
+  const none = { ri: null, ro: null, brk: 0, work: 0, over: 0 };
+  if (!raw || (i === null && o === null)) return { ...base, ...none, problem: null };
+  if (i === null || o === null) return { ...base, ...none, problem: i === null ? "出勤の打刻がありません" : "退勤の打刻がありません" };
+  // 会社の出勤時刻より前に押した分は数えない
+  const ii = start !== null && i < start ? start : i;
+  const ri = roundTo(ii, cfg.roundIn, cfg.inDir);
   // 退勤が出勤より前なら、日をまたいだとみなす
-  const oo = o < i ? o + 1440 : o;
-  const ro = Math.floor(oo / cfg.roundOut) * cfg.roundOut;
+  const ro = roundTo(o < i ? o + 1440 : o, cfg.roundOut, cfg.outDir);
   const span = Math.max(0, ro - ri);
-  const brk = cfg.breaks.filter((b) => span > b.over).reduce((a, b) => Math.max(a, b.minutes), 0);
+  // 休憩：休憩の時間帯と、働いた時間が重なる分だけ引く
+  const brk = cfg.breaks.reduce((a, b) => a + Math.max(0, Math.min(ro, b.end) - Math.max(ri, b.start)), 0);
   const work = Math.max(0, span - brk);
+  const over = Math.max(0, work - cfg.overtimeOver);
   const problem = raw.x && !edited ? `ほかの欄にも打刻があります（${raw.x}）` : span > 16 * 60 ? "16時間をこえています" : null;
-  return { ...base, ri, ro, brk, work, problem };
+  return { ...base, ri, ro, brk, work, over, problem };
 }
 
 /** 給与の月（"YYYY-MM"）の日にちの並び。締め日が月末でなければ、前の月の締め日の翌日から */
@@ -176,7 +212,7 @@ export function periodMonths(month: string, closeDay: number): string[] {
   return closeDay >= 28 ? [month] : [shiftMonth(month, -1), month];
 }
 
-export type PersonResult = { card: string; days: DayResult[]; workDays: number; work: number; problems: number; edited: number };
+export type PersonResult = { card: string; days: DayResult[]; workDays: number; work: number; over: number; problems: number; edited: number };
 
 /** 1人分（1枚のカード）の給与の月の集計 */
 export function computePerson(card: string, month: string, data: Record<string, TimecardMonth | null>, cfg: TimecardConfig): PersonResult {
@@ -186,6 +222,7 @@ export function computePerson(card: string, month: string, data: Record<string, 
     days,
     workDays: days.filter((d) => d.work > 0).length,
     work: days.reduce((a, d) => a + d.work, 0),
+    over: days.reduce((a, d) => a + d.over, 0),
     problems: days.filter((d) => d.problem).length,
     edited: days.filter((d) => d.edited).length,
   };
@@ -218,7 +255,12 @@ export function useTimecardConfig(): { value: TimecardConfig | null; error: stri
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "config/timecard"),
-        (s) => setValue({ ...DEFAULT_TIMECARD_CONFIG, ...((s.data() as Partial<TimecardConfig> | undefined) ?? {}) }),
+        (s) => {
+          const v = { ...DEFAULT_TIMECARD_CONFIG, ...((s.data() as Partial<TimecardConfig> | undefined) ?? {}) };
+          // 前の形の休憩（「○時間をこえたら△分」）は使わない
+          v.breaks = (v.breaks ?? []).filter((b) => typeof b?.start === "number" && typeof b?.end === "number");
+          setValue(v);
+        },
         () => setError("タイムカードの設定を読めませんでした"),
       );
     });

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv } from "@/lib/csv";
-import { shiftMonth, todayJST } from "@/lib/date";
+import { isValidYmd, shiftMonth, todayJST } from "@/lib/date";
 import { reiwa, useEmployees } from "@/lib/payroll";
 import {
   CLOSE_DAY_CHOICES,
@@ -19,12 +19,16 @@ import {
   importTimecard,
   parseMaxTimecardCsv,
   periodDays,
+  parseHm,
   periodMonths,
   saveTimecardConfig,
   saveTimecardEdit,
+  startTimeOn,
   useTimecardConfig,
   useTimecardMonths,
-  type BreakRule,
+  type BreakWindow,
+  type RoundDir,
+  type StartTime,
   type ParsedTimecard,
   type TimecardConfig,
 } from "@/lib/timecard";
@@ -102,6 +106,7 @@ export default function TimecardPage() {
                 <th className="px-3 py-2">氏名</th>
                 <th className="px-3 py-2 text-right">出勤日数</th>
                 <th className="px-3 py-2 text-right">労働時間</th>
+                <th className="px-3 py-2 text-right">うち残業</th>
                 <th className="px-3 py-2">確認</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -129,6 +134,7 @@ export default function TimecardPage() {
                     {hm(p.work)}
                     <span className="ml-1 text-xs font-normal text-gray-500">（{hours2(p.work)}h）</span>
                   </td>
+                  <td className="px-3 py-2 text-right">{p.over ? hm(p.over) : ""}</td>
                   <td className="px-3 py-2 text-xs">
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
                     {p.edited > 0 && <span className="text-amber-800">直した {p.edited}件</span>}
@@ -148,6 +154,7 @@ export default function TimecardPage() {
                 </td>
                 <td className="px-3 py-2 text-right">{people.reduce((a, x) => a + x.p.workDays, 0)}日</td>
                 <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.work, 0))}</td>
+                <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.over, 0))}</td>
                 <td className="px-3 py-2 text-xs text-red-700">
                   {people.some((x) => x.p.problems) ? `要確認 ${people.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
                 </td>
@@ -245,82 +252,137 @@ function ImportBox() {
   );
 }
 
-/** 計算のルール（丸め・休憩・締め日） */
+const dirText = (unit: number, dir: RoundDir) => (unit <= 1 ? "丸めない" : `${unit}分単位で${dir === "up" ? "切り上げ" : "切り捨て"}`);
+
+/** 計算のルール（会社の出勤時刻・丸め・休憩・残業・締め日） */
 function Rules({ cfg }: { cfg: TimecardConfig }) {
   const [open, setOpen] = useState(false);
   const [roundIn, setRoundIn] = useState(cfg.roundIn);
+  const [inDir, setInDir] = useState<RoundDir>(cfg.inDir);
   const [roundOut, setRoundOut] = useState(cfg.roundOut);
+  const [outDir, setOutDir] = useState<RoundDir>(cfg.outDir);
   const [closeDay, setCloseDay] = useState(cfg.closeDay);
-  const [breaks, setBreaks] = useState<{ over: string; minutes: string }[]>(cfg.breaks.map((b) => ({ over: hm(b.over), minutes: String(b.minutes) })));
+  const [overtime, setOvertime] = useState(hm(cfg.overtimeOver));
+  const [starts, setStarts] = useState<{ from: string; time: string }[]>([]);
+  const [breaks, setBreaks] = useState<{ start: string; end: string }[]>([]);
   const [msg, setMsg] = useState("");
-  const summary = `出勤 ${cfg.roundIn === 1 ? "丸めない" : `${cfg.roundIn}分単位で切り上げ`}・退勤 ${cfg.roundOut === 1 ? "丸めない" : `${cfg.roundOut}分単位で切り捨て`}・休憩 ${
-    cfg.breaks.length ? cfg.breaks.map((b) => `${hm(b.over)}をこえたら${b.minutes}分`).join("、") : "引かない"
-  }・締め日 ${cfg.closeDay >= 28 ? "月末" : `${cfg.closeDay}日`}`;
+  const today = todayJST();
+  const nowStart = startTimeOn(today, cfg);
+  const summary = [
+    `会社の出勤時刻 ${nowStart === null ? "未設定" : `${hm(nowStart)}（今日）`}`,
+    `出勤 ${dirText(cfg.roundIn, cfg.inDir)}`,
+    `退勤 ${dirText(cfg.roundOut, cfg.outDir)}`,
+    `休憩 ${cfg.breaks.length ? cfg.breaks.map((b) => `${hm(b.start)}〜${hm(b.end)}`).join("、") : "なし"}`,
+    `残業 1日${hm(cfg.overtimeOver)}をこえた分`,
+    `締め日 ${cfg.closeDay >= 28 ? "月末" : `${cfg.closeDay}日`}`,
+  ].join("・");
+  function start() {
+    setRoundIn(cfg.roundIn);
+    setInDir(cfg.inDir);
+    setRoundOut(cfg.roundOut);
+    setOutDir(cfg.outDir);
+    setCloseDay(cfg.closeDay);
+    setOvertime(hm(cfg.overtimeOver));
+    setStarts([...cfg.startTimes].sort((a, b) => a.from.localeCompare(b.from)).map((s) => ({ from: s.from, time: hm(s.time) })));
+    setBreaks(cfg.breaks.map((b) => ({ start: hm(b.start), end: hm(b.end) })));
+    setMsg("");
+    setOpen(true);
+  }
   async function save() {
-    const list: BreakRule[] = [];
-    for (const b of breaks) {
-      if (b.over.trim() === "" && b.minutes.trim() === "") continue;
-      const [h, mm] = b.over.split(/[:：]/).map(Number);
-      const over = h * 60 + (mm || 0);
-      const minutes = Number(b.minutes);
-      if (!Number.isFinite(over) || over <= 0 || !Number.isInteger(minutes) || minutes <= 0 || minutes > 180) return setMsg("休憩は「6:00 をこえたら 45 分」のように入れてください");
-      list.push({ over, minutes });
+    const startTimes: StartTime[] = [];
+    for (const s of starts) {
+      if (!s.from && !s.time.trim()) continue;
+      const t = parseHm(s.time);
+      if (!isValidYmd(s.from) || t === null || t === undefined) return setMsg("会社の出勤時刻は、使い始める日と時刻（6:00 など）を入れてください");
+      startTimes.push({ from: s.from, time: t });
     }
-    list.sort((a, b) => a.over - b.over);
-    await saveTimecardConfig({ roundIn, roundOut, closeDay, breaks: list });
+    const list: BreakWindow[] = [];
+    for (const b of breaks) {
+      if (!b.start.trim() && !b.end.trim()) continue;
+      const st = parseHm(b.start);
+      const en = parseHm(b.end);
+      if (st === null || st === undefined || en === null || en === undefined || en <= st) return setMsg("休憩は「12:00〜13:00」のように入れてください");
+      list.push({ start: st, end: en });
+    }
+    const ot = parseHm(overtime);
+    if (ot === null || ot === undefined || ot <= 0) return setMsg("残業は「8:00」のように入れてください");
+    startTimes.sort((a, b) => a.from.localeCompare(b.from));
+    list.sort((a, b) => a.start - b.start);
+    await saveTimecardConfig({ startTimes, roundIn, inDir, roundOut, outDir, breaks: list, overtimeOver: ot, closeDay });
     setMsg("保存しました");
   }
   if (!open)
     return (
       <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm">
         計算のルール：{summary}
-        <button
-          onClick={() => {
-            setRoundIn(cfg.roundIn);
-            setRoundOut(cfg.roundOut);
-            setCloseDay(cfg.closeDay);
-            setBreaks(cfg.breaks.map((b) => ({ over: hm(b.over), minutes: String(b.minutes) })));
-            setMsg("");
-            setOpen(true);
-          }}
-          className="ml-2 rounded border bg-white px-2 py-0.5"
-        >
+        <button onClick={start} className="ml-2 rounded border bg-white px-2 py-0.5">
           変える
         </button>
       </p>
     );
-  const sel = (v: number, set: (n: number) => void, label: (n: number) => string) => (
-    <select value={v} onChange={(e) => set(Number(e.target.value))} className="rounded border px-2 py-1">
-      {ROUND_CHOICES.map((n) => (
-        <option key={n} value={n}>
-          {label(n)}
-        </option>
-      ))}
-    </select>
+  const roundSel = (unit: number, setUnit: (n: number) => void, dir: RoundDir, setDir: (d: RoundDir) => void) => (
+    <>
+      <select value={unit} onChange={(e) => setUnit(Number(e.target.value))} className="rounded border px-2 py-1">
+        {ROUND_CHOICES.map((n) => (
+          <option key={n} value={n}>
+            {n === 1 ? "丸めない" : `${n}分単位で`}
+          </option>
+        ))}
+      </select>
+      {unit > 1 && (
+        <select value={dir} onChange={(e) => setDir(e.target.value as RoundDir)} className="ml-1 rounded border px-2 py-1">
+          <option value="down">切り捨て</option>
+          <option value="up">切り上げ</option>
+        </select>
+      )}
+    </>
   );
+  const input = "rounded border px-1 py-0.5";
   return (
-    <div className="mt-3 space-y-2 rounded-xl border bg-white p-3 text-sm">
+    <div className="mt-3 space-y-3 rounded-xl border bg-white p-3 text-sm">
       <p className="font-bold">計算のルール</p>
+      <div>
+        <p>
+          会社の出勤時刻（時期によって変えるときは、使い始める日ごとに追加）。<b>この時刻より前に押した分は数えません</b>。
+        </p>
+        {starts.map((s, i) => (
+          <p key={i} className="mt-1 flex items-center gap-1">
+            <input type="date" value={s.from} onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))} className={input} />
+            から
+            <input value={s.time} onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))} placeholder="6:00" className={`${input} w-16`} />
+            <button onClick={() => setStarts(starts.filter((_, j) => j !== i))} className="rounded border px-1.5">
+              ✕
+            </button>
+          </p>
+        ))}
+        <button onClick={() => setStarts([...starts, { from: today, time: "" }])} className="mt-1 rounded border px-2 py-0.5">
+          ＋ 出勤時刻を追加
+        </button>
+      </div>
       <p>
-        出勤の時刻：{sel(roundIn, setRoundIn, (n) => (n === 1 ? "丸めない" : `${n}分単位で切り上げ`))}
-        <span className="ml-4">退勤の時刻：{sel(roundOut, setRoundOut, (n) => (n === 1 ? "丸めない" : `${n}分単位で切り捨て`))}</span>
+        出勤の時刻：{roundSel(roundIn, setRoundIn, inDir, setInDir)}
+        <span className="ml-4">退勤の時刻：{roundSel(roundOut, setRoundOut, outDir, setOutDir)}</span>
       </p>
       <div>
-        休憩（働いた時間が○○をこえたら△分引く。当てはまるうち長いほう）：
+        休憩の時間帯（働いた時間と重なる分だけ引きます）：
         {breaks.map((b, i) => (
           <span key={i} className="ml-2 inline-flex items-center gap-1">
-            <input value={b.over} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, over: e.target.value } : x)))} placeholder="6:00" className="w-16 rounded border px-1 py-0.5" />
-            をこえたら
-            <input value={b.minutes} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, minutes: e.target.value } : x)))} placeholder="45" className="w-12 rounded border px-1 py-0.5" />分
+            <input value={b.start} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))} placeholder="12:00" className={`${input} w-16`} />〜
+            <input value={b.end} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))} placeholder="13:00" className={`${input} w-16`} />
             <button onClick={() => setBreaks(breaks.filter((_, j) => j !== i))} className="rounded border px-1.5">
               ✕
             </button>
           </span>
         ))}
-        <button onClick={() => setBreaks([...breaks, { over: "", minutes: "" }])} className="ml-2 rounded border px-2 py-0.5">
+        <button onClick={() => setBreaks([...breaks, { start: "", end: "" }])} className="ml-2 rounded border px-2 py-0.5">
           ＋ 追加
         </button>
       </div>
+      <p>
+        残業：1日に
+        <input value={overtime} onChange={(e) => setOvertime(e.target.value)} placeholder="8:00" className={`${input} mx-1 w-16`} />
+        をこえて働いた分（時給25％増しの計算は、弥生給与で行います）
+      </p>
       <p>
         締め日：
         <select value={closeDay} onChange={(e) => setCloseDay(Number(e.target.value))} className="rounded border px-2 py-1">
