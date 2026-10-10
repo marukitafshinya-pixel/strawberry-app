@@ -212,10 +212,11 @@ function ShiftView() {
     const next = addDays(date, 1);
     const src = days[date]?.cells ?? {};
     const dst = days[next]?.cells ?? {};
-    const ids = active.map((m) => m.id);
-    if (!ids.some((id) => src[id])) return setError(`${formatJa(date)}には、コピーする記号がありません`);
-    const changed = ids.filter((id) => dst[id] && dst[id] !== src[id]);
-    if (changed.length > 0 && !window.confirm(`${formatJa(next)}にはすでに記号が入っています（${changed.length}人分）。${formatJa(date)}の記号で上書きしますか？`)) return;
+    // 次の日の、まだ空いているマスだけに写す（すでに入っている記号はそのまま残す）
+    const all = active.map((m) => m.id);
+    if (!all.some((id) => src[id])) return setError(`${formatJa(date)}には、コピーする記号がありません`);
+    const ids = all.filter((id) => src[id] && !dst[id]);
+    if (ids.length === 0) return setError(`${formatJa(next)}は、空いているマスがないのでコピーしませんでした（入っている記号はそのままです）`);
     setError("");
     remember([next], ids);
     try {
