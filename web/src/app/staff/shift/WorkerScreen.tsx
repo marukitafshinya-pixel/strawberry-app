@@ -14,7 +14,7 @@ const STATUS: Record<ShiftRequest["status"], { label: string; cls: string }> = {
   rejected: { label: "却下", cls: "bg-gray-200 text-gray-700" },
 };
 
-/** preview＝管理者の確認用（希望を出す・取り消すはできない） */
+/** preview＝管理者の「携帯画面」タブ（選んだ従業員の分として、希望を出す・取り消すが本当にできる） */
 export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: ShiftConfig; members: ShiftMember[]; me: ShiftMember; requests: ShiftRequest[] | null; preview?: boolean }) {
   const today = todayJST();
   const [from, setFrom] = useState(today);
@@ -49,7 +49,7 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
         )}
       </section>
 
-      <RequestForm key={cfg.cutoffDays} preview={preview} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
+      <RequestForm key={cfg.cutoffDays} asMember={preview ? me.id : undefined} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={cfg.codes.filter((c) => c.req).map((c) => c.code)} />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">出した希望</h2>
@@ -62,7 +62,7 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
             {requests
               .filter((r) => r.date >= today)
               .map((r) => (
-                <MyRequest key={r.id} r={r} preview={preview} />
+                <MyRequest key={r.id} r={r} asMember={preview ? me.id : undefined} />
               ))}
           </ul>
         )}
@@ -95,7 +95,8 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
 }
 
 
-function RequestForm({ cutoffDays, contact, codes, preview }: { cutoffDays: number; contact: string; codes: string[]; preview?: boolean }) {
+/** asMember＝管理者がその従業員の分として出すとき（携帯画面タブ） */
+function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: number; contact: string; codes: string[]; asMember?: string }) {
   const first = addDays(todayJST(), cutoffDays);
   const [date, setDate] = useState(first);
   const [code, setCode] = useState(codes[0] ?? "");
@@ -106,10 +107,9 @@ function RequestForm({ cutoffDays, contact, codes, preview }: { cutoffDays: numb
     setMsg(null);
     if (!isValidYmd(date) || date < first)
       return setMsg({ ok: false, text: `希望は${cutoffDays}日前までです。${formatJa(first)}から選べます。それより前の日は、${contact}に直接確認してください` });
-    if (preview) return setMsg({ ok: false, text: "（確認用の画面なので、希望は送りません）" });
     setBusy(true);
     try {
-      await callFunction("submitShiftRequest", { date, code, memo });
+      await callFunction("submitShiftRequest", { date, code, memo, ...(asMember ? { memberId: asMember } : {}) });
       setMsg({ ok: true, text: `${formatJa(date)}「${code}」の希望を出しました` });
       setMemo("");
     } catch (e) {
@@ -167,16 +167,15 @@ function RequestForm({ cutoffDays, contact, codes, preview }: { cutoffDays: numb
   );
 }
 
-function MyRequest({ r, preview }: { r: ShiftRequest; preview?: boolean }) {
+function MyRequest({ r, asMember }: { r: ShiftRequest; asMember?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const s = STATUS[r.status];
   async function cancel() {
-    if (preview) return setError("（確認用の画面なので、取り消しはしません）");
     if (!window.confirm(`${formatJa(r.date)}の希望を取り消しますか？`)) return;
     setBusy(true);
     try {
-      await callFunction("cancelShiftRequest", { id: r.id });
+      await callFunction("cancelShiftRequest", { id: r.id, ...(asMember ? { memberId: asMember } : {}) });
     } catch (e) {
       setError(errorText(e));
     } finally {

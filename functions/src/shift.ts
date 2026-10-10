@@ -93,6 +93,22 @@ export const deleteShiftMember = onCall(async (req) => {
   return { ok: true };
 });
 
+/**
+ * 休みの希望を出す・取り消す人。従業員は自分の分。
+ * 管理者は「携帯画面」タブの動作の確認用に、従業員を選んでその人の分を出せる（締め切りなどのルールは同じ）
+ */
+async function assertRequester(req: CallableRequest): Promise<{ uid: string; memberId: string; byAdmin: boolean }> {
+  if (req.auth?.token.role === "admin") {
+    await assertAdmin(req);
+    const memberId = requireString(req.data?.memberId, "従業員", 64);
+    const m = await db.doc(`shiftMembers/${memberId}`).get();
+    if (!m.exists || m.get("active") === false) throw new HttpsError("not-found", "従業員が見つかりません");
+    // ログインのある人なら、その人の画面の「出した希望」にも出るよう、その人のログインで出したことにする
+    return { uid: String(m.get("uid") ?? ""), memberId, byAdmin: true };
+  }
+  return { ...(await assertWorker(req)), byAdmin: false };
+}
+
 /** 呼び出した人が有効な従業員なら、その従業員（勤務の表の行）のIDを返す */
 async function assertWorker(req: CallableRequest): Promise<{ uid: string; memberId: string }> {
   const uid = req.auth?.uid;
@@ -114,7 +130,7 @@ const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00
 
 /** 休みの希望を出す（従業員）。同じ日の、まだ決まっていない希望は出しなおせる */
 export const submitShiftRequest = onCall(async (req) => {
-  const { uid, memberId } = await assertWorker(req);
+  const { uid, memberId, byAdmin } = await assertRequester(req);
   const date = requireString(req.data?.date, "日付", 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new HttpsError("invalid-argument", "日付が正しくありません");
   const code = requireString(req.data?.code, "希望", 20);
@@ -137,20 +153,20 @@ export const submitShiftRequest = onCall(async (req) => {
   await db.runTransaction(async (tx) => {
     const cur = await tx.get(ref);
     if (cur.exists && cur.get("status") !== "pending") throw new HttpsError("failed-precondition", "この日の希望はもう決まっています。変えたいときは管理者に伝えてください");
-    tx.set(ref, { memberId, uid, date, code, memo, status: "pending", createdAt: FieldValue.serverTimestamp() });
+    tx.set(ref, { memberId, uid, date, code, memo, status: "pending", ...(byAdmin ? { byAdmin: true } : {}), createdAt: FieldValue.serverTimestamp() });
   });
   return { ok: true };
 });
 
 /** 出した希望を取り消す（従業員。まだ決まっていないものだけ） */
 export const cancelShiftRequest = onCall(async (req) => {
-  const { uid } = await assertWorker(req);
+  const { uid, memberId, byAdmin } = await assertRequester(req);
   const id = requireString(req.data?.id, "希望", 80);
   const ref = db.doc(`shiftRequests/${id}`);
   await db.runTransaction(async (tx) => {
     const cur = await tx.get(ref);
     if (!cur.exists) return;
-    if (cur.get("uid") !== uid) throw new HttpsError("permission-denied", "自分の希望だけ取り消せます");
+    if (byAdmin ? cur.get("memberId") !== memberId : cur.get("uid") !== uid) throw new HttpsError("permission-denied", "自分の希望だけ取り消せます");
     if (cur.get("status") !== "pending") throw new HttpsError("failed-precondition", "この希望はもう決まっています。変えたいときは管理者に伝えてください");
     tx.delete(ref);
   });

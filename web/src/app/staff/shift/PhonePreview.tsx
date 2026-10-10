@@ -1,7 +1,7 @@
 "use client";
 
 // 管理者の「携帯画面」タブ：従業員が自分の携帯で見る画面を、携帯くらいの大きさの枠の中で確かめる（中は上下に動かせる）。
-// 確認用なので、希望を出す・取り消すはしない
+// ここから出した希望は、選んだ従業員の希望として本当に届く（動作の確認用。締め切りなどのルールは従業員と同じ）
 import { useState } from "react";
 import { useShiftRequests, type ShiftConfig, type ShiftMember } from "@/lib/shift";
 import { sortMembers } from "./ShiftTable";
@@ -35,7 +35,9 @@ export function PhonePreview({ cfg, members }: { cfg: ShiftConfig; members: Shif
           </select>
         </label>
         <p className="text-gray-600">従業員が自分の携帯で見る画面です。枠の中は上下・左右に動かせます。</p>
-        <p className="text-gray-600">確認用なので、ここから希望を出したり取り消したりはできません。</p>
+        <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-950">
+          ここから「希望を出す」と、選んだ人の希望として<b>本当に届きます</b>（勤務表の「休みの希望」で承認・却下できます）。試したあとは「出した希望」の「取り消す」で消してください。
+        </p>
       </div>
       {/* 携帯の形の枠 */}
       <div className="shrink-0 rounded-[2.5rem] border-[10px] border-gray-800 bg-gray-800 shadow-xl" style={{ width: PHONE_W + 20 }}>
