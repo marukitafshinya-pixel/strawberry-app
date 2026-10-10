@@ -11,6 +11,7 @@ export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js
 export { cancelShiftRequest, createWorkerLogin, deleteShiftMember, submitShiftRequest, updateWorkerLogin } from "./shift.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
 export { importWeatherMonth } from "./weather.js";
+export { refreshForecast } from "./forecast.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

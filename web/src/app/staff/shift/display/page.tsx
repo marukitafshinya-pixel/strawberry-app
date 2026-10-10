@@ -10,6 +10,7 @@ import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode 
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
+import { ForecastStrip } from "../ForecastStrip";
 import { HaichiBoard } from "../Haichi";
 import { ShiftTable } from "../ShiftTable";
 
@@ -130,6 +131,7 @@ function Display() {
         <div className={`p-3 ${layout === "split" ? "w-[1000px]" : "w-[1500px]"}`}>
           <h2 className="mb-2 text-4xl font-bold">作業配置表　{formatJa(hDate)}</h2>
           <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} />
+          <ForecastStrip big />
         </div>
       ) : (
         <p className="p-6 text-gray-500">読み込み中…</p>

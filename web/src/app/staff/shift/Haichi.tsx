@@ -8,6 +8,7 @@ import { addDays, formatJa, todayJST } from "@/lib/date";
 import { errorText } from "@/lib/callFunction";
 import { newSlotId, saveHaichiDay, saveHaichiTemplate, sectionArrows, sectionSide, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
 import { isWorking, useShiftDays, type ShiftConfig, type ShiftMember } from "@/lib/shift";
+import { ForecastStrip } from "./ForecastStrip";
 import { sortMembers } from "./ShiftTable";
 
 /** 配置表（見るだけの形と、割り振る形の両方で使う） */
@@ -424,6 +425,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
               <NoteInput value={day.note} onSave={(note) => save({ ...day, note })} />
             </label>
           )}
+          <ForecastStrip big={done} />
         </div>
       </div>
       {drag && (

@@ -151,6 +151,10 @@ service cloud.firestore {
     match /weather/{month} {
       allow read: if isStaff();
     }
+    // 天気予報（気象庁・上川地方）。書き込みはサーバー側だけ
+    match /forecast/{id} {
+      allow read: if isStaff() || isWorker();
+    }
     // カフェの呼出番号（1日ごとの連番）。スタッフが1つずつ進めるだけ（戻したり飛ばしたりはできない）
     match /cafeCalls/{date} {
       allow read: if isStaff();

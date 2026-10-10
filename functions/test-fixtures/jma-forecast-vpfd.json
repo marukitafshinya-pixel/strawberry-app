@@ -1,0 +1,238 @@
+{
+ "publishingOffice": "旭川地方気象台",
+ "reportDatetime": "2026-10-10T05:00:00+09:00",
+ "areaTimeSeries": {
+  "timeDefines": [
+   {
+    "dateTime": "2026-10-10T06:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-10T09:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-10T12:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-10T15:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-10T18:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-10T21:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T00:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T03:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T06:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T09:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T12:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T15:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T18:00:00+09:00",
+    "duration": "PT3H"
+   },
+   {
+    "dateTime": "2026-10-11T21:00:00+09:00",
+    "duration": "PT3H"
+   }
+  ],
+  "area": {
+   "name": "上川地方",
+   "code": "012010"
+  },
+  "weather": [
+   "晴れ",
+   "晴れ",
+   "くもり",
+   "くもり",
+   "くもり",
+   "雨",
+   "雨",
+   "雨",
+   "雨",
+   "くもり",
+   "くもり",
+   "くもり",
+   "晴れ",
+   "晴れ"
+  ],
+  "weatherCode": [
+   "100",
+   "100",
+   "200",
+   "200",
+   "200",
+   "300",
+   "300",
+   "300",
+   "300",
+   "200",
+   "200",
+   "200",
+   "100",
+   "100"
+  ],
+  "wind": [
+   {
+    "direction": "南",
+    "speed": 2,
+    "range": ""
+   },
+   {
+    "direction": "南西",
+    "speed": 3,
+    "range": ""
+   },
+   {
+    "direction": "西",
+    "speed": 4,
+    "range": ""
+   },
+   {
+    "direction": "北西",
+    "speed": 5,
+    "range": ""
+   },
+   {
+    "direction": "北",
+    "speed": 6,
+    "range": ""
+   },
+   {
+    "direction": "北東",
+    "speed": 4,
+    "range": ""
+   },
+   {
+    "direction": "東",
+    "speed": 3,
+    "range": ""
+   },
+   {
+    "direction": "南東",
+    "speed": 2,
+    "range": ""
+   },
+   {
+    "direction": "南",
+    "speed": 2,
+    "range": ""
+   },
+   {
+    "direction": "南西",
+    "speed": 3,
+    "range": ""
+   },
+   {
+    "direction": "西",
+    "speed": 4,
+    "range": ""
+   },
+   {
+    "direction": "北西",
+    "speed": 5,
+    "range": ""
+   },
+   {
+    "direction": "北",
+    "speed": 6,
+    "range": ""
+   },
+   {
+    "direction": "北東",
+    "speed": 4,
+    "range": ""
+   }
+  ]
+ },
+ "pointTimeSeries": {
+  "timeDefines": [
+   {
+    "dateTime": "2026-10-10T06:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-10T09:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-10T12:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-10T15:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-10T18:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-10T21:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T00:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T03:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T06:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T09:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T12:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T15:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T18:00:00+09:00"
+   },
+   {
+    "dateTime": "2026-10-11T21:00:00+09:00"
+   }
+  ],
+  "point": {
+   "name": "旭川",
+   "code": "12442"
+  },
+  "temperature": [
+   "9",
+   "14",
+   "17",
+   "15",
+   "12",
+   "10",
+   "9",
+   "8",
+   "8",
+   "10",
+   "12",
+   "13",
+   "11",
+   "9"
+  ]
+ }
+}

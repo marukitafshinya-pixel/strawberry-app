@@ -250,6 +250,17 @@ describe("作業配置表 (config/haichi・haichi)", () => {
   });
 });
 
+describe("天気予報 (forecast)", () => {
+  it("スタッフ・従業員は見るだけ（書き込みはサーバー側）", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "forecast/biei"), { slots: [] });
+    });
+    await assertSucceeds(getDoc(doc(staff(), "forecast/biei")));
+    await assertFails(setDoc(doc(admin(), "forecast/biei"), { slots: [] }));
+    await assertFails(getDoc(doc(guest(), "forecast/biei")));
+  });
+});
+
 describe("トータル実績（ほかの売上）", () => {
   it("管理者だけが読み書きできる", async () => {
     await assertSucceeds(setDoc(doc(admin(), "otherSales/2026"), { months: { "08": { onion: 120000, soba: 0, contract: 50000 } } }));
