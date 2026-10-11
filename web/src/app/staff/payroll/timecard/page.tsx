@@ -51,6 +51,7 @@ export default function TimecardPage() {
   const { value: employees } = useEmployees();
   const months = periodMonths(month, cfg?.closeDay ?? 31);
   const data = useTimecardMonths(months);
+  /** 個人別タイムカード集計表の小窓で見ているカード（null＝閉じている） */
   const [card, setCard] = useState<string | null>(null);
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
@@ -62,6 +63,8 @@ export default function TimecardPage() {
   const people = cfg && data && employees ? cardsIn(month, data, cfg).map((c) => ({ p: computePerson(c, month, data, cfg), e: employeeForCard(c, cfg, employees) })) : null;
   const nameOf = (c: string) => (cfg && employees ? (employeeForCard(c, cfg, employees)?.name ?? `（カード${c}・従業員が未設定）`) : "");
   const selected = card && cfg && data ? computePerson(card, month, data, cfg) : null;
+  const cardList = people?.map((x) => x.p.card) ?? [];
+  const at = card ? cardList.indexOf(card) : -1;
 
   return (
     <>
@@ -111,6 +114,11 @@ export default function TimecardPage() {
             ⬇ 集計をCSVで書き出す
           </button>
         )}
+        {people && people.length > 0 && (
+          <button onClick={() => setCard(cardList[0])} className="rounded-lg bg-berry px-4 py-2 text-sm font-bold text-white">
+            📝 個人別タイムカード集計表（見る・直す）
+          </button>
+        )}
         <Link href={`/staff/payroll/timecard/print/?month=${month}`} className={`${people && people.length > 0 ? "" : "ml-auto "}rounded-lg border bg-white px-3 py-2 text-sm`}>
           🖨 全員の集計表を印刷
         </Link>
@@ -133,12 +141,11 @@ export default function TimecardPage() {
                 <th className="px-3 py-2 text-right">労働時間</th>
                 <th className="px-3 py-2 text-right">うち残業</th>
                 <th className="px-3 py-2">確認</th>
-                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {people.map(({ p, e }) => (
-                <tr key={p.card} className={`border-t ${card === p.card ? "bg-berry/10" : ""}`}>
+                <tr key={p.card} className="border-t">
                   <td className="px-3 py-2">{p.card}</td>
                   <td className="px-3 py-2">
                     <select
@@ -164,11 +171,6 @@ export default function TimecardPage() {
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
                     {p.edited > 0 && <span className="text-amber-800">直した {p.edited}件</span>}
                   </td>
-                  <td className="px-3 py-2">
-                    <button onClick={() => setCard(card === p.card ? null : p.card)} className="rounded-lg border px-3 py-1">
-                      {card === p.card ? "閉じる" : "個人表を見る"}
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -183,7 +185,6 @@ export default function TimecardPage() {
                 <td className="px-3 py-2 text-xs text-red-700">
                   {people.some((x) => x.p.problems) ? `要確認 ${people.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
                 </td>
-                <td></td>
               </tr>
             </tfoot>
           </table>
@@ -191,14 +192,39 @@ export default function TimecardPage() {
       )}
 
       {selected && card && (
-        <div className="mt-4 rounded-xl border bg-white p-4">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <p className="text-sm text-gray-600">赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤 17:04→18:04」のように残ります。打刻のない日も同じように入れられます。</p>
-            <Link href={`/staff/payroll/timecard/print/?month=${month}&card=${card}`} className="ml-auto rounded-lg border bg-white px-3 py-1.5 text-sm">
-              🖨 この人の集計表を印刷
-            </Link>
+        // 個人別タイムカード集計表の小窓。名前のプルダウンと「前・次」で、カード番号の順に見ていける
+        <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/40 p-3" onClick={() => setCard(null)}>
+          <div className="my-2 w-full max-w-5xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button disabled={at <= 0} onClick={() => setCard(cardList[at - 1])} className="rounded-lg border px-3 py-2 disabled:opacity-30">
+                ‹ 前へ
+              </button>
+              <select value={card} onChange={(e) => setCard(e.target.value)} className="min-w-56 rounded-lg border-2 border-berry px-3 py-2 text-lg font-bold">
+                {people?.map(({ p }) => (
+                  <option key={p.card} value={p.card}>
+                    {p.card}　{nameOf(p.card)}
+                    {p.problems ? `（要確認${p.problems}）` : ""}
+                  </option>
+                ))}
+              </select>
+              <button disabled={at < 0 || at >= cardList.length - 1} onClick={() => setCard(cardList[at + 1])} className="rounded-lg border px-3 py-2 disabled:opacity-30">
+                次へ ›
+              </button>
+              <span className="text-sm text-gray-500">
+                {at + 1} / {cardList.length}人
+              </span>
+              <Link href={`/staff/payroll/timecard/print/?month=${month}&card=${card}`} className="ml-auto rounded-lg border bg-white px-3 py-2 text-sm">
+                🖨 この人の集計表を印刷
+              </Link>
+              <button onClick={() => setCard(null)} className="rounded-lg border px-4 py-2 font-bold">
+                ✕ 閉じる
+              </button>
+            </div>
+            <p className="mb-2 text-sm text-gray-600">
+              赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤 17:04→18:04」のように残ります。
+            </p>
+            <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }} />
           </div>
-          <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }} />
         </div>
       )}
     </>
