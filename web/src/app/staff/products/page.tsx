@@ -171,6 +171,21 @@ function Editor({ initial }: { initial: Product[] }) {
         </button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
         <ProductsFromRefs products={list} onAdd={(added) => change([...list, ...added])} />
+        {groups.length > 1 && (
+          // 同じ分類の商品をまとめて並べる（分類の順番は、いま上にある分類から。分類の中の順番はそのまま）
+          <button
+            onClick={() => {
+              const order = new Map(groups.map((g, i) => [g, i]));
+              const next = [...list].sort((a, b) => (order.get(a.group || "その他") ?? 0) - (order.get(b.group || "その他") ?? 0));
+              if (next.every((p, i) => p === list[i])) return setMessage("もう分類ごとに並んでいます");
+              change(next);
+              setMessage("分類ごとに並べ替えました。確かめてから「保存する」を押してください");
+            }}
+            className={smallButton}
+          >
+            分類別に並び替える
+          </button>
+        )}
       </div>
 
       {preview && (
