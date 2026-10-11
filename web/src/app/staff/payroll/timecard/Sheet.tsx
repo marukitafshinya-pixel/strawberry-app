@@ -113,6 +113,7 @@ function Row({ d, edit }: { d: DayResult; edit?: SheetEdit }) {
   const tapCell = (changed: boolean) =>
     `text-right ${edit ? "cursor-pointer hover:bg-sky-100 hover:outline hover:outline-2 hover:outline-sky-500" : ""} ${changed ? "font-bold text-amber-800" : ""}`;
   const timeEdited = !!d.raw?.e;
+  const note = d.edited ? editedParts(d) : [];
   return (
     <tr className={d.problem ? "bg-red-50" : d.edited ? "bg-amber-50" : ""}>
       <td className="whitespace-nowrap">{day}</td>
@@ -131,22 +132,18 @@ function Row({ d, edit }: { d: DayResult; edit?: SheetEdit }) {
       <td className="text-right">{d.over ? hm(d.over) : ""}</td>
       <td className="text-xs">
         {d.problem && <span className="font-bold text-red-700">{d.problem}</span>}
-        {d.edited && <EditedNote d={d} sep={!!d.problem} />}
+        {note.length > 0 && <span className="text-amber-800">{`${d.problem ? "・" : ""}直した：${note.join("、")}`}</span>}
         {pop && edit && <EditPop d={d} which={pop.which} x={pop.x} y={pop.y} edit={edit} onClose={() => setPop(null)} />}
       </td>
     </tr>
   );
 }
 
-/** 確認欄に出す、直す前と後（例「退勤 17:04→18:04」「休憩 60分→30分」） */
-function EditedNote({ d, sep }: { d: DayResult; sep: boolean }) {
+/** 確認欄に出す、直す前と後（例「退勤 17:04→18:04」「休憩 60分→30分」）。元と同じになったものは出さない */
+function editedParts(d: DayResult): string[] {
   const parts = d.raw?.e ? (["i", "o"] as const).filter((k) => d.raw?.[k] !== d[k]).map((k) => `${k === "i" ? "出勤" : "退勤"} ${hm(d.raw?.[k]) || "なし"}→${hm(d[k]) || "なし"}`) : [];
-  if (d.brkEdited) parts.push(`休憩 ${d.autoBrk}分→${d.brk}分`);
-  return (
-    <span className="text-amber-800">
-      {sep ? "・" : ""}直した{parts.length ? `：${parts.join("、")}` : ""}
-    </span>
-  );
+  if (d.brkEdited && d.brk !== d.autoBrk) parts.push(`休憩 ${d.autoBrk}分→${d.brk}分`);
+  return parts;
 }
 
 /** 直す小さな入力欄。開いたらすぐテンキーで打てる。エンターで確定、Esc でやめる */
@@ -166,13 +163,17 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
       const b = parseBreak(v);
       if (b === undefined) return setErr("休憩は分で入れてください（30＝30分、90＝1時間30分）");
       onClose();
-      edit.brk(d.date, b).catch(fail);
+      // 自動の休憩と同じ分なら、直していないのと同じ（直した印を消す）
+      edit.brk(d.date, b === d.autoBrk ? null : b).catch(fail);
       return;
     }
     const t = parseKeyed(v);
     if (t === undefined) return setErr("時刻は 1730 や 17:30 のように入れてください");
     onClose();
-    edit.time(d.date, { i: which === "i" ? t : d.i, o: which === "o" ? t : d.o }).catch(fail);
+    const e = { i: which === "i" ? t : d.i, o: which === "o" ? t : d.o };
+    // 元の打刻と同じに戻したときは、直していないのと同じ（直した印を消す）
+    const same = e.i === (d.raw?.i ?? null) && e.o === (d.raw?.o ?? null);
+    edit.time(d.date, same ? null : e).catch(fail);
   }
   function reset() {
     onClose();

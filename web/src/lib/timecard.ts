@@ -178,7 +178,9 @@ export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig)
   const i = src?.i ?? null;
   const o = src?.o ?? null;
   const brkEdited = typeof raw?.bk === "number";
-  const edited = !!raw?.e || brkEdited;
+  // 直した時刻が元の打刻と同じなら、直していないのと同じに扱う
+  const timeEdited = !!raw?.e && (raw.e.i !== raw.i || raw.e.o !== raw.o);
+  const edited = timeEdited || brkEdited;
   const start = startTimeOn(date, cfg);
   const base = { date, raw, i, o, edited, start, brkEdited };
   const none = { ri: null, ro: null, brk: raw?.bk ?? 0, autoBrk: 0, work: 0, over: 0 };
