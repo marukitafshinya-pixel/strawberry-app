@@ -15,8 +15,8 @@ import { shiftMonth } from "./date";
  * x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）
  */
 export type TcPunch = { i: number | null; o: number | null; x?: string };
-/** 1日分。e＝画面で直した時刻（あれば、こちらを使う） */
-export type TcDay = TcPunch & { e?: { i: number | null; o: number | null } };
+/** 1日分。e＝画面で直した時刻（あれば、こちらを使う）、bk＝画面で直した休憩（分。あれば、自動の休憩の代わりに使う） */
+export type TcDay = TcPunch & { e?: { i: number | null; o: number | null }; bk?: number };
 /** timecards/{YYYY-MM}：カード番号 → 日（"01"〜"31"）→ 打刻 */
 export type TimecardMonth = { cards: Record<string, Record<string, TcDay>>; fileName?: string };
 
@@ -133,7 +133,8 @@ export function mergeTimecard(cur: TimecardMonth["cards"] | undefined, add: Reco
     const c = (out[card] ??= {});
     for (const [dd, p] of Object.entries(days)) {
       const e = c[dd]?.e;
-      c[dd] = { ...p, ...(e ? { e } : {}) };
+      const bk = c[dd]?.bk;
+      c[dd] = { ...p, ...(e ? { e } : {}), ...(typeof bk === "number" ? { bk } : {}) };
     }
   }
   return out;
@@ -151,6 +152,9 @@ export type DayResult = {
   ro: number | null;
   /** 休憩（分）と、働いた時間（分）、そのうちの残業（分） */
   brk: number;
+  /** 自動で決まる休憩（分）。brkEdited のときは brk が画面で直した休憩 */
+  autoBrk: number;
+  brkEdited: boolean;
   work: number;
   over: number;
   /** その日の会社の出勤時刻（決めていなければ null） */
@@ -173,10 +177,11 @@ export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig)
   const src = raw?.e ?? raw;
   const i = src?.i ?? null;
   const o = src?.o ?? null;
-  const edited = !!raw?.e;
+  const brkEdited = typeof raw?.bk === "number";
+  const edited = !!raw?.e || brkEdited;
   const start = startTimeOn(date, cfg);
-  const base = { date, raw, i, o, edited, start };
-  const none = { ri: null, ro: null, brk: 0, work: 0, over: 0 };
+  const base = { date, raw, i, o, edited, start, brkEdited };
+  const none = { ri: null, ro: null, brk: raw?.bk ?? 0, autoBrk: 0, work: 0, over: 0 };
   if (!raw || (i === null && o === null)) return { ...base, ...none, problem: null };
   if (i === null || o === null) return { ...base, ...none, problem: i === null ? "出勤の打刻がありません" : "退勤の打刻がありません" };
   // 会社の出勤時刻より前に押した分は数えない
@@ -186,11 +191,13 @@ export function computeDay(date: string, raw: TcDay | null, cfg: TimecardConfig)
   const ro = roundTo(o < i ? o + 1440 : o, cfg.roundOut, cfg.outDir);
   const span = Math.max(0, ro - ri);
   // 休憩：休憩の時間帯と、働いた時間が重なる分だけ引く
-  const brk = cfg.breaks.reduce((a, b) => a + Math.max(0, Math.min(ro, b.end) - Math.max(ri, b.start)), 0);
+  // 画面で休憩を直した日は、その分を引く
+  const autoBrk = cfg.breaks.reduce((a, b) => a + Math.max(0, Math.min(ro, b.end) - Math.max(ri, b.start)), 0);
+  const brk = brkEdited ? (raw.bk as number) : autoBrk;
   const work = Math.max(0, span - brk);
   const over = Math.max(0, work - cfg.overtimeOver);
-  const problem = raw.x && !edited ? `ほかの欄にも打刻があります（${raw.x}）` : span > 16 * 60 ? "16時間をこえています" : null;
-  return { ...base, ri, ro, brk, work, over, problem };
+  const problem = raw.x && !raw.e ? `ほかの欄にも打刻があります（${raw.x}）` : span > 16 * 60 ? "16時間をこえています" : null;
+  return { ...base, ri, ro, brk, autoBrk, work, over, problem };
 }
 
 /** 給与の月（"YYYY-MM"）の日にちの並び。締め日が月末でなければ、前の月の締め日の翌日から */
@@ -321,28 +328,36 @@ export async function importTimecard(parsed: ParsedTimecard, fileName: string) {
   }
 }
 
-/** 1日分の時刻を直す（null＝元の打刻に戻す） */
+/** 1日分を直す。e＝時刻（null＝元の打刻に戻す）、bk＝休憩（null＝自動に戻す） */
 export async function saveTimecardEdit(date: string, card: string, e: { i: number | null; o: number | null } | null) {
+  await saveDayField(date, card, "e", e);
+}
+export async function saveTimecardBreak(date: string, card: string, minutes: number | null) {
+  await saveDayField(date, card, "bk", minutes);
+}
+
+async function saveDayField(date: string, card: string, key: "e" | "bk", value: unknown) {
   const { db } = await getFirebase();
   const ref = doc(db, `timecards/${date.slice(0, 7)}`);
-  const path = new FieldPath("cards", card, date.slice(8), "e");
+  const dd = date.slice(8);
   const snap = await getDoc(ref);
+  const day = snap.exists() ? (snap.data() as TimecardMonth).cards?.[card]?.[dd] : undefined;
   if (!snap.exists()) {
-    if (!e) return;
-    await setDoc(ref, { cards: { [card]: { [date.slice(8)]: { i: null, o: null, e } } }, updatedAt: serverTimestamp() });
+    if (value === null) return;
+    await setDoc(ref, { cards: { [card]: { [dd]: { i: null, o: null, [key]: value } } }, updatedAt: serverTimestamp() });
     return;
   }
-  const day = (snap.data() as TimecardMonth).cards?.[card]?.[date.slice(8)];
   if (!day) {
-    if (!e) return;
-    // 打刻がない日に時刻を入れる
-    await updateDoc(ref, new FieldPath("cards", card, date.slice(8)), { i: null, o: null, e }, "updatedAt", serverTimestamp());
+    if (value === null) return;
+    // 打刻がない日に入れる
+    await updateDoc(ref, new FieldPath("cards", card, dd), { i: null, o: null, [key]: value }, "updatedAt", serverTimestamp());
     return;
   }
-  if (!e && day.i === null && day.o === null && !day.x) {
-    // 打刻がなく、直した時刻だけだった日は、日ごと消す
-    await updateDoc(ref, new FieldPath("cards", card, date.slice(8)), deleteField(), "updatedAt", serverTimestamp());
+  const other = key === "e" ? typeof day.bk === "number" : !!day.e;
+  if (value === null && day.i === null && day.o === null && !day.x && !other) {
+    // 打刻がなく、直した分だけだった日は、日ごと消す
+    await updateDoc(ref, new FieldPath("cards", card, dd), deleteField(), "updatedAt", serverTimestamp());
     return;
   }
-  await updateDoc(ref, path, e ?? deleteField(), "updatedAt", serverTimestamp());
+  await updateDoc(ref, new FieldPath("cards", card, dd, key), value ?? deleteField(), "updatedAt", serverTimestamp());
 }

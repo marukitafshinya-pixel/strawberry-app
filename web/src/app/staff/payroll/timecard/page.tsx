@@ -23,6 +23,7 @@ import {
   parseHm,
   periodMonths,
   saveTimecardConfig,
+  saveTimecardBreak,
   saveTimecardEdit,
   startTimeOn,
   useTimecardConfig,
@@ -192,12 +193,12 @@ export default function TimecardPage() {
       {selected && card && (
         <div className="mt-4 rounded-xl border bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <p className="text-sm text-gray-600">赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。直す前の打刻は確認欄に「退勤 17:04→18:04」のように残ります。打刻のない日も同じように入れられます。</p>
+            <p className="text-sm text-gray-600">赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤 17:04→18:04」のように残ります。打刻のない日も同じように入れられます。</p>
             <Link href={`/staff/payroll/timecard/print/?month=${month}&card=${card}`} className="ml-auto rounded-lg border bg-white px-3 py-1.5 text-sm">
               🖨 この人の集計表を印刷
             </Link>
           </div>
-          <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={(date, e) => saveTimecardEdit(date, card, e)} />
+          <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }} />
         </div>
       )}
     </>
