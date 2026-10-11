@@ -35,6 +35,7 @@ const MENU: MenuItem[] = [
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
   { label: "過去売上の取り込み", href: "/staff/import/", adminOnly: true },
+  { label: "データのバックアップ", href: "/staff/backup/", adminOnly: true },
 ];
 
 /** タイルのキー（配置の保存に使う）："/staff/report/items/" → "report-items" */
