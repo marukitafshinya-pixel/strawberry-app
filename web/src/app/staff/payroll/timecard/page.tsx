@@ -8,6 +8,7 @@ import { errorText } from "@/lib/callFunction";
 import { decodeCsv } from "@/lib/csv";
 import { isValidYmd, shiftMonth, todayJST } from "@/lib/date";
 import { reiwa, useEmployees } from "@/lib/payroll";
+import { downloadCsv } from "@/lib/report";
 import {
   CLOSE_DAY_CHOICES,
   ROUND_CHOICES,
@@ -95,7 +96,21 @@ export default function TimecardPage() {
             {mdOf(days[0])}〜{mdOf(days[days.length - 1])}
           </span>
         )}
-        <Link href={`/staff/payroll/timecard/print/?month=${month}`} className="ml-auto rounded-lg border bg-white px-3 py-2 text-sm">
+        {people && people.length > 0 && (
+          // 見比べ用：1人1行で、出勤日数・労働時間・残業を書き出す（弥生への取り込み用の形は、弥生の見本がそろってから）
+          <button
+            onClick={() =>
+              downloadCsv(`timecard_${month}.csv`, [
+                ["カード番号", "社員番号", "氏名", "出勤日数", "労働時間（時:分）", "労働時間（時間）", "残業でない分（時間）", "残業（時:分）", "残業（時間）", "要確認の日数"],
+                ...people.map(({ p, e }) => [p.card, e?.code ?? "", e?.name ?? "", p.workDays, hm(p.work), hours2(p.work), hours2(p.work - p.over), hm(p.over), hours2(p.over), p.problems]),
+              ])
+            }
+            className="ml-auto rounded-lg border bg-white px-3 py-2 text-sm"
+          >
+            ⬇ 集計をCSVで書き出す
+          </button>
+        )}
+        <Link href={`/staff/payroll/timecard/print/?month=${month}`} className={`${people && people.length > 0 ? "" : "ml-auto "}rounded-lg border bg-white px-3 py-2 text-sm`}>
           🖨 全員の集計表を印刷
         </Link>
       </div>
