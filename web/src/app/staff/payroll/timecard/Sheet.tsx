@@ -1,7 +1,7 @@
 "use client";
 
 // 個人別タイムカード集計表（1人分）。画面と印刷で同じものを使う。
-// edit があれば、「出勤（計算）」「退勤（計算）」のマスを押すと小さな入力欄が出て、テンキーで時刻を入れてエンターで直せる（すぐに計算し直す）
+// edit があれば、「出勤」「退勤」（打刻）のマスを押すと小さな入力欄が出て、テンキーで時刻を入れてエンターで直せる（すぐに計算し直す）
 import { useEffect, useRef, useState } from "react";
 import { weekday } from "@/lib/date";
 import { hm, hours2, type DayResult, type PersonResult } from "@/lib/timecard";
@@ -33,10 +33,10 @@ export function TimecardSheet({
         <thead>
           <tr>
             <th>日付</th>
-            <th>出勤</th>
-            <th>退勤</th>
-            <th>出勤（計算）{edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>}</th>
-            <th>退勤（計算）{edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>}</th>
+            <th>出勤{edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>}</th>
+            <th>退勤{edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>}</th>
+            <th>出勤（計算）</th>
+            <th>退勤（計算）</th>
             <th>休憩</th>
             <th>労働時間</th>
             <th>うち残業</th>
@@ -105,39 +105,45 @@ function Row({ d, edit }: { d: DayResult; edit?: Edit }) {
     const r = ev.currentTarget.getBoundingClientRect();
     setPop({ which, x: r.left, y: r.bottom });
   };
-  const calcCell = edit ? "cursor-pointer text-right hover:bg-sky-100 hover:outline hover:outline-2 hover:outline-sky-500" : "text-right";
+  const punchCell = edit ? "cursor-pointer text-right hover:bg-sky-100 hover:outline hover:outline-2 hover:outline-sky-500" : "text-right";
   return (
     <tr className={d.problem ? "bg-red-50" : d.edited ? "bg-amber-50" : ""}>
       <td className="whitespace-nowrap">{day}</td>
-      <td className="text-right">
+      <td className={`${punchCell} ${d.edited && d.raw?.i !== d.i ? "font-bold text-amber-800" : ""}`} onClick={openAt("i")} title={edit ? "押すと出勤の打刻を直せます" : undefined}>
         {hm(d.i)}
-        {d.edited && d.raw?.i !== d.i && <span className="block text-[10px] text-gray-500 line-through">{hm(d.raw?.i)}</span>}
       </td>
-      <td className="text-right">
+      <td className={`${punchCell} ${d.edited && d.raw?.o !== d.o ? "font-bold text-amber-800" : ""}`} onClick={openAt("o")} title={edit ? "押すと退勤の打刻を直せます" : undefined}>
         {hm(d.o)}
-        {d.edited && d.raw?.o !== d.o && <span className="block text-[10px] text-gray-500 line-through">{hm(d.raw?.o)}</span>}
       </td>
-      <td className={calcCell} onClick={openAt("i")} title={edit ? "押すと出勤の時刻を直せます" : undefined}>
-        {hm(d.ri)}
-      </td>
-      <td className={calcCell} onClick={openAt("o")} title={edit ? "押すと退勤の時刻を直せます" : undefined}>
-        {d.ro !== null && d.ro >= 1440 ? `翌${hm(d.ro - 1440)}` : hm(d.ro)}
-      </td>
+      <td className="text-right">{hm(d.ri)}</td>
+      <td className="text-right">{d.ro !== null && d.ro >= 1440 ? `翌${hm(d.ro - 1440)}` : hm(d.ro)}</td>
       <td className="text-right">{d.brk ? `${d.brk}分` : ""}</td>
       <td className="text-right font-bold">{d.work ? hm(d.work) : ""}</td>
       <td className="text-right">{d.over ? hm(d.over) : ""}</td>
       <td className="text-xs">
         {d.problem && <span className="font-bold text-red-700">{d.problem}</span>}
-        {d.edited && <span className="text-amber-800">{d.problem ? "・" : ""}直した時刻</span>}
+        {d.edited && <EditedNote d={d} sep={!!d.problem} />}
         {pop && edit && <TimePop d={d} which={pop.which} x={pop.x} y={pop.y} edit={edit} onClose={() => setPop(null)} />}
       </td>
     </tr>
   );
 }
 
-/** 時刻を直す小さな入力欄。開いたらすぐテンキーで打てる。エンターで確定、Esc でやめる */
+/** 確認欄に出す、直す前と後の打刻（例「退勤 17:04→18:04」） */
+function EditedNote({ d, sep }: { d: DayResult; sep: boolean }) {
+  const parts = (["i", "o"] as const)
+    .filter((k) => d.raw?.[k] !== d[k])
+    .map((k) => `${k === "i" ? "出勤" : "退勤"} ${hm(d.raw?.[k]) || "なし"}→${hm(d[k]) || "なし"}`);
+  return (
+    <span className="text-amber-800">
+      {sep ? "・" : ""}直した時刻{parts.length ? `：${parts.join("、")}` : ""}
+    </span>
+  );
+}
+
+/** 打刻を直す小さな入力欄。開いたらすぐテンキーで打てる。エンターで確定、Esc でやめる */
 function TimePop({ d, which, x, y, edit, onClose }: { d: DayResult; which: "i" | "o"; x: number; y: number; edit: Edit; onClose: () => void }) {
-  const cur = which === "i" ? d.ri : d.ro !== null && d.ro >= 1440 ? d.ro - 1440 : d.ro;
+  const cur = which === "i" ? d.i : d.o;
   const [v, setV] = useState("");
   const [err, setErr] = useState("");
   const ref = useRef<HTMLInputElement>(null);
