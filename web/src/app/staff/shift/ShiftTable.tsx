@@ -239,7 +239,7 @@ export function ShiftTable({
                             ""
                           )}
                           {r && (
-                            <span className="block whitespace-nowrap rounded border border-dashed border-purple-500 text-purple-800" style={{ fontSize: codeFont(r.code) }} title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
+                            <span className="mx-auto block w-fit whitespace-nowrap rounded-md border-2 border-dashed border-purple-600 bg-purple-50 px-1 font-bold leading-tight text-purple-800" style={{ fontSize: codeFont(r.code) }} title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
                               {r.code}
                             </span>
                           )}
