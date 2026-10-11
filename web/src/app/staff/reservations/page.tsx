@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { FirebaseError } from "firebase/app";
 import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useAuth } from "@/lib/auth";
@@ -576,7 +576,7 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
 
 /**
  * 印刷用の予約一覧。時間・状態・お名前・人数・プラン・電話・メモを1件1行に並べる（取消は出さない）。
- * 予約のない時間は1行だけ。印刷するときに、A4 1枚に入るよう全体を縮める
+ * 予約のない時間は1行だけ。件数が少なければ文字を大きく・行を高くして、A4縦1枚をいっぱいに使う
  */
 function PrintList({
   slots,
@@ -587,24 +587,16 @@ function PrintList({
   bySlot: Map<string, Reservation[]>;
   contacts: Record<string, { phone?: string } | undefined>;
 }) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const fit = () => {
-      const el = box.current;
-      if (!el) return;
-      el.style.zoom = "1";
-      // A4縦（297mm）から上下の余白8mmずつと、上の日付の分を引いた高さ（96dpi）
-      const pageH = ((297 - 16) * 96) / 25.4 - 70;
-      const h = el.scrollHeight;
-      el.style.zoom = h > pageH ? String(Math.max(0.4, pageH / h)) : "1";
-    };
-    window.addEventListener("beforeprint", fit);
-    return () => window.removeEventListener("beforeprint", fit);
-  }, []);
-  const td = "border border-gray-400 px-1.5 py-0.5 align-top";
+  // A4縦いっぱいに広げる：行の数から文字の大きさを決め、表の高さを用紙に合わせる（行の高さは自動で広がる）
+  const rows = 1 + slots.reduce((n, slot) => n + Math.max(1, (bySlot.get(slot.id) ?? []).filter((r) => r.status !== "cancelled").length), 0);
+  /** 表に使える高さ（mm）：A4の297mmから、上下の余白8mmずつと、上の題名・日付の分を引く */
+  const TABLE_MM = 230;
+  // 文字は、プランの内訳が1行に収まる大きさまで（それより大きくすると折り返して2枚になる）。余った高さは行の高さで埋める
+  const fontPx = Math.max(9, Math.min(12, Math.floor(((TABLE_MM * 96) / 25.4 / rows) / 1.9)));
+  const td = "border border-gray-400 px-[0.4em] py-[0.15em] align-middle";
   return (
-    <div ref={box} className="hidden print:mt-1 print:block">
-      <table className="w-full border-collapse text-[11px] leading-tight">
+    <div className="hidden print:mt-1 print:block">
+      <table className="w-full border-collapse leading-tight" style={{ fontSize: fontPx, height: `${TABLE_MM}mm` }}>
         <thead>
           <tr className="bg-gray-100">
             {["時間", "状態", "お名前", "人数", "プラン（内訳）", "電話", "メモ"].map((h) => (
@@ -640,7 +632,7 @@ function PrintList({
                 <td className={`${td} whitespace-nowrap`}>{STATUS_LABEL[r.status]}</td>
                 <td className={`${td} whitespace-nowrap font-bold`}>{r.customerName} 様</td>
                 <td className={`${td} whitespace-nowrap text-right`}>{r.people}人</td>
-                <td className={td}>
+                <td className={`${td} whitespace-nowrap`}>
                   {r.planName}（{peopleText(r)}）{r.source === "web" ? ` Web ${r.code}` : ""}
                 </td>
                 <td className={`${td} whitespace-nowrap`}>{contacts[r.id]?.phone ?? ""}</td>
