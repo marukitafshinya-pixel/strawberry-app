@@ -2,7 +2,7 @@
 
 // タイムカード：MAXのタイムレコーダーのUSBデータ（CSV）を取り込んで、個人別タイムカード集計表を作る（管理者だけ）
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv } from "@/lib/csv";
@@ -41,6 +41,11 @@ export default function TimecardPage() {
   // 給与の月（ふつうは先月分を計算する）
   const [month, setMonth] = useState(() => shiftMonth(todayJST().slice(0, 7), -1));
   const { value: cfg, error: cfgError } = useTimecardConfig();
+  // 一度だけ：はじめの版で保存した丸めの向き（出勤は切り捨て・退勤は切り上げ）が逆だったので直す
+  useEffect(() => {
+    if (role !== "admin" || !cfg || cfg.rulesVersion === 2) return;
+    void saveTimecardConfig({ inDir: "up", outDir: "down", rulesVersion: 2 });
+  }, [role, cfg]);
   const { value: employees } = useEmployees();
   const months = periodMonths(month, cfg?.closeDay ?? 31);
   const data = useTimecardMonths(months);
@@ -312,7 +317,7 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
     if (ot === null || ot === undefined || ot <= 0) return setMsg("残業は「8:00」のように入れてください");
     startTimes.sort((a, b) => a.from.localeCompare(b.from));
     list.sort((a, b) => a.start - b.start);
-    await saveTimecardConfig({ startTimes, roundIn, inDir, roundOut, outDir, breaks: list, overtimeOver: ot, closeDay });
+    await saveTimecardConfig({ startTimes, roundIn, inDir, roundOut, outDir, breaks: list, overtimeOver: ot, closeDay, rulesVersion: 2 });
     setMsg("保存しました");
   }
   if (!open)

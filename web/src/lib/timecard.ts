@@ -41,15 +41,17 @@ export type TimecardConfig = {
   overtimeOver: number;
   /** 締め日（31＝月末） */
   closeDay: number;
+  /** ルールの版（2＝丸めの向きを「出勤は切り上げ・退勤は切り捨て」に直したあと） */
+  rulesVersion?: number;
 };
 
 export const DEFAULT_TIMECARD_CONFIG: TimecardConfig = {
   cards: {},
   startTimes: [],
   roundIn: 15,
-  inDir: "down",
+  inDir: "up",
   roundOut: 15,
-  outDir: "up",
+  outDir: "down",
   breaks: [{ start: 720, end: 780 }],
   overtimeOver: 480,
   closeDay: 31,

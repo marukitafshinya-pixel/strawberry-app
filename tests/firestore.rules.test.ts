@@ -211,7 +211,7 @@ describe("タイムカード（管理者のみ）", () => {
     const tc = { cards: { "001": { "01": { i: 338, o: 1024 }, "02": { i: 339, o: null, e: { i: 339, o: 1020 } } } }, fileName: "ER201001.csv" };
     await assertSucceeds(setDoc(doc(admin(), "timecards/2026-09"), tc));
     await assertSucceeds(getDoc(doc(admin(), "timecards/2026-09")));
-    await assertSucceeds(setDoc(doc(admin(), "config/timecard"), { cards: { "001": "e1" }, startTimes: [{ from: "2026-09-01", time: 360 }], roundIn: 15, inDir: "down", roundOut: 15, outDir: "up", breaks: [{ start: 720, end: 780 }], overtimeOver: 480, closeDay: 31 }));
+    await assertSucceeds(setDoc(doc(admin(), "config/timecard"), { cards: { "001": "e1" }, startTimes: [{ from: "2026-09-01", time: 360 }], roundIn: 15, inDir: "down", roundOut: 15, outDir: "up", breaks: [{ start: 720, end: 780 }], overtimeOver: 480, closeDay: 31, rulesVersion: 2 }));
     for (const db of [staff(), guest(), noRole(), disabled(), env.authenticatedContext("w1", { role: "worker" }).firestore()]) {
       await assertFails(getDoc(doc(db, "timecards/2026-09")));
       await assertFails(setDoc(doc(db, "timecards/2026-09"), tc));

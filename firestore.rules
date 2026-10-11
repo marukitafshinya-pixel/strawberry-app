@@ -200,7 +200,8 @@ service cloud.firestore {
     match /config/timecard {
       allow read: if isAdmin();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['format', 'cards', 'startTimes', 'roundIn', 'inDir', 'roundOut', 'outDir', 'breaks', 'overtimeOver', 'closeDay', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['format', 'cards', 'startTimes', 'roundIn', 'inDir', 'roundOut', 'outDir', 'breaks', 'overtimeOver', 'closeDay', 'rulesVersion', 'updatedAt'])
+        && (!('rulesVersion' in request.resource.data) || request.resource.data.rulesVersion is int)
         && (!('startTimes' in request.resource.data) || (request.resource.data.startTimes is list && request.resource.data.startTimes.size() <= 50))
         && (!('inDir' in request.resource.data) || request.resource.data.inDir in ['up', 'down'])
         && (!('outDir' in request.resource.data) || request.resource.data.outDir in ['up', 'down'])
