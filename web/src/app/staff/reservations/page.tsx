@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { FirebaseError } from "firebase/app";
 import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useAuth } from "@/lib/auth";
@@ -166,7 +166,7 @@ function ReservationsView() {
           {!reservations && !error && <p className="mt-4 text-gray-500">読み込み中…</p>}
 
           {/* 時間枠ごとの埋まり具合と予約一覧 */}
-          <div className="mt-4 space-y-4 print:mt-2 print:space-y-2">
+          <div className="mt-4 space-y-4 print:hidden">
             {slotRows.map((slot) => {
               const rank = (r: Reservation) => (r.status === "request" ? 0 : r.status === "cancelled" ? 2 : 1);
               const list = (bySlot.get(slot.id) ?? []).sort((a, b) => rank(a) - rank(b));
@@ -202,10 +202,12 @@ function ReservationsView() {
               );
             })}
           </div>
+          {/* 印刷用：1件1行の表にして、A4 1枚に収める */}
+          {reservations && <PrintList slots={slotRows} bySlot={bySlot} contacts={contacts ?? {}} />}
         </>
       )}
 
-      <style>{`@media print { @page { size: A4 portrait; margin: 10mm; } body { background: #fff !important; } }`}</style>
+      <style>{`@media print { @page { size: A4 portrait; margin: 8mm; } body { background: #fff !important; } }`}</style>
       {bulkOpen && <BulkStopDialog settings={settings} initialDate={date} onClose={() => setBulkOpen(false)} />}
       {editing && (
         <ReservationForm
@@ -569,5 +571,85 @@ function ReservationRow({ r, phone, onEdit }: { r: Reservation; phone?: string; 
       {r.memo && <div className="mt-1 whitespace-pre-wrap text-sm text-gray-500">📝 {r.memo}</div>}
       {error && <div className="mt-1 text-sm text-red-600">{error}</div>}
     </li>
+  );
+}
+
+/**
+ * 印刷用の予約一覧。時間・状態・お名前・人数・プラン・電話・メモを1件1行に並べる（取消は出さない）。
+ * 予約のない時間は1行だけ。印刷するときに、A4 1枚に入るよう全体を縮める
+ */
+function PrintList({
+  slots,
+  bySlot,
+  contacts,
+}: {
+  slots: { id: string; time: string; capacity: number | null }[];
+  bySlot: Map<string, Reservation[]>;
+  contacts: Record<string, { phone?: string } | undefined>;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const fit = () => {
+      const el = box.current;
+      if (!el) return;
+      el.style.zoom = "1";
+      // A4縦（297mm）から上下の余白8mmずつと、上の日付の分を引いた高さ（96dpi）
+      const pageH = ((297 - 16) * 96) / 25.4 - 70;
+      const h = el.scrollHeight;
+      el.style.zoom = h > pageH ? String(Math.max(0.4, pageH / h)) : "1";
+    };
+    window.addEventListener("beforeprint", fit);
+    return () => window.removeEventListener("beforeprint", fit);
+  }, []);
+  const td = "border border-gray-400 px-1.5 py-0.5 align-top";
+  return (
+    <div ref={box} className="hidden print:mt-1 print:block">
+      <table className="w-full border-collapse text-[11px] leading-tight">
+        <thead>
+          <tr className="bg-gray-100">
+            {["時間", "状態", "お名前", "人数", "プラン（内訳）", "電話", "メモ"].map((h) => (
+              <th key={h} className={`${td} whitespace-nowrap text-left`}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {slots.map((slot) => {
+            const list = (bySlot.get(slot.id) ?? []).filter((r) => r.status !== "cancelled");
+            const booked = list.filter((r) => countsTowardCapacity(r.status)).reduce((n, r) => n + r.people, 0);
+            const count = `${booked}${slot.capacity !== null ? `/${slot.capacity}` : ""}人`;
+            const time = (
+              <td rowSpan={Math.max(1, list.length)} className={`${td} whitespace-nowrap font-bold`}>
+                {slot.time}
+                {list.length > 1 && <span className="block font-normal text-gray-600">{count}</span>}
+              </td>
+            );
+            if (list.length === 0)
+              return (
+                <tr key={slot.id} className="border-t-2 border-gray-600">
+                  {time}
+                  <td colSpan={6} className={`${td} text-gray-400`}>
+                    予約なし（{count}）
+                  </td>
+                </tr>
+              );
+            return list.map((r, i) => (
+              <tr key={r.id} className={i === 0 ? "border-t-2 border-gray-600" : ""}>
+                {i === 0 && time}
+                <td className={`${td} whitespace-nowrap`}>{STATUS_LABEL[r.status]}</td>
+                <td className={`${td} whitespace-nowrap font-bold`}>{r.customerName} 様</td>
+                <td className={`${td} whitespace-nowrap text-right`}>{r.people}人</td>
+                <td className={td}>
+                  {r.planName}（{peopleText(r)}）{r.source === "web" ? ` Web ${r.code}` : ""}
+                </td>
+                <td className={`${td} whitespace-nowrap`}>{contacts[r.id]?.phone ?? ""}</td>
+                <td className={`${td} whitespace-pre-wrap`}>{r.memo}</td>
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
