@@ -54,6 +54,10 @@ function Display() {
   const [from, setFrom] = useState(isValidYmd(q) ? q : todayJST());
   const [hDate, setHDate] = useState(isValidYmd(q) && params.get("view") === "haichi" ? q : todayJST());
   const [span, setSpan] = useState<number>(() => {
+    // 開いたときも、勤務表だけなら28日・2画面なら14日
+    const lay = load(LAYOUT_KEY);
+    if (lay === "table") return 28;
+    if (lay !== "haichi") return 14;
     const v = Number(load(DAYS_KEY));
     return (DAY_CHOICES as readonly number[]).includes(v) ? v : 14;
   });
@@ -67,6 +71,12 @@ function Display() {
   const setLayout = (l: Layout) => {
     setLayoutState(l);
     store(LAYOUT_KEY, l);
+    // 勤務表だけ（全画面）にしたときは28日分、2画面に戻したときは14日分を出す
+    const n = l === "table" ? 28 : l === "split" ? 14 : null;
+    if (n) {
+      setSpan(n);
+      store(DAYS_KEY, String(n));
+    }
   };
   const haichiTemplate = useHaichiTemplate();
   const haichiDay = useHaichiDay(hDate);
