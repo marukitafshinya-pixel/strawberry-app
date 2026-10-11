@@ -11,6 +11,7 @@ import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
 import { FitPane } from "../FitPane";
+import { ColorChartOverlay } from "../ColorChart";
 import { ForecastStrip } from "../ForecastStrip";
 import { TempBadge } from "../TempBadge";
 import { HaichiBoard } from "../Haichi";
@@ -83,6 +84,8 @@ function Display() {
   const hideBar = full || halfSide !== null;
   /** 天気予報の小窓（画面の上に重ねて出す） */
   const [showForecast, setShowForecast] = useState(false);
+  /** いちごのカラーチャートの小窓（2画面にまたがって大きく出す） */
+  const [showChart, setShowChart] = useState(false);
   useEffect(() => {
     const on = () => setFull(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
@@ -186,6 +189,9 @@ function Display() {
             >
               🌤 天気予報{showForecast ? "を閉じる" : ""}
             </button>
+            <button onClick={() => setShowChart(true)} className="rounded-lg border border-rose-600 bg-white px-3 py-1.5 font-bold text-rose-700">
+              🍓 カラーチャート
+            </button>
           </span>
         )}
         {showT && (
@@ -283,6 +289,7 @@ function Display() {
           </>
         )}
       </div>
+      {showChart && <ColorChartOverlay onClose={() => setShowChart(false)} />}
       {showForecast && (
         // 画面の上に重ねる天気予報の小窓。まわりの暗いところか「閉じる」を押すと閉じる（全画面はそのまま）
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" onClick={() => setShowForecast(false)}>

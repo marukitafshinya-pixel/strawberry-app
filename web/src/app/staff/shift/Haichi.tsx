@@ -8,6 +8,7 @@ import { addDays, formatJa, todayJST } from "@/lib/date";
 import { errorText } from "@/lib/callFunction";
 import { newSlotId, saveHaichiDay, saveHaichiTemplate, sectionArrows, sectionSide, useHaichiDay, useHaichiTemplate, type HaichiDay, type HaichiTemplate } from "@/lib/haichi";
 import { isWorking, useShiftDays, type ShiftConfig, type ShiftMember } from "@/lib/shift";
+import { ColorChartOverlay } from "./ColorChart";
 import { ForecastStrip } from "./ForecastStrip";
 import { TempBadge } from "./TempBadge";
 import { sortMembers } from "./ShiftTable";
@@ -185,6 +186,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
   const [editingTemplate, setEditingTemplate] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [showForecast, setShowForecast] = useState(false);
+  const [showChart, setShowChart] = useState(false);
   /** 押して選んだ名前（そのあと枠を押すと入る）。from はどの枠から（リストなら null） */
   const [selected, setSelected] = useState<{
     memberId: string;
@@ -327,6 +329,10 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
         <button onClick={() => setShowForecast(!showForecast)} className={`rounded-lg border px-3 py-1.5 text-sm font-bold ${showForecast ? "border-sky-700 bg-sky-700 text-white" : "border-sky-700 bg-white text-sky-800"}`}>
           🌤 天気予報{showForecast ? "を隠す" : ""}
         </button>
+        <button onClick={() => setShowChart(true)} className="rounded-lg border border-rose-600 bg-white px-3 py-1.5 text-sm font-bold text-rose-700">
+          🍓 カラーチャート
+        </button>
+        {showChart && <ColorChartOverlay onClose={() => setShowChart(false)} />}
         {isAdmin && (
           <div className="ml-auto flex gap-2">
             {done ? (
