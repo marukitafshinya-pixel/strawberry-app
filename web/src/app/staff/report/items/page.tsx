@@ -128,9 +128,6 @@ export default function ItemReportPage() {
         <Link href="/staff/store/" className="text-gray-500 underline">
           ← 店舗実績
         </Link>
-        <Link href="/staff/report/" className="ml-4 text-gray-500 underline">
-          集計（期間指定）
-        </Link>
       </p>
       <h1 className="mt-2 text-xl font-bold">商品別の実績</h1>
 

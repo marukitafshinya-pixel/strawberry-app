@@ -10,6 +10,7 @@ import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear } from "@/lib/shipping";
+import { RangeSummary } from "./RangeSummary";
 import { decodeCsv, parseCsv } from "@/lib/csv";
 import { AIRREGI_KEYS, STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, REGI_START, useStoreDaysWithRegi, type StoreDay, type StoreKey } from "@/lib/store";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
@@ -30,6 +31,8 @@ function StoreView() {
   const router = useRouter();
   const q = params.get("month");
   const month = q && /^\d{4}-\d{2}$/.test(q) ? q : todayJST().slice(0, 7);
+  /** 期間を指定して集計する欄を開いているか */
+  const [showRange, setShowRange] = useState(false);
   const setMonth = (m: string) => router.replace(`/staff/store/?month=${m}`);
   const { days: loaded, auto } = useStoreDaysWithRegi(`${month}-01`, lastDayOf(month));
   const year = month.slice(0, 4);
@@ -59,11 +62,15 @@ function StoreView() {
         <Link href="/staff/report/items/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
           商品別の実績
         </Link>
-        <Link href="/staff/report/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
-          集計（期間指定）
-        </Link>
+        <button
+          onClick={() => setShowRange(!showRange)}
+          className={`rounded-lg border border-berry px-4 py-2 text-sm font-bold ${showRange ? "bg-berry text-white" : "bg-white text-berry"}`}
+        >
+          📅 期間を指定して集計
+        </button>
         </div>
       </div>
+      {showRange && <RangeSummary />}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
           ‹ 前月
