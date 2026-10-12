@@ -30,7 +30,6 @@ const MENU: MenuItem[] = [
   { label: "現金出納帳", href: "/staff/cashbook/", adminOnly: true },
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
-  { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
   { label: "データのバックアップ", href: "/staff/backup/", adminOnly: true },
 ];
 

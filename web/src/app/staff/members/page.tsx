@@ -39,8 +39,8 @@ export default function MembersPage() {
   return (
     <>
       <p className="text-sm">
-        <Link href="/staff/" className="text-gray-500 underline">
-          ← メニュー
+        <Link href="/staff/settings/" className="text-gray-500 underline">
+          ← 設定
         </Link>
       </p>
       <h1 className="mt-2 text-xl font-bold">スタッフ管理</h1>
