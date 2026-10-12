@@ -13,6 +13,10 @@ import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
 import { guessYear, parseShipmentTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
 import { ShikiriImport } from "./Shikiri";
+import { callFunction } from "@/lib/callFunction";
+import { filesToPages, pagesToUploads } from "@/lib/shikiri";
+import type { OcrPage } from "@/lib/shikiriOcr";
+import { matchGrades, parsePriceNotice } from "@/lib/priceNotice";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 type Mode = "qty" | "price";
@@ -34,6 +38,8 @@ function ShippingView() {
   const q = params.get("month");
   const month = q && /^\d{4}-\d{2}$/.test(q) ? q : todayJST().slice(0, 7);
   const setMonth = (m: string) => router.replace(`/staff/shipping/?month=${m}`);
+  /** 単価連絡表から読んだ期間と単価（「期間でまとめて単価を入れる」の欄に入れる） */
+  const [preset, setPreset] = useState<NoticePreset | null>(null);
   const { value: config, exists } = useShippingConfig();
   // 1日の「前日の単価」のために、前の月の最終日も読む
   const from = addDays(`${month}-01`, -1);
@@ -104,7 +110,18 @@ function ShippingView() {
         <>
           <PriceImport grades={config.grades} defaultYear={Number(year)} onDone={() => setVersion((v) => v + 1)} />
           <ShikiriImport grades={config.grades} onDone={() => setVersion((v) => v + 1)} />
-          <Grid key={`${month}_${version}`} month={month} grades={config.grades} loaded={loaded} />
+          <Grid
+            key={`${month}_${version}`}
+            month={month}
+            grades={config.grades}
+            loaded={loaded}
+            preset={preset && preset.from.slice(0, 7) === month ? preset : null}
+            onNotice={(n) => {
+              // 読んだ期間が別の月なら、その月を開いてから欄に入れる
+              setPreset(n);
+              if (n.from.slice(0, 7) !== month) setMonth(n.from.slice(0, 7));
+            }}
+          />
         </>
       )}
       {config && exists && yearData && <YearSummary year={year} grades={config.grades} data={yearData} />}
@@ -114,8 +131,21 @@ function ShippingView() {
   );
 }
 
-function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loaded: Record<string, DayItems> }) {
-  const [mode, setMode] = useState<Mode>("qty");
+function Grid({
+  month,
+  grades,
+  loaded,
+  preset,
+  onNotice,
+}: {
+  month: string;
+  grades: Grade[];
+  loaded: Record<string, DayItems>;
+  preset: NoticePreset | null;
+  onNotice: (n: NoticePreset) => void;
+}) {
+  // 単価連絡表を読んだあとは、単価の表を開いておく
+  const [mode, setMode] = useState<Mode>(preset ? "price" : "qty");
   const [data, setData] = useState<Record<string, DayItems>>(loaded);
   const [changed, setChanged] = useState<string[]>([]);
   const [message, setMessage] = useState("");
@@ -255,7 +285,14 @@ function Grid({ month, grades, loaded }: { month: string; grades: Grade[]; loade
       {mode === "price" && (
         <>
           <p className="mt-2 text-sm text-gray-600">日付の下の「←」を押すと、前の日の単価をその日に写します。</p>
-          <BulkPrice month={month} grades={grades} onApply={applyBulkPrices} />
+          <BulkPrice
+            key={preset?.id ?? "bulk"}
+            month={month}
+            grades={grades}
+            onApply={applyBulkPrices}
+            preset={preset}
+            onNotice={onNotice}
+          />
         </>
       )}
 
@@ -609,30 +646,107 @@ function PriceImport({ grades, defaultYear, onDone }: { grades: Grade[]; default
 
 const formatYmd = (d: string) => `${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`;
 
-/** 期間でまとめて単価を入れる */
+/** 単価連絡表から読んだ内容（id は読むたびに変わる。欄を作り直すのに使う） */
+type NoticePreset = { id: string; from: string; to: string; prices: Record<string, number>; note: string };
+
+/** 期間でまとめて単価を入れる。「単価連絡表を読み取る」で、紙の期間と単価を欄に入れることもできる */
 function BulkPrice({
   month,
   grades,
   onApply,
+  preset,
+  onNotice,
 }: {
   month: string;
   grades: Grade[];
   onApply: (from: string, to: string, prices: Record<string, number>, onlyShipped: boolean) => number;
+  preset: NoticePreset | null;
+  onNotice: (n: NoticePreset) => void;
 }) {
   const first = `${month}-01`;
   const last = lastDayOf(month);
-  const [open, setOpen] = useState(false);
-  const [from, setFrom] = useState(first);
-  const [to, setTo] = useState(last);
-  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState(!!preset);
+  const [from, setFrom] = useState(preset ? (preset.from < first ? first : preset.from) : first);
+  const [to, setTo] = useState(preset ? (preset.to > last ? last : preset.to) : last);
+  const [prices, setPrices] = useState<Record<string, string>>(preset ? Object.fromEntries(Object.entries(preset.prices).map(([k, v]) => [k, String(v)])) : {});
   const [onlyShipped, setOnlyShipped] = useState(false);
   const [note, setNote] = useState("");
+  const [readMsg, setReadMsg] = useState<{ ok: boolean; text: string } | null>(preset ? { ok: true, text: preset.note } : null);
+  const [reading, setReading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  /** 単価連絡表（写真・スキャン・PDF）を文字読み取りで読み、期間と単価を欄に入れる */
+  async function readNotice(files: File[]) {
+    setReadMsg(null);
+    setReading(true);
+    try {
+      const pages = await filesToPages(files.slice(0, 1));
+      const uploads = pagesToUploads(pages);
+      const res = await callFunction<{ files: typeof uploads }, { pages: OcrPage[] }>("readShikiriOcr", { files: uploads }, 150_000);
+      const r = parsePriceNotice(res.pages[0] ?? { width: 0, height: 0, words: [] }, Number(month.slice(0, 4)));
+      if (!r.from || !r.to || r.rows.length === 0) throw new Error(`単価連絡表として読めませんでした。${r.notes.join("。")}`);
+      const m = matchGrades(r.rows, grades);
+      const text = [
+        `読み取りました：${Number(r.from.slice(5, 7))}月${Number(r.from.slice(8))}日〜${Number(r.to.slice(5, 7))}月${Number(r.to.slice(8))}日`,
+        `${m.matched.length}規格（${m.matched.join("・")}）`,
+        m.unmatched.length ? `出荷の規格にないため入れなかったもの：${m.unmatched.join("・")}` : "",
+        "紙と見比べて、違うところは欄を直してから「表に入れる」を押してください。",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const n: NoticePreset = { id: String(Date.now()), from: r.from, to: r.to, prices: m.prices, note: text };
+      if (r.from.slice(0, 7) !== month || r.to.slice(0, 7) !== r.from.slice(0, 7)) {
+        // 別の月なら、その月を開いて欄を作り直す（月をまたぐ期間は、始まりの月の分だけ入る）
+        onNotice(n);
+        return;
+      }
+      setFrom(r.from);
+      setTo(r.to);
+      setPrices(Object.fromEntries(Object.entries(m.prices).map(([k, v]) => [k, String(v)])));
+      setNote("");
+      setReadMsg({ ok: true, text });
+    } catch (e) {
+      setReadMsg({ ok: false, text: e instanceof Error && !("code" in e) ? e.message : errorText(e) });
+    } finally {
+      setReading(false);
+    }
+  }
+
+  const readButton = (
+    <>
+      <button
+        disabled={reading}
+        onClick={() => fileRef.current?.click()}
+        className="mt-2 ml-2 rounded-lg border border-sky-700 bg-white px-4 py-2 text-sm font-bold text-sky-800 disabled:opacity-50"
+      >
+        {reading ? "読み取り中…" : "📷 単価連絡表を読み取る"}
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const fs = [...(e.target.files ?? [])];
+          e.target.value = "";
+          if (fs.length) {
+            setOpen(true);
+            void readNotice(fs);
+          }
+        }}
+      />
+    </>
+  );
 
   if (!open)
     return (
-      <button onClick={() => setOpen(true)} className="mt-2 rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
-        期間でまとめて単価を入れる
-      </button>
+      <div>
+        <button onClick={() => setOpen(true)} className="mt-2 rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+          期間でまとめて単価を入れる
+        </button>
+        {readButton}
+        {readMsg && !readMsg.ok && <p className="mt-1 text-sm text-red-600">{readMsg.text}</p>}
+      </div>
     );
 
   const filled = Object.fromEntries(
@@ -645,7 +759,13 @@ function BulkPrice({
 
   return (
     <section className="mt-2 rounded-2xl border border-berry/40 bg-white p-4 shadow-sm">
-      <h2 className="font-bold">期間でまとめて単価を入れる</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="font-bold">期間でまとめて単価を入れる</h2>
+        {readButton}
+      </div>
+      {readMsg && (
+        <p className={`mt-2 whitespace-pre-line rounded-lg px-3 py-2 text-sm ${readMsg.ok ? "bg-sky-50 text-sky-900" : "bg-red-50 text-red-700"}`}>{readMsg.text}</p>
+      )}
       <div className="mt-2 flex flex-wrap items-end gap-2 text-sm">
         <label className="block">
           <span className="text-gray-600">期間</span>
