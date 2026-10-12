@@ -38,6 +38,7 @@ export const BACKUP_COLLECTIONS = [
 export const BACKUP_DOCS = [
   "settings/main",
   "config/invoice",
+  "config/invoiceSeal",
   "config/menu",
   "config/cashbookItems",
   "config/register",

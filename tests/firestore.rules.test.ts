@@ -176,6 +176,13 @@ describe("会計・売掛・過去売上", () => {
     await assertFails(setDoc(doc(admin(), "config/invoice"), { bankInfo: "x", other: 1 }));
     await assertSucceeds(getDoc(doc(staff(), "config/invoice")));
     await assertFails(getDoc(doc(guest(), "config/invoice")));
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    await assertSucceeds(setDoc(doc(admin(), "config/invoiceSeal"), { image: png }));
+    await assertFails(setDoc(doc(staff(), "config/invoiceSeal"), { image: png }));
+    await assertFails(setDoc(doc(admin(), "config/invoiceSeal"), { image: "javascript:alert(1)" }));
+    await assertFails(setDoc(doc(admin(), "config/invoiceSeal"), { image: png, other: 1 }));
+    await assertSucceeds(getDoc(doc(staff(), "config/invoiceSeal")));
+    await assertFails(getDoc(doc(guest(), "config/invoiceSeal")));
   });
   it("去年の商品別の実績は管理者だけが取り込み、スタッフは見るだけ", async () => {
     const data = { from: "2025-06-01", to: "2025-11-30", items: [{ name: "いちごジャム", category: "直売", amount: 104550, qty: 141 }] };

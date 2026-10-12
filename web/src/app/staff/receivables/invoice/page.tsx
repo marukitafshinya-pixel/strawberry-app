@@ -10,6 +10,7 @@ import { billingPeriod, dueDateOf, termsText, useCustomers, type Customer } from
 import { formatJa, shiftMonth, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { useSettings } from "@/lib/reservations";
+import { removeSeal, saveSeal, sealFromPhoto, useSeal } from "@/lib/seal";
 import { lineTaxRate, useReceivablesByCustomer, useSalesByCustomer, type Receivable, type Sale } from "@/lib/sales";
 import type { Settings, TaxRate } from "@/lib/settings";
 
@@ -89,6 +90,10 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
   const [bankInfo, setBankInfo] = useState(config.bankInfo);
   const [note, setNote] = useState(config.note);
   const [message, setMessage] = useState("");
+  const seal = useSeal();
+  /** 印鑑を押す（登録してあるとき） */
+  const [withSeal, setWithSeal] = useState(true);
+  const sealImg = withSeal && seal ? seal : "";
 
   const due = dueDate ?? dueDateOf(c.terms, period.to);
   const saleById = new Map((sales ?? []).map((x) => [x.id, x]));
@@ -125,20 +130,37 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
         </p>
         <div className="mt-3 space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => { setMonth(shiftMonth(month, -1)); setDueDate(null); }} className="rounded-lg border px-3 py-2">
+            <button
+              onClick={() => {
+                setMonth(shiftMonth(month, -1));
+                setDueDate(null);
+              }}
+              className="rounded-lg border px-3 py-2"
+            >
               ‹ 前の締め
             </button>
             <span className="font-bold">
               {formatJa(period.from, true)} 〜 {formatJa(period.to)} 締め分
             </span>
-            <button onClick={() => { setMonth(shiftMonth(month, 1)); setDueDate(null); }} className="rounded-lg border px-3 py-2">
+            <button
+              onClick={() => {
+                setMonth(shiftMonth(month, 1));
+                setDueDate(null);
+              }}
+              className="rounded-lg border px-3 py-2"
+            >
               次の締め ›
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm">
               <span className="text-gray-600">請求日</span>
-              <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+              <input
+                type="date"
+                value={issueDate}
+                onChange={(e) => setIssueDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+              />
             </label>
             <label className="block text-sm">
               <span className="text-gray-600">お支払期限</span>
@@ -153,15 +175,35 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                 <input type="checkbox" checked={withDelivery} onChange={(e) => setWithDelivery(e.target.checked)} />
                 納品書も一緒に印刷する
               </label>
+              {seal && (
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={withSeal} onChange={(e) => setWithSeal(e.target.checked)} />
+                  印鑑を押す
+                </label>
+              )}
             </div>
           </div>
           <label className="block text-sm">
             <span className="text-gray-600">お振込先</span>
-            <textarea value={bankInfo} rows={2} maxLength={500} placeholder="例：〇〇銀行 〇〇支店 普通 1234567 名義 マルキタイチゴノウエン" onChange={(e) => setBankInfo(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+            <textarea
+              value={bankInfo}
+              rows={2}
+              maxLength={500}
+              placeholder="例：〇〇銀行 〇〇支店 普通 1234567 名義 マルキタイチゴノウエン"
+              onChange={(e) => setBankInfo(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+            />
           </label>
           <label className="block text-sm">
             <span className="text-gray-600">備考</span>
-            <textarea value={note} rows={2} maxLength={500} placeholder="例：振込手数料はご負担ください" onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+            <textarea
+              value={note}
+              rows={2}
+              maxLength={500}
+              placeholder="例：振込手数料はご負担ください"
+              onChange={(e) => setNote(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+            />
           </label>
           <div className="flex flex-wrap items-center gap-2">
             {role === "admin" && (bankInfo !== config.bankInfo || note !== config.note) && (
@@ -171,7 +213,12 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
             )}
             {message && <span className="text-sm text-green-700">{message}</span>}
           </div>
-          <button onClick={() => window.print()} disabled={rows.length === 0} className="w-full rounded-lg bg-berry py-3 text-lg font-bold text-white disabled:opacity-40">
+          {role === "admin" && seal !== null && <SealSetting seal={seal} />}
+          <button
+            onClick={() => window.print()}
+            disabled={rows.length === 0}
+            className="w-full rounded-lg bg-berry py-3 text-lg font-bold text-white disabled:opacity-40"
+          >
             印刷する
           </button>
           {receivables && rows.length === 0 && <p className="text-sm text-gray-500">この期間の売掛はありません。</p>}
@@ -215,12 +262,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                 </tbody>
               </table>
             </div>
-            <div className="w-[65mm] text-right text-[9pt]">
-              <div className="text-[11pt] font-bold">{s.storeName}</div>
-              {s.storeAddress && <div>{s.storeAddress}</div>}
-              {s.storePhone && <div>TEL {s.storePhone}</div>}
-              {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}
-            </div>
+            <StoreBlock s={s} seal={sealImg} />
           </div>
 
           <table className="mt-5 w-full border-collapse text-[9.5pt]">
@@ -309,12 +351,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                   納品期間：{formatJa(period.from, true)} 〜 {formatJa(period.to, true)}
                 </p>
               </div>
-              <div className="w-[65mm] text-right text-[9pt]">
-                <div className="text-[11pt] font-bold">{s.storeName}</div>
-                {s.storeAddress && <div>{s.storeAddress}</div>}
-                {s.storePhone && <div>TEL {s.storePhone}</div>}
-                {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}
-              </div>
+              <StoreBlock s={s} seal={sealImg} />
             </div>
 
             <table className="mt-5 w-full border-collapse text-[9.5pt]">
@@ -381,6 +418,84 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
         </div>
       )}
       <style>{`@media print { @page { size: A4 portrait; margin: 14mm; } body { background: #fff !important; } }`}</style>
+    </>
+  );
+}
+
+/** 請求書・納品書の右上：お店の名前・住所など。印鑑は名前の右に重ねて押す */
+function StoreBlock({ s, seal }: { s: Settings; seal: string }) {
+  return (
+    <div className="relative w-[65mm] text-right text-[9pt]">
+      <div className="text-[11pt] font-bold">{s.storeName}</div>
+      {s.storeAddress && <div>{s.storeAddress}</div>}
+      {s.storePhone && <div>TEL {s.storePhone}</div>}
+      {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}
+      {/* eslint-disable-next-line @next/next/no-img-element -- 保存した印鑑の画像（data URL）をそのまま出す */}
+      {seal && <img src={seal} alt="印" className="absolute -top-[2mm] right-0 h-[22mm] w-[22mm] object-contain [print-color-adjust:exact]" />}
+    </div>
+  );
+}
+
+/** 印鑑の登録（管理者だけ）：紙に押した印鑑の写真を選ぶと、白いところを透明にして保存する */
+function SealSetting({ seal }: { seal: string }) {
+  const [preview, setPreview] = useState("");
+  const [msg, setMsg] = useState("");
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setMsg("");
+    try {
+      setPreview(await sealFromPhoto(file));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
+  async function run(f: () => Promise<void>, done: string) {
+    try {
+      await f();
+      setPreview("");
+      setMsg(done);
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  }
+  return (
+    <>
+      <details className="rounded-lg border p-3 text-sm" open={!seal}>
+        <summary className="cursor-pointer font-bold">印鑑（角印）{seal ? "：登録済み" : "：まだ登録されていません"}</summary>
+        <p className="mt-1 text-gray-600">
+          白い紙に押した印鑑を、明るいところで真上から撮った写真（またはスキャンした画像）を選んでください。紙の白いところは自動で透明になります。
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 保存した印鑑の画像（data URL） */}
+          {(preview || seal) && <img src={preview || seal} alt="印鑑" className="h-24 w-24 rounded border bg-white object-contain" />}
+          <label className="cursor-pointer rounded-lg border bg-white px-3 py-2">
+            📷 印鑑の画像を選ぶ
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                void pick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {preview && (
+            <button onClick={() => run(() => saveSeal(preview), "印鑑を保存しました")} className="rounded-lg bg-berry px-3 py-2 font-bold text-white">
+              この印鑑を保存する
+            </button>
+          )}
+          {seal && !preview && (
+            <button
+              onClick={() => confirm("印鑑を削除しますか？") && run(removeSeal, "印鑑を削除しました")}
+              className="rounded-lg border px-3 py-2 text-red-600"
+            >
+              削除
+            </button>
+          )}
+        </div>
+      </details>
+      {msg && <p className="text-sm text-gray-700">{msg}</p>}
     </>
   );
 }

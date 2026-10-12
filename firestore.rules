@@ -88,6 +88,17 @@ service cloud.firestore {
         && request.resource.data.bankInfo.size() <= 500;
     }
 
+    // 請求書・納品書に押す印鑑（角印）の画像：スタッフは見るだけ（印刷する）、登録・削除は管理者
+    match /config/invoiceSeal {
+      allow read: if isStaff();
+      allow delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['image', 'updatedAt'])
+        && request.resource.data.image is string
+        && request.resource.data.image.size() <= 600000
+        && request.resource.data.image.matches('^data:image/png;base64,[A-Za-z0-9+/=]+$');
+    }
+
     // レジの共通設定（領収書の「扱者」に選ぶ名前のリスト）：スタッフが見て、直せる
     // メニューのタイルの配置：スタッフが読み、管理者が変える
     match /config/menu {
