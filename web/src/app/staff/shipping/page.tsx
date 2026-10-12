@@ -76,9 +76,6 @@ function ShippingView() {
         <Link href={`/staff/shipping/weekly/?year=${year}&unit=month`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
           実績集計（月ごと）
         </Link>
-        <Link href="/staff/report/items/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
-          商品別の実績
-        </Link>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">

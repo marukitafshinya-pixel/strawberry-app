@@ -125,8 +125,8 @@ export default function ItemReportPage() {
   return (
     <>
       <p className="text-sm">
-        <Link href="/staff/shipping/" className="text-gray-500 underline">
-          ← 出荷実績
+        <Link href="/staff/store/" className="text-gray-500 underline">
+          ← 店舗実績
         </Link>
         <Link href="/staff/report/" className="ml-4 text-gray-500 underline">
           集計
