@@ -213,6 +213,19 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("目標と実績（管理者のみ）", () => {
+  it("管理者だけが読み書きでき、形が違うものは保存できない", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "goals/2026"), { targets: { "10": { store: 1000000, labor: 500000 } }, hobe: { "10": 30000 } }));
+    await assertSucceeds(getDoc(doc(admin(), "goals/2026")));
+    for (const db of [staff(), guest(), noRole(), disabled()]) {
+      await assertFails(getDoc(doc(db, "goals/2026")));
+      await assertFails(setDoc(doc(db, "goals/2026"), { targets: {}, hobe: {} }));
+    }
+    await assertFails(setDoc(doc(admin(), "goals/26"), { targets: {}, hobe: {} }));
+    await assertFails(setDoc(doc(admin(), "goals/2026"), { targets: {}, hobe: {}, secret: 1 }));
+  });
+});
+
 describe("タイムカード（管理者のみ）", () => {
   it("打刻と計算のルールは管理者だけが読み書きできる", async () => {
     const tc = { cards: { "001": { "01": { i: 338, o: 1024 }, "02": { i: 339, o: null, e: { i: 339, o: 1020 } } } }, fileName: "ER201001.csv" };

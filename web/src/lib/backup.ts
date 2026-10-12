@@ -28,6 +28,7 @@ export const BACKUP_COLLECTIONS = [
   "cafeCalls",
   "employees",
   "payrolls",
+  "goals",
   "timecards",
   "shiftMembers",
   "shiftDays",

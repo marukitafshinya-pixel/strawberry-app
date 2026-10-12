@@ -422,16 +422,17 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
   );
 }
 
-/** 請求書・納品書の右上：お店の名前・住所など。印鑑は名前の右に重ねて押す */
+/** 請求書・納品書の右上：お店の名前・住所など。印鑑は名前の右に、文字の後ろに押す */
 function StoreBlock({ s, seal }: { s: Settings; seal: string }) {
   return (
-    <div className="relative w-[65mm] text-right text-[9pt]">
+    <div className="relative isolate w-[65mm] text-right text-[9pt]">
+      {/* 印鑑は文字の後ろ（背面）に押す */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- 保存した印鑑の画像（data URL）をそのまま出す */}
+      {seal && <img src={seal} alt="印" className="absolute -top-[2mm] right-0 -z-10 h-[22mm] w-[22mm] object-contain [print-color-adjust:exact]" />}
       <div className="text-[11pt] font-bold">{s.storeName}</div>
       {s.storeAddress && <div>{s.storeAddress}</div>}
       {s.storePhone && <div>TEL {s.storePhone}</div>}
       {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}
-      {/* eslint-disable-next-line @next/next/no-img-element -- 保存した印鑑の画像（data URL）をそのまま出す */}
-      {seal && <img src={seal} alt="印" className="absolute -top-[2mm] right-0 h-[22mm] w-[22mm] object-contain [print-color-adjust:exact]" />}
     </div>
   );
 }

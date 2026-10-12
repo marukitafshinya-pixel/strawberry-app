@@ -116,6 +116,11 @@ export function useReceivables(status: "open" | "collected" | null) {
   );
 }
 
+/** 期間内の売掛（売掛にした日で探す） */
+export function useReceivablesInRange(from: string, to: string) {
+  return useQuery<Receivable>((db) => query(collection(db, "receivables"), where("date", ">=", from), where("date", "<=", to)), [from, to]);
+}
+
 /** お客様名で探した会計と売掛（顧客の取引履歴） */
 export function useSalesByCustomer(name: string) {
   return useQuery<Sale>((db) => (name ? query(collection(db, "sales"), where("customerName", "==", name)) : null), [name]);

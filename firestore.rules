@@ -224,6 +224,15 @@ service cloud.firestore {
         && (!('breaks' in request.resource.data) || (request.resource.data.breaks is list && request.resource.data.breaks.size() <= 5))
         && (!('closeDay' in request.resource.data) || (request.resource.data.closeDay is int && request.resource.data.closeDay >= 1 && request.resource.data.closeDay <= 31));
     }
+    // 目標と実績（goals/{年}）：月ごとの目標と、ホーブへの支払いの実績
+    match /goals/{year} {
+      allow read: if isAdmin();
+      allow write: if isAdmin()
+        && year.matches('^[0-9]{4}$')
+        && request.resource.data.keys().hasOnly(['targets', 'hobe', 'updatedAt'])
+        && request.resource.data.targets is map && request.resource.data.targets.size() <= 12
+        && request.resource.data.hobe is map && request.resource.data.hobe.size() <= 12;
+    }
     match /payrolls/{month} {
       allow read: if isAdmin();
       allow write: if isAdmin()
