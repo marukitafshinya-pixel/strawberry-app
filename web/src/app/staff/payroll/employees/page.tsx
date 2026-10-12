@@ -6,7 +6,7 @@ import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
-import { useEmployees, type Employee } from "@/lib/payroll";
+import { EMPLOYEE_KINDS, useEmployees, type Employee } from "@/lib/payroll";
 import { newId } from "@/lib/settings";
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
@@ -62,6 +62,7 @@ export default function EmployeesPage() {
             <tr className="text-left text-xs text-gray-500">
               <th className="px-3 py-2">番号</th>
               <th className="px-3 py-2">氏名</th>
+              <th className="px-3 py-2">区分</th>
               <th className="px-3 py-2">支払</th>
               <th className="px-3 py-2">振込先</th>
               <th className="px-3 py-2" />
@@ -74,6 +75,9 @@ export default function EmployeesPage() {
                 <td className="px-3 py-2 font-semibold">
                   {e.name}
                   {!e.active && <span className="ml-1 text-xs">（退職）</span>}
+                </td>
+                <td className="px-3 py-2">
+                  <KindBadge kind={e.kind} />
                 </td>
                 <td className="px-3 py-2">{e.payMethod === "cash" ? "現金" : "振込"}</td>
                 <td className="px-3 py-2">
@@ -151,6 +155,17 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
         </label>
       </div>
       <fieldset className="text-sm">
+        <legend className="text-gray-600">区分</legend>
+        <div className="mt-1 flex gap-4">
+          {EMPLOYEE_KINDS.map((k) => (
+            <label key={k.key} className="flex items-center gap-1">
+              <input type="radio" name="kind" checked={e.kind === k.key} onChange={() => set({ kind: k.key })} />
+              {k.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="text-sm">
         <legend className="text-gray-600">支払方法</legend>
         <div className="mt-1 flex gap-4">
           {(["transfer", "cash"] as const).map((m) => (
@@ -202,4 +217,11 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
       </div>
     </form>
   );
+}
+
+/** 区分（役員・社員・アルバイト）の印。決めていなければ「未設定」 */
+function KindBadge({ kind }: { kind?: Employee["kind"] }) {
+  const k = EMPLOYEE_KINDS.find((x) => x.key === kind);
+  if (!k) return <span className="text-xs text-gray-400">未設定</span>;
+  return <span className={`rounded px-2 py-0.5 text-xs font-bold ${k.badge}`}>{k.label}</span>;
 }

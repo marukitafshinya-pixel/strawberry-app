@@ -19,7 +19,16 @@ export type Employee = {
   accountNumber: string;
   /** 給与の表に出すか（退職した人は外す） */
   active: boolean;
+  /** 区分：役員・社員・アルバイト（決めていない人もいる） */
+  kind?: EmployeeKind;
 };
+
+export type EmployeeKind = "officer" | "regular" | "part";
+export const EMPLOYEE_KINDS: { key: EmployeeKind; label: string; badge: string }[] = [
+  { key: "officer", label: "役員", badge: "bg-purple-100 text-purple-800" },
+  { key: "regular", label: "社員", badge: "bg-sky-100 text-sky-800" },
+  { key: "part", label: "アルバイト", badge: "bg-amber-100 text-amber-800" },
+];
 
 /** 給与の打ち込み項目（PDFの給与集計表と同じ並び） */
 export const PAY_ITEMS = [
