@@ -18,7 +18,6 @@ const MENU: MenuItem[] = [
   { label: "売掛管理", href: "/staff/receivables/" },
   { label: "顧客リスト", href: "/staff/customers/" },
   { label: "ダッシュボード", href: "/staff/dashboard/" },
-  { label: "集計（期間指定）", href: "/staff/report/" },
   { label: "予約の集計", href: "/staff/report/reservations/" },
   { label: "勤務管理表", href: "/staff/shift/" },
   { label: "出荷実績", href: "/staff/shipping/" },

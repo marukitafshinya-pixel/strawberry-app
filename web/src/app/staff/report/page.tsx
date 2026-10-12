@@ -34,8 +34,8 @@ function ReportView() {
   return (
     <>
       <p className="text-sm">
-        <Link href="/staff/" className="text-gray-500 underline">
-          ← メニュー
+        <Link href="/staff/store/" className="text-gray-500 underline">
+          ← 店舗実績
         </Link>
       </p>
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">

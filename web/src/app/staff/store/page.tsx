@@ -59,6 +59,9 @@ function StoreView() {
         <Link href="/staff/report/items/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
           商品別の実績
         </Link>
+        <Link href="/staff/report/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+          集計（期間指定）
+        </Link>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
