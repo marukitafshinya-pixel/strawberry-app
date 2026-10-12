@@ -21,7 +21,6 @@ const MENU: MenuItem[] = [
   { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "集計（期間指定）", href: "/staff/report/" },
   { label: "予約の集計", href: "/staff/report/reservations/" },
-  { label: "年ごとの比較", href: "/staff/report/yearly/" },
   { label: "勤務管理表", href: "/staff/shift/" },
   { label: "出荷実績", href: "/staff/shipping/" },
   { label: "店舗実績", href: "/staff/store/" },
@@ -33,7 +32,6 @@ const MENU: MenuItem[] = [
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
   { label: "スタッフ管理", href: "/staff/members/", adminOnly: true },
-  { label: "過去売上の取り込み", href: "/staff/import/", adminOnly: true },
   { label: "データのバックアップ", href: "/staff/backup/", adminOnly: true },
 ];
 
