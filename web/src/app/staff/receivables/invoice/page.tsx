@@ -82,6 +82,8 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
   const period = billingPeriod(c.terms, month);
   const { value: sales } = useSalesByCustomer(c.name);
   const [includeCollected, setIncludeCollected] = useState(false);
+  /** 請求書と一緒に、納品書（2枚目）も印刷する */
+  const [withDelivery, setWithDelivery] = useState(true);
   const [issueDate, setIssueDate] = useState(todayJST());
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [bankInfo, setBankInfo] = useState(config.bankInfo);
@@ -142,10 +144,16 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
               <span className="text-gray-600">お支払期限</span>
               <input type="date" value={due} onChange={(e) => setDueDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
             </label>
-            <label className="flex items-end gap-2 pb-2 text-sm">
-              <input type="checkbox" checked={includeCollected} onChange={(e) => setIncludeCollected(e.target.checked)} />
-              回収済みの分も載せる
-            </label>
+            <div className="space-y-1 pb-1 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={includeCollected} onChange={(e) => setIncludeCollected(e.target.checked)} />
+                回収済みの分も載せる
+              </label>
+              <label className="flex items-center gap-2 font-bold">
+                <input type="checkbox" checked={withDelivery} onChange={(e) => setWithDelivery(e.target.checked)} />
+                納品書も一緒に印刷する
+              </label>
+            </div>
           </div>
           <label className="block text-sm">
             <span className="text-gray-600">お振込先</span>
@@ -167,7 +175,9 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
             印刷する
           </button>
           {receivables && rows.length === 0 && <p className="text-sm text-gray-500">この期間の売掛はありません。</p>}
-          <p className="text-xs text-gray-500">用紙はA4（縦）です。PDFにしたいときは、印刷の画面で「PDFに保存」を選びます。</p>
+          <p className="text-xs text-gray-500">
+            用紙はA4（縦）です。{withDelivery && "1枚目が請求書、2枚目が納品書です。"}PDFにしたいときは、印刷の画面で「PDFに保存」を選びます。
+          </p>
         </div>
         <p className="mt-4 text-sm text-gray-500">印刷のイメージ</p>
       </div>
@@ -276,6 +286,100 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
           {note.trim() && <div className="mt-3 whitespace-pre-wrap text-[9pt]">備考：{note}</div>}
         </article>
       </div>
+      {/* 納品書（請求書の次のページ） */}
+      {withDelivery && rows.length > 0 && (
+        <div className="mt-6 flex justify-center print:mt-0 print:block print:break-before-page">
+          <article className="w-[190mm] bg-white px-[12mm] py-[12mm] text-[10.5pt] text-black shadow print:w-auto print:p-0 print:shadow-none">
+            <h2 className="text-center text-[20pt] font-bold tracking-[0.6em]">納品書</h2>
+            <div className="mt-2 text-right text-[9pt]">
+              <div>発行日：{formatJa(issueDate, true)}</div>
+              <div>納品書番号：{invoiceNo}</div>
+            </div>
+            <div className="mt-4 flex justify-between gap-6">
+              <div className="flex-1">
+                <div className="border-b border-black pb-1 text-[14pt]">{c.name} 御中</div>
+                {c.address && <div className="mt-1 text-[9pt]">{c.address}</div>}
+                <p className="mt-4">下記のとおり納品いたしました。</p>
+                <div className="mt-3 flex items-end gap-3 border-b-2 border-black pb-1">
+                  <span>合計金額</span>
+                  <span className="text-[16pt] font-bold">¥{total.toLocaleString("ja-JP")}-</span>
+                  <span className="text-[9pt]">（税込）</span>
+                </div>
+                <p className="mt-2 text-[9.5pt]">
+                  納品期間：{formatJa(period.from, true)} 〜 {formatJa(period.to, true)}
+                </p>
+              </div>
+              <div className="w-[65mm] text-right text-[9pt]">
+                <div className="text-[11pt] font-bold">{s.storeName}</div>
+                {s.storeAddress && <div>{s.storeAddress}</div>}
+                {s.storePhone && <div>TEL {s.storePhone}</div>}
+                {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}
+              </div>
+            </div>
+
+            <table className="mt-5 w-full border-collapse text-[9.5pt]">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border border-black px-2 py-1 text-left">納品日</th>
+                  <th className="border border-black px-2 py-1 text-left">品名</th>
+                  <th className="border border-black px-2 py-1 text-right">数量</th>
+                  <th className="border border-black px-2 py-1 text-right">単価</th>
+                  <th className="border border-black px-2 py-1 text-right">金額（税込）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.flatMap((r) => {
+                  const sale = r.saleId ? saleById.get(r.saleId) : undefined;
+                  if (!sale)
+                    return [
+                      <tr key={r.id}>
+                        <td className="whitespace-nowrap border border-black px-2 py-1">{formatJa(r.date)}</td>
+                        <td className="border border-black px-2 py-1">{r.memo || "（手入力の売掛）"}</td>
+                        <td className="border border-black px-2 py-1 text-right">—</td>
+                        <td className="border border-black px-2 py-1 text-right">—</td>
+                        <td className="border border-black px-2 py-1 text-right tabular-nums">{r.amount.toLocaleString("ja-JP")}</td>
+                      </tr>,
+                    ];
+                  return sale.lines.map((l, i) => (
+                    <tr key={`${r.id}_${i}`}>
+                      <td className="whitespace-nowrap border border-black px-2 py-1">{i === 0 ? formatJa(r.date) : ""}</td>
+                      <td className="border border-black px-2 py-1">
+                        {l.name}
+                        {l.discountRate > 0 && `（${l.discountRate}%引）`}
+                        {lineTaxRate(l, s) === 8 && " ※"}
+                      </td>
+                      <td className="border border-black px-2 py-1 text-right tabular-nums">{l.qty.toLocaleString("ja-JP")}</td>
+                      <td className="border border-black px-2 py-1 text-right tabular-nums">{l.unitPrice.toLocaleString("ja-JP")}</td>
+                      <td className="border border-black px-2 py-1 text-right tabular-nums">{l.amount.toLocaleString("ja-JP")}</td>
+                    </tr>
+                  ));
+                })}
+                <tr className="font-bold">
+                  <td className="border border-black px-2 py-1" colSpan={4}>
+                    合計
+                  </td>
+                  <td className="border border-black px-2 py-1 text-right tabular-nums">{total.toLocaleString("ja-JP")}</td>
+                </tr>
+              </tbody>
+            </table>
+            <table className="ml-auto mt-2 border-collapse text-[9pt]">
+              <tbody>
+                {taxes.map((t) => (
+                  <tr key={t.rate}>
+                    <td className="border border-black px-2 py-0.5">
+                      {t.rate}%対象{t.rate === 8 && "※"}
+                    </td>
+                    <td className="border border-black px-2 py-0.5 text-right tabular-nums">{t.total.toLocaleString("ja-JP")}円</td>
+                    <td className="border border-black px-2 py-0.5">内消費税</td>
+                    <td className="border border-black px-2 py-0.5 text-right tabular-nums">{t.tax.toLocaleString("ja-JP")}円</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {taxes.some((t) => t.rate === 8) && <p className="mt-1 text-right text-[8.5pt]">※は軽減税率対象</p>}
+          </article>
+        </div>
+      )}
       <style>{`@media print { @page { size: A4 portrait; margin: 14mm; } body { background: #fff !important; } }`}</style>
     </>
   );
