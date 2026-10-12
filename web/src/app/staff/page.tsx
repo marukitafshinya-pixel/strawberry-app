@@ -26,11 +26,9 @@ const MENU: MenuItem[] = [
   { label: "トータル実績", href: "/staff/total/", adminOnly: true },
   { label: "気象データ", href: "/staff/weather/" },
   { label: "給与", href: "/staff/payroll/", adminOnly: true },
-  { label: "タイムカード", href: "/staff/payroll/timecard/", adminOnly: true },
   { label: "現金出納帳", href: "/staff/cashbook/", adminOnly: true },
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
-  { label: "データのバックアップ", href: "/staff/backup/", adminOnly: true },
 ];
 
 /** タイルのキー（配置の保存に使う）："/staff/report/items/" → "report-items" */

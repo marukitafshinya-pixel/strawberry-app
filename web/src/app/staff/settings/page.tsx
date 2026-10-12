@@ -122,6 +122,9 @@ export default function SettingsPage() {
         <Link href="/staff/members/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
           👥 スタッフ管理
         </Link>
+        <Link href="/staff/backup/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+          💾 データのバックアップ
+        </Link>
       </div>
       <p className="mt-1 text-sm text-gray-600">変更したら、画面下の「保存する」を押してください。</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">

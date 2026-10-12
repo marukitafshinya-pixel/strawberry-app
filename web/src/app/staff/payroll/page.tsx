@@ -60,11 +60,13 @@ function PayrollView() {
         <Link href="/staff/payroll/employees/" className="ml-4 text-gray-500 underline">
           従業員の登録
         </Link>
-        <Link href="/staff/payroll/timecard/" className="ml-4 text-gray-500 underline">
-          タイムカード
-        </Link>
       </p>
-      <h1 className="mt-2 text-xl font-bold">給与の打ち込み</h1>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-bold">給与の打ち込み</h1>
+        <Link href="/staff/payroll/timecard/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+          🕒 タイムカード
+        </Link>
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
           ‹ 前月

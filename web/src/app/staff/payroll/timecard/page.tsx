@@ -69,11 +69,8 @@ export default function TimecardPage() {
   return (
     <>
       <p className="text-sm print:hidden">
-        <Link href="/staff/" className="text-gray-500 underline">
-          ← メニュー
-        </Link>
-        <Link href="/staff/payroll/" className="ml-4 text-gray-500 underline">
-          給与の打ち込み
+        <Link href="/staff/payroll/" className="text-gray-500 underline">
+          ← 給与の打ち込み
         </Link>
         <Link href="/staff/payroll/employees/" className="ml-4 text-gray-500 underline">
           従業員の登録
