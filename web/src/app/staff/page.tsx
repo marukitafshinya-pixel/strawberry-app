@@ -17,7 +17,6 @@ const MENU: MenuItem[] = [
   { label: "会計（レジ）", href: "/staff/checkout/", big: true, color: "border-emerald-700 bg-emerald-700 text-white" },
   { label: "売掛管理", href: "/staff/receivables/" },
   { label: "顧客リスト", href: "/staff/customers/" },
-  { label: "日次締め", href: "/staff/sales/" },
   { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "集計（期間指定）", href: "/staff/report/" },
   { label: "予約の集計", href: "/staff/report/reservations/" },
