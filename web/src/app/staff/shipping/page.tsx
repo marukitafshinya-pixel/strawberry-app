@@ -192,8 +192,8 @@ function Grid({
     setMessage("");
   }
 
-  /** 期間の毎日に、規格ごとの単価をまとめて入れる（空欄の規格は変えない） */
-  function applyBulkPrices(from: string, to: string, prices: Record<string, number>, onlyShipped: boolean) {
+  /** 期間の毎日に、規格ごとの単価をまとめて入れて、そのまま保存する（空欄の規格は変えない） */
+  async function applyBulkPrices(from: string, to: string, prices: Record<string, number>, onlyShipped: boolean): Promise<number> {
     const next = { ...data };
     const touched = new Set(changed);
     let count = 0;
@@ -215,25 +215,29 @@ function Grid({
     setData(next);
     setChanged([...touched]);
     setMessage("");
+    if (!(await save(next, [...touched]))) throw new Error("保存できませんでした");
     return count;
   }
 
-  async function save() {
+  /** 変えた日を保存する（うまくいけば true） */
+  async function save(cur = data, days = changed): Promise<boolean> {
     setError("");
     setSaving(true);
     try {
       const { db } = await getFirebase();
       const batch = writeBatch(db);
-      for (const d of changed) {
-        const items = data[d] ?? {};
+      for (const d of days) {
+        const items = cur[d] ?? {};
         if (Object.keys(items).length === 0) batch.delete(doc(db, `shipments/${d}`));
         else batch.set(doc(db, `shipments/${d}`), { items, updatedAt: serverTimestamp() });
       }
       await batch.commit();
       setChanged([]);
       setMessage("保存しました");
+      return true;
     } catch (e) {
       setError(errorText(e));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -408,7 +412,7 @@ function Grid({
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
-          <button onClick={save} disabled={saving || changed.length === 0} className="rounded-lg bg-berry px-6 py-3 font-bold text-white disabled:opacity-40">
+          <button onClick={() => save()} disabled={saving || changed.length === 0} className="rounded-lg bg-berry px-6 py-3 font-bold text-white disabled:opacity-40">
             {saving ? "保存中…" : "保存する"}
           </button>
           {message && <span className="text-sm text-green-700">{message}</span>}
@@ -659,7 +663,7 @@ function BulkPrice({
 }: {
   month: string;
   grades: Grade[];
-  onApply: (from: string, to: string, prices: Record<string, number>, onlyShipped: boolean) => number;
+  onApply: (from: string, to: string, prices: Record<string, number>, onlyShipped: boolean) => Promise<number>;
   preset: NoticePreset | null;
   onNotice: (n: NoticePreset) => void;
 }) {
@@ -673,6 +677,7 @@ function BulkPrice({
   const [note, setNote] = useState("");
   const [readMsg, setReadMsg] = useState<{ ok: boolean; text: string } | null>(preset ? { ok: true, text: preset.note } : null);
   const [reading, setReading] = useState(false);
+  const [applying, setApplying] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   /** 単価連絡表（写真・スキャン・PDF）を文字読み取りで読み、期間と単価を欄に入れる */
@@ -690,7 +695,7 @@ function BulkPrice({
         `読み取りました：${Number(r.from.slice(5, 7))}月${Number(r.from.slice(8))}日〜${Number(r.to.slice(5, 7))}月${Number(r.to.slice(8))}日`,
         `${m.matched.length}規格（${m.matched.join("・")}）`,
         m.unmatched.length ? `出荷の規格にないため入れなかったもの：${m.unmatched.join("・")}` : "",
-        "紙と見比べて、違うところは欄を直してから「表に入れる」を押してください。",
+        "紙と見比べて、違うところは欄を直してから「表に入れて保存する」を押してください。",
       ]
         .filter(Boolean)
         .join("\n");
@@ -808,20 +813,28 @@ function BulkPrice({
       </label>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
-          disabled={!valid || count === 0}
-          onClick={() => {
-            const n = onApply(from, to, filled, onlyShipped);
-            setNote(`${n}日分に入れました。下の「保存する」を押すと保存されます。`);
+          disabled={!valid || count === 0 || applying}
+          onClick={async () => {
+            setApplying(true);
+            setNote("");
+            try {
+              const n = await onApply(from, to, filled, onlyShipped);
+              setNote(`${n}日分に入れて、保存しました。`);
+            } catch {
+              setNote("表には入れましたが、保存できませんでした。下の「保存する」を押してください。");
+            } finally {
+              setApplying(false);
+            }
           }}
           className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-40"
         >
-          表に入れる（{count}規格）
+          {applying ? "保存中…" : `表に入れて保存する（${count}規格）`}
         </button>
         <button onClick={() => setOpen(false)} className="rounded-lg border px-4 py-2 text-sm">
           閉じる
         </button>
         {!valid && <span className="text-sm text-red-600">期間を正しく選んでください</span>}
-        {note && <span className="text-sm text-green-700">{note}</span>}
+        {note && <span className={`text-sm ${note.includes("できません") ? "text-red-600" : "text-green-700"}`}>{note}</span>}
       </div>
     </section>
   );
