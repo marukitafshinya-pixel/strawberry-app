@@ -111,7 +111,8 @@ export function parseMaxTimecardCsv(text: string): { data?: ParsedTimecard; erro
     if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return { error: `${n + 1}行目：日付「${date}」が読めません` };
     const i = readTime(r[4]);
     const o = readTime(r[5]);
-    if (i === undefined || o === undefined) return { error: `${n + 1}行目（カード${card}・${date}）：時刻「${(r[4] ?? "").trim()}」「${(r[5] ?? "").trim()}」が読めません` };
+    if (i === undefined || o === undefined)
+      return { error: `${n + 1}行目（カード${card}・${date}）：時刻「${(r[4] ?? "").trim()}」「${(r[5] ?? "").trim()}」が読めません` };
     const other = [6, 7, 8, 9].map((k) => (r[k] ?? "").trim());
     const p: TcPunch = { i, o };
     if (other.some((s) => s !== "")) p.x = other.join("/");
@@ -121,6 +122,96 @@ export function parseMaxTimecardCsv(text: string): { data?: ParsedTimecard; erro
   }
   if (count === 0) return { error: "打刻の行が見つかりません。タイムレコーダーのCSV（ER201001.csv など）を選んでください" };
   return { data: { months, count } };
+}
+
+/** 楽々勤怠の統合用ファイルから読んだ、カード番号ごとの社員コードと氏名 */
+export type FixedPeople = Record<string, { code: string; name: string }>;
+
+/**
+ * MAXの「楽々勤怠」から書き出した、修正後の打刻のファイルを読む。2つの形が読める（どちらも1人ごとに見出しの行、続けて1日1行）。
+ * - 統合用ファイル（データ処理 → 統合用ファイル作成。〇〇.dat）
+ *   見出し「1,カード番号,1,開始日,終了日,…,社員コード,氏名,…」、日「1,カード番号,1,YYYY/MM/DD,出勤,退勤,…」（時刻は0時からの分）
+ * - 修正／参照の画面のCSV
+ *   見出し「1,カード番号,1,グループ名,社員コード,氏名,…」、日「1,カード番号,1,YYYY/MM/DD,出勤(5:38),,退勤(17:04),…」
+ * カード番号は、USBのデータ（001 など）に合わせて3けたにする
+ */
+export function parseRakurakuDat(text: string): { data?: ParsedTimecard; people?: FixedPeople; error?: string } {
+  const rows = parseCsv(text);
+  const months: ParsedTimecard["months"] = {};
+  const people: FixedPeople = {};
+  let count = 0;
+  const DATE = /^\d{4}\/\d{2}\/\d{2}$/;
+  const name = (v: string | undefined) => (v ?? "").replace(/\u3000/g, " ").trim();
+  for (const [n, r] of rows.entries()) {
+    const rawCard = (r[1] ?? "").trim();
+    if (!/^\d{1,6}$/.test(rawCard)) continue;
+    const card = rawCard.padStart(3, "0");
+    const date = (r[3] ?? "").trim();
+    if (!DATE.test(date)) {
+      // 修正／参照のCSVの見出しの行（グループ名・社員コード・氏名）
+      if (/^\d{1,8}$/.test((r[4] ?? "").trim()) && name(r[5])) people[card] = { code: r[4].trim(), name: name(r[5]) };
+      continue;
+    }
+    // 統合用ファイルの見出しの行（開始日・終了日・…・社員コード・氏名）
+    if (DATE.test((r[4] ?? "").trim())) {
+      people[card] = { code: (r[7] ?? "").trim(), name: name(r[8]) };
+      continue;
+    }
+    // 時刻が「5:38」の形なら修正／参照のCSV（出勤・（空き）・退勤の順）、数字だけなら統合用ファイル（0時からの分）
+    const hmForm = [r[4], r[5], r[6]].some((v) => (v ?? "").includes(":"));
+    const read = (v: string | undefined) => (hmForm ? parseHm(v ?? "") : readTime(v));
+    const iRaw = r[4];
+    const oRaw = hmForm ? r[6] : r[5];
+    const i = read(iRaw);
+    const o = read(oRaw);
+    if (i === undefined || o === undefined)
+      return { error: `${n + 1}行目（カード${rawCard}・${date}）：時刻「${(iRaw ?? "").trim()}」「${(oRaw ?? "").trim()}」が読めません` };
+    const p: TcPunch = { i, o };
+    if (!hmForm) {
+      const other = [6, 7, 8, 9].map((k) => (r[k] ?? "").trim());
+      if (other.some((x) => x !== "")) p.x = other.join("/");
+    }
+    const [yyyy, mm, dd] = date.split("/");
+    // 打刻のない日も入れておく（楽々勤怠で打刻を消した日に気づけるように）
+    ((months[`${yyyy}-${mm}`] ??= {})[card] ??= {})[dd] = p;
+    if (i !== null || o !== null) count++;
+  }
+  if (!Object.keys(people).length || !count)
+    return { error: "楽々勤怠のファイルとして読めませんでした（社員コードと氏名の行、または打刻の行が見つかりません）" };
+  return { data: { months, count }, people };
+}
+
+/**
+ * 楽々勤怠の修正後の打刻を、今の月のデータに「画面で直した時刻（e）」として重ねる。
+ * USBの元の打刻はそのまま残すので、「元の打刻 → 直した時刻」が確認欄に出る。
+ * 元の打刻と同じ日は何もしない（前に直した時刻があれば、楽々勤怠に合わせて元に戻す）
+ */
+export function mergeFixed(
+  cur: TimecardMonth["cards"] | undefined,
+  add: Record<string, Record<string, TcPunch>>,
+): { cards: TimecardMonth["cards"]; changed: number } {
+  const out: TimecardMonth["cards"] = structuredClone(cur ?? {});
+  let changed = 0;
+  for (const [card, days] of Object.entries(add)) {
+    for (const [dd, p] of Object.entries(days)) {
+      const day = out[card]?.[dd];
+      if (!day) {
+        if (p.i === null && p.o === null) continue;
+        // USBのデータにない日（楽々勤怠で足した日）
+        (out[card] ??= {})[dd] = { i: null, o: null, e: { i: p.i, o: p.o } };
+        changed++;
+        continue;
+      }
+      const same = day.i === p.i && day.o === p.o;
+      if (same) {
+        if (day.e) delete day.e;
+        continue;
+      }
+      day.e = { i: p.i, o: p.o };
+      changed++;
+    }
+  }
+  return { cards: out, changed };
 }
 
 /**
@@ -320,6 +411,21 @@ export function useTimecardMonths(months: string[]): Record<string, TimecardMont
 }
 
 /** 取り込み：月ごとに、今のデータに重ねて保存する */
+/** 楽々勤怠の修正後の打刻を、直した時刻として重ねる。直した日数を返す */
+export async function importFixed(parsed: ParsedTimecard): Promise<number> {
+  const { db } = await getFirebase();
+  let total = 0;
+  for (const [ym, cards] of Object.entries(parsed.months)) {
+    const ref = doc(db, `timecards/${ym}`);
+    const cur = await getDoc(ref);
+    const data = cur.data() as TimecardMonth | undefined;
+    const { cards: merged, changed } = mergeFixed(data?.cards, cards);
+    total += changed;
+    await setDoc(ref, { cards: merged, ...(data?.fileName ? { fileName: data.fileName } : {}), updatedAt: serverTimestamp() });
+  }
+  return total;
+}
+
 export async function importTimecard(parsed: ParsedTimecard, fileName: string) {
   const { db } = await getFirebase();
   for (const [ym, cards] of Object.entries(parsed.months)) {

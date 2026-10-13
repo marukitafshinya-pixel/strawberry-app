@@ -17,8 +17,10 @@ import {
   employeeForCard,
   hm,
   hours2,
+  importFixed,
   importTimecard,
   parseMaxTimecardCsv,
+  parseRakurakuDat,
   periodDays,
   parseHm,
   periodMonths,
@@ -31,6 +33,7 @@ import {
   type BreakWindow,
   type RoundDir,
   type StartTime,
+  type FixedPeople,
   type ParsedTimecard,
   type TimecardConfig,
 } from "@/lib/timecard";
@@ -60,7 +63,8 @@ export default function TimecardPage() {
   const [y, m] = month.split("-").map(Number);
   const title = `${reiwa(y)} ${m}月度分`;
   const days = cfg ? periodDays(month, cfg.closeDay) : [];
-  const people = cfg && data && employees ? cardsIn(month, data, cfg).map((c) => ({ p: computePerson(c, month, data, cfg), e: employeeForCard(c, cfg, employees) })) : null;
+  const people =
+    cfg && data && employees ? cardsIn(month, data, cfg).map((c) => ({ p: computePerson(c, month, data, cfg), e: employeeForCard(c, cfg, employees) })) : null;
   const nameOf = (c: string) => (cfg && employees ? (employeeForCard(c, cfg, employees)?.name ?? `（カード${c}・従業員が未設定）`) : "");
   const selected = card && cfg && data ? computePerson(card, month, data, cfg) : null;
   const cardList = people?.map((x) => x.p.card) ?? [];
@@ -82,7 +86,7 @@ export default function TimecardPage() {
         テスト中：この画面の数字は、「給与の打ち込み」や給与集計表には反映されません（確定した給与はそのままです）。
       </p>
 
-      <ImportBox />
+      <ImportBox cfg={cfg} employees={employees ?? []} />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
@@ -102,8 +106,30 @@ export default function TimecardPage() {
           <button
             onClick={() =>
               downloadCsv(`timecard_${month}.csv`, [
-                ["カード番号", "社員番号", "氏名", "出勤日数", "労働時間（時:分）", "労働時間（時間）", "残業でない分（時間）", "残業（時:分）", "残業（時間）", "要確認の日数"],
-                ...people.map(({ p, e }) => [p.card, e?.code ?? "", e?.name ?? "", p.workDays, hm(p.work), hours2(p.work), hours2(p.work - p.over), hm(p.over), hours2(p.over), p.problems]),
+                [
+                  "カード番号",
+                  "社員番号",
+                  "氏名",
+                  "出勤日数",
+                  "労働時間（時:分）",
+                  "労働時間（時間）",
+                  "残業でない分（時間）",
+                  "残業（時:分）",
+                  "残業（時間）",
+                  "要確認の日数",
+                ],
+                ...people.map(({ p, e }) => [
+                  p.card,
+                  e?.code ?? "",
+                  e?.name ?? "",
+                  p.workDays,
+                  hm(p.work),
+                  hours2(p.work),
+                  hours2(p.work - p.over),
+                  hm(p.over),
+                  hours2(p.over),
+                  p.problems,
+                ]),
               ])
             }
             className="ml-auto rounded-lg border bg-white px-3 py-2 text-sm"
@@ -116,7 +142,10 @@ export default function TimecardPage() {
             📝 個人別タイムカード集計表（見る・直す）
           </button>
         )}
-        <Link href={`/staff/payroll/timecard/print/?month=${month}`} className={`${people && people.length > 0 ? "" : "ml-auto "}rounded-lg border bg-white px-3 py-2 text-sm`}>
+        <Link
+          href={`/staff/payroll/timecard/print/?month=${month}`}
+          className={`${people && people.length > 0 ? "" : "ml-auto "}rounded-lg border bg-white px-3 py-2 text-sm`}
+        >
           🖨 全員の集計表を印刷
         </Link>
       </div>
@@ -126,7 +155,9 @@ export default function TimecardPage() {
       {!people ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : people.length === 0 ? (
-        <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">この月のタイムカードはまだありません。上の「CSVを選ぶ」から、タイムレコーダーのUSBのデータを取り込んでください。</p>
+        <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">
+          この月のタイムカードはまだありません。上の「ファイルを選ぶ」から、タイムレコーダーのUSBのデータを取り込んでください。
+        </p>
       ) : (
         <div className="mt-4 overflow-x-auto rounded-xl border bg-white">
           <table className="w-full text-sm tabular-nums">
@@ -204,7 +235,11 @@ export default function TimecardPage() {
                   </option>
                 ))}
               </select>
-              <button disabled={at < 0 || at >= cardList.length - 1} onClick={() => setCard(cardList[at + 1])} className="rounded-lg border px-3 py-2 disabled:opacity-30">
+              <button
+                disabled={at < 0 || at >= cardList.length - 1}
+                onClick={() => setCard(cardList[at + 1])}
+                className="rounded-lg border px-3 py-2 disabled:opacity-30"
+              >
                 次へ ›
               </button>
               <span className="text-sm text-gray-500">
@@ -218,9 +253,15 @@ export default function TimecardPage() {
               </button>
             </div>
             <p className="mb-2 text-sm text-gray-600">
-              赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤 17:04→18:04」のように残ります。
+              赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤
+              17:04→18:04」のように残ります。
             </p>
-            <TimecardSheet person={selected} name={nameOf(card)} title={title} edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }} />
+            <TimecardSheet
+              person={selected}
+              name={nameOf(card)}
+              title={title}
+              edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }}
+            />
           </div>
         </div>
       )}
@@ -228,25 +269,58 @@ export default function TimecardPage() {
   );
 }
 
-/** USBのCSVを選んで、中身を確かめてから取り込む */
-function ImportBox() {
-  const [parsed, setParsed] = useState<{ data: ParsedTimecard; name: string } | null>(null);
+/**
+ * USBのCSV、または楽々勤怠の統合用ファイル（修正後の打刻）を選んで、中身を確かめてから取り込む。
+ * 楽々勤怠のファイルは、USBの元の打刻に「直した時刻」として重ねる（元の打刻 → 直した時刻 が確認欄に出る）
+ */
+function ImportBox({ cfg, employees }: { cfg: TimecardConfig | null; employees: { id: string; code: string; name: string }[] }) {
+  const [parsed, setParsed] = useState<{ data: ParsedTimecard; name: string; people?: FixedPeople } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   async function pick(file: File) {
     setMsg(null);
     setParsed(null);
     const { text } = decodeCsv(await file.arrayBuffer());
+    // 楽々勤怠の統合用ファイルは、日付が「2026/09/01」の4けたの年で書いてある
+    if (/"?\d{4}\/\d{2}\/\d{2}"?/.test(text.slice(0, 5000))) {
+      const r = parseRakurakuDat(text);
+      if (r.error || !r.data) return setMsg({ ok: false, text: r.error ?? "読めませんでした" });
+      return setParsed({ data: r.data, name: file.name, people: r.people });
+    }
     const r = parseMaxTimecardCsv(text);
     if (r.error || !r.data) return setMsg({ ok: false, text: r.error ?? "読めませんでした" });
     setParsed({ data: r.data, name: file.name });
+  }
+  /** 楽々勤怠の社員コードで、まだ従業員とひも付いていないカードをひも付ける */
+  async function linkCards(people: FixedPeople): Promise<number> {
+    if (!cfg) return 0;
+    const cards = { ...cfg.cards };
+    let n = 0;
+    for (const [card, p] of Object.entries(people)) {
+      if (cards[card]) continue;
+      const e = employees.find((x) => x.code.trim() === p.code);
+      if (!e) continue;
+      cards[card] = e.id;
+      n++;
+    }
+    if (n) await saveTimecardConfig({ cards });
+    return n;
   }
   async function run() {
     if (!parsed) return;
     setBusy(true);
     try {
-      await importTimecard(parsed.data, parsed.name);
-      setMsg({ ok: true, text: `取り込みました（${parsed.data.count}件）。画面で直した時刻はそのまま残っています` });
+      if (parsed.people) {
+        const changed = await importFixed(parsed.data);
+        const linked = await linkCards(parsed.people);
+        setMsg({
+          ok: true,
+          text: `楽々勤怠の修正後の打刻を重ねました。USBの打刻と違った ${changed} 日分を「直した時刻」にしました（確認欄に 元の時刻→直した時刻 が出ます）。${linked ? `カード${linked}枚を、社員コードで従業員とひも付けました。` : ""}`,
+        });
+      } else {
+        await importTimecard(parsed.data, parsed.name);
+        setMsg({ ok: true, text: `取り込みました（${parsed.data.count}件）。画面で直した時刻はそのまま残っています` });
+      }
       setParsed(null);
     } catch (e) {
       setMsg({ ok: false, text: errorText(e) });
@@ -257,13 +331,17 @@ function ImportBox() {
   return (
     <div className="mt-3 rounded-xl border-2 border-dashed border-gray-300 bg-white p-3">
       <p className="text-sm">
-        タイムレコーダーのUSBの中の <b>ER201001.csv</b> などを選んでください。何回取り込んでも、同じ日の打刻は新しいもので置き換わります（画面で直した時刻は残ります）。
+        タイムレコーダーのUSBの中の <b>ER201001.csv</b>{" "}
+        などを選んでください。何回取り込んでも、同じ日の打刻は新しいもので置き換わります（画面で直した時刻は残ります）。
+        <br />
+        楽々勤怠で直した月は、楽々勤怠から書き出したファイル（「データ処理 → 統合用ファイル作成」の <b>.dat</b>、または「修正／参照」の <b>CSV</b>
+        ）も選べます。USBの打刻を先に取り込んでから選ぶと、楽々勤怠で直した時刻が「直した時刻」として入ります。
       </p>
       <label className="mt-2 inline-block cursor-pointer rounded-lg bg-berry px-4 py-2 font-bold text-white">
-        CSVを選ぶ
+        ファイルを選ぶ
         <input
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,text/csv,.dat"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -274,7 +352,14 @@ function ImportBox() {
       </label>
       {parsed && (
         <div className="mt-2 rounded-lg bg-gray-50 p-3 text-sm">
-          <p className="font-bold">{parsed.name} の中身</p>
+          <p className="font-bold">
+            {parsed.name} の中身{parsed.people && "（楽々勤怠の修正後の打刻）"}
+          </p>
+          {parsed.people && (
+            <p className="mt-1 text-amber-800">
+              USBの元の打刻と違う日は、楽々勤怠の時刻を「直した時刻」として入れます。この画面で前に直した時刻は、楽々勤怠の時刻に置き換わります。
+            </p>
+          )}
           <ul className="mt-1 list-disc pl-5">
             {Object.entries(parsed.data.months)
               .sort()
@@ -395,9 +480,19 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
         </p>
         {starts.map((s, i) => (
           <p key={i} className="mt-1 flex items-center gap-1">
-            <input type="date" value={s.from} onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))} className={input} />
+            <input
+              type="date"
+              value={s.from}
+              onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))}
+              className={input}
+            />
             から
-            <input value={s.time} onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))} placeholder="6:00" className={`${input} w-16`} />
+            <input
+              value={s.time}
+              onChange={(e) => setStarts(starts.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))}
+              placeholder="6:00"
+              className={`${input} w-16`}
+            />
             <button onClick={() => setStarts(starts.filter((_, j) => j !== i))} className="rounded border px-1.5">
               ✕
             </button>
@@ -415,8 +510,19 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
         休憩の時間帯（働いた時間と重なる分だけ引きます）：
         {breaks.map((b, i) => (
           <span key={i} className="ml-2 inline-flex items-center gap-1">
-            <input value={b.start} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))} placeholder="12:00" className={`${input} w-16`} />〜
-            <input value={b.end} onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))} placeholder="13:00" className={`${input} w-16`} />
+            <input
+              value={b.start}
+              onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))}
+              placeholder="12:00"
+              className={`${input} w-16`}
+            />
+            〜
+            <input
+              value={b.end}
+              onChange={(e) => setBreaks(breaks.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))}
+              placeholder="13:00"
+              className={`${input} w-16`}
+            />
             <button onClick={() => setBreaks(breaks.filter((_, j) => j !== i))} className="rounded border px-1.5">
               ✕
             </button>
