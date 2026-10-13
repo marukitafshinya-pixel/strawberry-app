@@ -446,12 +446,13 @@ function Rules({ cfg }: { cfg: TimecardConfig }) {
   }
   if (!open)
     return (
-      <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm">
-        計算のルール：{summary}
-        <button onClick={start} className="ml-2 rounded border bg-white px-2 py-0.5">
-          変える
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border-2 border-sky-200 bg-sky-50 px-3 py-2 text-sm">
+        <span className="font-bold">⚙ 計算のルール</span>
+        <span className="min-w-0 flex-1 text-gray-700">{summary}</span>
+        <button onClick={start} className="rounded-lg bg-sky-700 px-4 py-2 font-bold text-white">
+          ルール（出勤時刻など）を変える
         </button>
-      </p>
+      </div>
     );
   const roundSel = (unit: number, setUnit: (n: number) => void, dir: RoundDir, setDir: (d: RoundDir) => void) => (
     <>
