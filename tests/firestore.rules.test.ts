@@ -174,6 +174,8 @@ describe("会計・売掛・過去売上", () => {
     await assertSucceeds(setDoc(doc(admin(), "config/invoice"), { bankInfo: "○○銀行 本店 普通 1234567", note: "" }));
     await assertFails(setDoc(doc(staff(), "config/invoice"), { bankInfo: "x", note: "" }));
     await assertFails(setDoc(doc(admin(), "config/invoice"), { bankInfo: "x", other: 1 }));
+    await assertSucceeds(setDoc(doc(admin(), "config/invoice"), { bankInfo: "x", note: "", issuerName: "株式会社テスト" }));
+    await assertFails(setDoc(doc(admin(), "config/invoice"), { bankInfo: "x", note: "", issuerName: 1 }));
     await assertSucceeds(getDoc(doc(staff(), "config/invoice")));
     await assertFails(getDoc(doc(guest(), "config/invoice")));
     const png = "data:image/png;base64,iVBORw0KGgo=";

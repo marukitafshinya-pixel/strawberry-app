@@ -22,9 +22,12 @@ export default function InvoicePage() {
   );
 }
 
+/** 請求書・納品書の設定。issuerName は請求書に載せる会社名（空ならお店の名前） */
+type InvoiceConfig = { bankInfo: string; note: string; issuerName: string };
+
 /** 振込先など（スタッフだけが見られる場所に保存） */
 function useInvoiceConfig() {
-  const [value, setValue] = useState<{ bankInfo: string; note: string } | null>(null);
+  const [value, setValue] = useState<InvoiceConfig | null>(null);
   useEffect(() => {
     let unsubscribe = () => {};
     let cancelled = false;
@@ -32,8 +35,9 @@ function useInvoiceConfig() {
       if (cancelled) return;
       unsubscribe = onSnapshot(
         doc(db, "config/invoice"),
-        (s) => setValue({ bankInfo: (s.get("bankInfo") as string) ?? "", note: (s.get("note") as string) ?? "" }),
-        () => setValue({ bankInfo: "", note: "" }),
+        (s) =>
+          setValue({ bankInfo: (s.get("bankInfo") as string) ?? "", note: (s.get("note") as string) ?? "", issuerName: (s.get("issuerName") as string) ?? "" }),
+        () => setValue({ bankInfo: "", note: "", issuerName: "" }),
       );
     });
     return () => {
@@ -72,7 +76,7 @@ function autoMonth(c: Customer, receivables: Receivable[]): string {
   return !has(closedYm) && has(currentYm) ? currentYm : closedYm;
 }
 
-function Invoice({ customer: c, settings: s, config }: { customer: Customer; settings: Settings; config: { bankInfo: string; note: string } }) {
+function Invoice({ customer: c, settings: s, config }: { customer: Customer; settings: Settings; config: InvoiceConfig }) {
   const { role } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
@@ -89,6 +93,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [bankInfo, setBankInfo] = useState(config.bankInfo);
   const [note, setNote] = useState(config.note);
+  const [issuerName, setIssuerName] = useState(config.issuerName);
   const [message, setMessage] = useState("");
   const seal = useSeal();
   /** 印鑑を押す（登録してあるとき） */
@@ -106,8 +111,13 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
   async function saveConfig() {
     try {
       const { db } = await getFirebase();
-      await setDoc(doc(db, "config/invoice"), { bankInfo: bankInfo.trim().slice(0, 500), note: note.trim().slice(0, 500), updatedAt: serverTimestamp() });
-      setMessage("振込先・備考を保存しました（次の請求書にも使われます）");
+      await setDoc(doc(db, "config/invoice"), {
+        bankInfo: bankInfo.trim().slice(0, 500),
+        note: note.trim().slice(0, 500),
+        issuerName: issuerName.trim().slice(0, 100),
+        updatedAt: serverTimestamp(),
+      });
+      setMessage("会社名・振込先・備考を保存しました（次の請求書にも使われます）");
     } catch (e) {
       setMessage(errorText(e));
     }
@@ -184,6 +194,16 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
             </div>
           </div>
           <label className="block text-sm">
+            <span className="text-gray-600">請求書・納品書に載せる会社名（空欄ならお店の名前「{s.storeName}」）</span>
+            <input
+              value={issuerName}
+              maxLength={100}
+              placeholder="例：株式会社〇〇"
+              onChange={(e) => setIssuerName(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+            />
+          </label>
+          <label className="block text-sm">
             <span className="text-gray-600">お振込先</span>
             <textarea
               value={bankInfo}
@@ -206,9 +226,9 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
             />
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            {role === "admin" && (bankInfo !== config.bankInfo || note !== config.note) && (
+            {role === "admin" && (bankInfo !== config.bankInfo || note !== config.note || issuerName !== config.issuerName) && (
               <button onClick={saveConfig} className="rounded-lg border px-3 py-2 text-sm">
-                振込先・備考を保存
+                会社名・振込先・備考を保存
               </button>
             )}
             {message && <span className="text-sm text-green-700">{message}</span>}
@@ -262,7 +282,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                 </tbody>
               </table>
             </div>
-            <StoreBlock s={s} seal={sealImg} />
+            <StoreBlock s={s} name={issuerName.trim() || s.storeName} seal={sealImg} />
           </div>
 
           <table className="mt-5 w-full border-collapse text-[9.5pt]">
@@ -274,25 +294,28 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {/* 商品ごとに1行（日付もそれぞれの行に入れる） */}
+              {rows.flatMap((r) => {
                 const sale = r.saleId ? saleById.get(r.saleId) : undefined;
-                return (
-                  <tr key={r.id} className="align-top">
+                if (!sale)
+                  return [
+                    <tr key={r.id} className="align-top">
+                      <td className="whitespace-nowrap border border-black px-2 py-1">{formatJa(r.date)}</td>
+                      <td className="border border-black px-2 py-1">{r.memo || "（手入力の売掛）"}</td>
+                      <td className="border border-black px-2 py-1 text-right tabular-nums">{r.amount.toLocaleString("ja-JP")}</td>
+                    </tr>,
+                  ];
+                return sale.lines.map((l, i) => (
+                  <tr key={`${r.id}_${i}`} className="align-top">
                     <td className="whitespace-nowrap border border-black px-2 py-1">{formatJa(r.date)}</td>
                     <td className="border border-black px-2 py-1">
-                      {sale
-                        ? sale.lines.map((l, i) => (
-                            <div key={i}>
-                              {l.name} {l.unitPrice.toLocaleString("ja-JP")}円 × {l.qty}
-                              {l.discountRate > 0 && `（${l.discountRate}%引）`}
-                              {lineTaxRate(l, s) === 8 && " ※"}
-                            </div>
-                          ))
-                        : r.memo || "（手入力の売掛）"}
+                      {l.name} {l.unitPrice.toLocaleString("ja-JP")}円 × {l.qty}
+                      {l.discountRate > 0 && `（${l.discountRate}%引）`}
+                      {lineTaxRate(l, s) === 8 && " ※"}
                     </td>
-                    <td className="border border-black px-2 py-1 text-right tabular-nums">{r.amount.toLocaleString("ja-JP")}</td>
+                    <td className="border border-black px-2 py-1 text-right tabular-nums">{l.amount.toLocaleString("ja-JP")}</td>
                   </tr>
-                );
+                ));
               })}
               <tr className="font-bold">
                 <td className="border border-black px-2 py-1" colSpan={2}>
@@ -351,7 +374,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                   納品期間：{formatJa(period.from, true)} 〜 {formatJa(period.to, true)}
                 </p>
               </div>
-              <StoreBlock s={s} seal={sealImg} />
+              <StoreBlock s={s} name={issuerName.trim() || s.storeName} seal={sealImg} />
             </div>
 
             <table className="mt-5 w-full border-collapse text-[9.5pt]">
@@ -379,7 +402,7 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
                     ];
                   return sale.lines.map((l, i) => (
                     <tr key={`${r.id}_${i}`}>
-                      <td className="whitespace-nowrap border border-black px-2 py-1">{i === 0 ? formatJa(r.date) : ""}</td>
+                      <td className="whitespace-nowrap border border-black px-2 py-1">{formatJa(r.date)}</td>
                       <td className="border border-black px-2 py-1">
                         {l.name}
                         {l.discountRate > 0 && `（${l.discountRate}%引）`}
@@ -423,13 +446,13 @@ function Invoice({ customer: c, settings: s, config }: { customer: Customer; set
 }
 
 /** 請求書・納品書の右上：お店の名前・住所など。印鑑は名前の右に、文字の後ろに押す */
-function StoreBlock({ s, seal }: { s: Settings; seal: string }) {
+function StoreBlock({ s, name, seal }: { s: Settings; name: string; seal: string }) {
   return (
     <div className="relative isolate w-[65mm] text-right text-[9pt]">
       {/* 印鑑は文字の後ろ（背面）に押す */}
       {/* eslint-disable-next-line @next/next/no-img-element -- 保存した印鑑の画像（data URL）をそのまま出す */}
       {seal && <img src={seal} alt="印" className="absolute -top-[2mm] right-0 -z-10 h-[22mm] w-[22mm] object-contain [print-color-adjust:exact]" />}
-      <div className="text-[11pt] font-bold">{s.storeName}</div>
+      <div className="text-[11pt] font-bold">{name}</div>
       {s.storeAddress && <div>{s.storeAddress}</div>}
       {s.storePhone && <div>TEL {s.storePhone}</div>}
       {s.invoiceNumber && <div>登録番号 {s.invoiceNumber}</div>}

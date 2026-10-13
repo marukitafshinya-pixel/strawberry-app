@@ -83,9 +83,10 @@ service cloud.firestore {
     match /config/invoice {
       allow read: if isStaff();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['bankInfo', 'note', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['bankInfo', 'note', 'issuerName', 'updatedAt'])
         && request.resource.data.bankInfo is string
-        && request.resource.data.bankInfo.size() <= 500;
+        && request.resource.data.bankInfo.size() <= 500
+        && (!('issuerName' in request.resource.data) || (request.resource.data.issuerName is string && request.resource.data.issuerName.size() <= 100));
     }
 
     // 請求書・納品書に押す印鑑（角印）の画像：スタッフは見るだけ（印刷する）、登録・削除は管理者
