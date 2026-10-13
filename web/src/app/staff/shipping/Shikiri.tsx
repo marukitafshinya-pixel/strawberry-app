@@ -480,7 +480,7 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
       ) : (
         <>
           <p className="mt-1">
-            当てはめた規格の{sheet.month}月の合計：数量 {num(sums.before.qty)} → <b>{num(sums.after.qty)}</b>、金額 {num(sums.before.amount)}円 → <b>{num(sums.after.amount)}円</b>
+            当てはめた規格の{sheet.month}月の合計：数量 {num(sums.before.qty)} → <b>{num(sums.after.qty)}</b>、金額（税抜） {num(sums.before.amount)}円 → <b>{num(sums.after.amount)}円</b>
           </p>
           {changes.length === 0 ? (
             <p className="mt-1 text-green-700">アプリの数字は、すでに仕切書と同じです。</p>

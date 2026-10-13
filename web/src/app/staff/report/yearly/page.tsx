@@ -12,7 +12,7 @@ import { countsTowardCapacity, useReservationsRange, useSettings } from "@/lib/r
 import { useSales } from "@/lib/sales";
 import { usePastSales } from "@/lib/store";
 import type { Settings } from "@/lib/settings";
-import { unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { shipAmount, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
 
 type Tab = "sales" | "people" | "shipping" | "payroll";
 type Metric = { key: string; label: string; unit: "円" | "人" | "kg" };
@@ -202,7 +202,7 @@ function ShippingYears({ metric, yearA, yearB }: Props) {
       let v = 0;
       for (const [id, it] of Object.entries(items)) {
         if (!it.qty) continue;
-        if (metric.key === "amount") v += it.qty * (it.price ?? 0);
+        if (metric.key === "amount") v += shipAmount(it.qty, it.price ?? 0);
         else {
           const g = grades.get(id);
           if (g) v += (it.qty * unitWeight(g)) / 1000;
@@ -220,7 +220,7 @@ function ShippingYears({ metric, yearA, yearB }: Props) {
       metric={metric}
       yearA={yearA}
       yearB={yearB}
-      note={metric.key === "amount" ? "出荷実績に入れた数量×単価の合計です（単価が入っていない日は0円として数えます）。" : "数量×規格の重さ（粒数×1粒の平均）の合計です。"}
+      note={metric.key === "amount" ? "出荷実績に入れた数量×単価に消費税（8%）を足した、税込の合計です（単価が入っていない日は0円として数えます）。" : "数量×規格の重さ（粒数×1粒の平均）の合計です。"}
     />
   );
 }

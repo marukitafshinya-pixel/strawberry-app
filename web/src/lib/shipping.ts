@@ -25,6 +25,13 @@ export type ShippingConfig = { destination: string; grades: Grade[] };
 /** 日ごとの出荷：規格ID → 数量（パック・粒）と単価（円） */
 export type DayItems = Record<string, { qty?: number; price?: number }>;
 
+/** 出荷（いちご＝食品）の消費税率。単価は仕切書・単価連絡表と同じ税抜で入れ、金額は税込で出す */
+export const SHIP_TAX_RATE = 8;
+/** 税抜の金額 → 税込の金額（消費税は1円未満切り捨て）。どの画面でも同じ金額になるよう、1日・1規格ごとに計算する */
+export const withShipTax = (exTax: number) => exTax + Math.floor((exTax * SHIP_TAX_RATE) / 100);
+/** 数量×単価（税抜）の、税込の金額 */
+export const shipAmount = (qty: number, price: number) => withShipTax(qty * price);
+
 /** 出荷単位の重さ（g）＝ 粒数 × 1粒の平均 */
 export const unitWeight = (g: Grade) => Math.round(g.count * g.avgG * 10) / 10;
 
@@ -90,7 +97,7 @@ export function useShipments(from: string, to: string) {
   return state && state.key === key ? state.data : null;
 }
 
-/** 規格ごとの集計（数量・重さ・金額・平均単価・1粒単価）。単価が入っていない日の数量は別に数える */
+/** 規格ごとの集計（数量・重さ・金額・平均単価・1粒単価。金額と単価は税込）。単価が入っていない日の数量は別に数える */
 export function summarize(grades: Grade[], days: Record<string, DayItems>) {
   return grades.map((g) => {
     let qty = 0;
@@ -101,7 +108,7 @@ export function summarize(grades: Grade[], days: Record<string, DayItems>) {
       if (!it?.qty) continue;
       qty += it.qty;
       if (it.price === undefined) unpriced += it.qty;
-      else amount += it.qty * it.price;
+      else amount += shipAmount(it.qty, it.price);
     }
     const priced = qty - unpriced;
     const avgPrice = priced > 0 ? Math.round(amount / priced) : null;

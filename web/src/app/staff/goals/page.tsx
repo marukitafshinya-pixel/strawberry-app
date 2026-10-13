@@ -10,7 +10,7 @@ import { todayJST } from "@/lib/date";
 import { GOAL_ITEMS, saveGoals, useGoals, useLaborCost, type GoalKey, type GoalMonths, type HobeMonths } from "@/lib/goals";
 import { downloadCsv } from "@/lib/report";
 import { useReceivablesInRange, useSales } from "@/lib/sales";
-import { useShipments } from "@/lib/shipping";
+import { shipAmount, useShipments } from "@/lib/shipping";
 import { REGI_START, useStoreDaysWithRegi } from "@/lib/store";
 import { Num } from "../total/Num";
 
@@ -69,7 +69,7 @@ function GoalsView() {
         const ship = MONTHS.map((m) =>
           Object.entries(shipments)
             .filter(([d]) => inMonth(d, m))
-            .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? it.qty * it.price : 0), 0), 0),
+            .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? shipAmount(it.qty, it.price) : 0), 0), 0),
         );
         return { store: storeAll.map((v, i) => v - regiCredit[i]), gaihan, ship, labor: MONTHS.map((m) => labor[m] ?? 0) };
       })()
@@ -285,7 +285,7 @@ function Table({
         白い欄に月ごとの目標を入れて「保存する」を押してください。いちご金額は、達成率が100%以上なら緑、届かなければ赤です。人件費とホーブへの支払いは、目標比が100%以下（目標の中に収まった）なら緑、超えたら赤です。年計の達成率は、目標を入れた月だけで計算します。
       </p>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
-        実績の出し方：店舗＝「店舗実績」の売上（10月1日からはレジの会計）から、レジで売掛にした会計を引いたもの。外販＝売掛にした売上（レジで売掛にした会計と、手で入れた売掛）。出荷＝「出荷実績」の数量×単価（単価がまだの日は入りません）。人件費＝「給与」のその月度の会社の負担（総支給＋事業所負担）。ホーブへの支払いの実績は、この表に手で入れます。
+        実績の出し方：店舗＝「店舗実績」の売上（10月1日からはレジの会計）から、レジで売掛にした会計を引いたもの。外販＝売掛にした売上（レジで売掛にした会計と、手で入れた売掛）。出荷＝「出荷実績」の数量×単価に消費税（8%）を足した税込の金額（単価がまだの日は入りません）。人件費＝「給与」のその月度の会社の負担（総支給＋事業所負担）。ホーブへの支払いの実績は、この表に手で入れます。
       </p>
       <div className="mt-2 flex gap-3 print:hidden">
         <button onClick={exportCsv} className="text-sm text-gray-600 underline">

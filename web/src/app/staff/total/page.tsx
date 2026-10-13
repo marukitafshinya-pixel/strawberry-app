@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { todayJST } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
-import { useShipments } from "@/lib/shipping";
+import { shipAmount, useShipments } from "@/lib/shipping";
 import { useStoreDaysWithRegi } from "@/lib/store";
 import { Num } from "./Num";
 import { OTHER_ITEMS, canForecast, saveOtherSales, useOtherSales, type Forecast, type ForecastKey, type OtherKey, type OtherMonths } from "@/lib/totalSales";
@@ -22,7 +22,7 @@ const monthlyShip = (shipments: Shipments) =>
   MONTHS.map((m) =>
     Object.entries(shipments)
       .filter(([d]) => d.slice(5, 7) === m)
-      .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? it.qty * it.price : 0), 0), 0),
+      .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? shipAmount(it.qty, it.price) : 0), 0), 0),
   );
 /** 店舗の月ごとの金額：直売・カフェ・いちご狩り。内訳がない日（売上合計だけの日）は、小計に売上合計を入れる */
 const monthlyStore = (store: StoreDays) => {
@@ -315,7 +315,7 @@ function Table({
         {anyFc && <b className="ml-1 text-amber-800">（色の付いた数字は予測を含みます）</b>}
       </p>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
-        出荷は「出荷実績」の数量×単価（仕切書で直した数字も入ります。単価がまだの日は入りません）。店舗は「店舗実績」の数字（10月1日からはレジの会計）で、内訳がなく売上合計だけの日は小計にだけ入ります。
+        出荷は「出荷実績」の数量×単価に消費税（8%）を足した税込の金額（仕切書で直した数字も入ります。単価がまだの日は入りません）。店舗は「店舗実績」の数字（10月1日からはレジの会計）で、内訳がなく売上合計だけの日は小計にだけ入ります。
         チケット・規格外・催事・玉ねぎ・そば・作業委託＆冷蔵庫リースは、月ごとの合計をこの表に入れて「保存する」を押してください。いちご合計は、出荷・店舗小計・チケット・規格外・催事の合計です。
       </p>
       <div className="mt-2 flex gap-3 print:hidden">

@@ -11,7 +11,7 @@ import { addDays, shiftMonth, todayJST, weekday } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { guessYear, parseShipmentTable, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { guessYear, parseShipmentTable, shipAmount, summarize, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
 import { ShikiriImport } from "./Shikiri";
 import { callFunction } from "@/lib/callFunction";
 import { filesToPages, pagesToUploads } from "@/lib/shikiri";
@@ -244,17 +244,17 @@ function Grid({
   }
 
   function exportCsv() {
-    const rows: (string | number)[][] = [["日付", "曜日", "区分", "規格", "数量", "単価", "金額"]];
+    const rows: (string | number)[][] = [["日付", "曜日", "区分", "規格", "数量", "単価（税抜）", "金額（税込）"]];
     for (const d of days)
       for (const g of grades) {
         const it = data[d]?.[g.id];
         if (!it?.qty && it?.price === undefined) continue;
-        rows.push([d, weekday(d), g.group, g.name, it?.qty ?? 0, it?.price ?? "", it?.qty && it.price !== undefined ? it.qty * it.price : ""]);
+        rows.push([d, weekday(d), g.group, g.name, it?.qty ?? 0, it?.price ?? "", it?.qty && it.price !== undefined ? shipAmount(it.qty, it.price) : ""]);
       }
     downloadCsv(`shipments_${month}.csv`, rows);
   }
 
-  const dayTotal = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * (data[d]?.[g.id]?.price ?? 0), 0);
+  const dayTotal = (d: string) => grades.reduce((n, g) => n + shipAmount(data[d]?.[g.id]?.qty ?? 0, data[d]?.[g.id]?.price ?? 0), 0);
   const dayQty = (d: string) => grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0), 0);
   // パック数量：粒売り（1粒ずつ売るもの）はパックではないので数えない（Excelの「パック数」と同じ）
   const isPack = (g: Grade) => (g.count || 1) > 1;
@@ -274,7 +274,7 @@ function Grid({
           {(
             [
               ["qty", "数量を入れる"],
-              ["price", "単価を入れる"],
+              ["price", "単価（税抜）を入れる"],
             ] as const
           ).map(([m, label]) => (
             <button key={m} onClick={() => setMode(m)} className={`rounded-lg px-4 py-2 ${mode === m ? "bg-white font-bold shadow-sm" : "text-gray-600"}`}>
@@ -318,9 +318,9 @@ function Grid({
               ))}
               <th className="bg-berry/10 px-2 py-2 text-right">合計（パック）</th>
               <th className="bg-berry/10 px-2 py-2 text-right">重量</th>
-              <th className="bg-berry/10 px-2 py-2 text-right">金額</th>
-              <th className="bg-berry/10 px-2 py-2 text-right">平均単価</th>
-              <th className="bg-berry/10 px-2 py-2 text-right">1粒単価</th>
+              <th className="bg-berry/10 px-2 py-2 text-right">金額（税込）</th>
+              <th className="bg-berry/10 px-2 py-2 text-right">平均単価（税込）</th>
+              <th className="bg-berry/10 px-2 py-2 text-right">1粒単価（税込）</th>
             </tr>
           </thead>
           <tbody>
@@ -387,7 +387,7 @@ function Grid({
               <td colSpan={3} />
             </tr>
             <tr className="border-t">
-              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額）</td>
+              <td className="sticky left-0 z-10 bg-gray-50 px-2 py-1">日計（金額・税込）</td>
               {days.map((d) => (
                 <td key={d} className="whitespace-nowrap px-1 text-right tabular-nums">
                   {dayTotal(d) ? dayTotal(d).toLocaleString("ja-JP") : ""}
@@ -400,10 +400,10 @@ function Grid({
           </tfoot>
         </table>
       </div>
-      <p className="mt-1 text-xs text-gray-500">日計（パック数量）は、パックの数だけを足しています（粒売りのプレミアム・ロイヤルは入れません）。日計（粒数）は、粒売り（プレミアム・ロイヤル）はそのまま、パックは「数量×1パックの粒数」で数えています（例：秀8粒を10パック ＝ 80粒）。金額は 数量×単価 で、単価が入っていない日の分は含みません。</p>
+      <p className="mt-1 text-xs text-gray-500">日計（パック数量）は、パックの数だけを足しています（粒売りのプレミアム・ロイヤルは入れません）。日計（粒数）は、粒売り（プレミアム・ロイヤル）はそのまま、パックは「数量×1パックの粒数」で数えています（例：秀8粒を10パック ＝ 80粒）。金額は 数量×単価 に消費税（8%）を足した税込の金額で、単価が入っていない日の分は含みません。単価は仕切書・単価連絡表と同じ税抜で入れてください。</p>
 
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Tile label={`${Number(month.slice(5))}月の出荷金額`} value={yen(totalAmount)} strong />
+        <Tile label={`${Number(month.slice(5))}月の出荷金額（税込）`} value={yen(totalAmount)} strong />
         <Tile label="出荷重量" value={`${totalWeight.toLocaleString("ja-JP")}kg`} />
         <Tile label="パック数量" value={totalPacks.toLocaleString("ja-JP")} />
         <Tile label="粒数" value={`${totalBerries.toLocaleString("ja-JP")}粒`} />
@@ -893,7 +893,7 @@ function YearSummary({ year, grades, data }: { year: string; grades: Grade[]; da
             <th className="py-1 text-right">パック数量</th>
             <th className="py-1 text-right">粒数</th>
             <th className="py-1 text-right">重量</th>
-            <th className="py-1 text-right">金額</th>
+            <th className="py-1 text-right">金額（税込）</th>
           </tr>
         </thead>
         <tbody>

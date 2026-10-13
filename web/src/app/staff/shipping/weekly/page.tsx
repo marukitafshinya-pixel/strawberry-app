@@ -9,7 +9,7 @@ import { addDays, todayJST } from "@/lib/date";
 import { periodsOf, unitText, type UnitText } from "@/lib/period";
 import { downloadCsv } from "@/lib/report";
 import { yen } from "@/lib/reservations";
-import { unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
+import { shipAmount, unitWeight, useShipments, useShippingConfig, type DayItems, type Grade } from "@/lib/shipping";
 import { useWeatherMonths, useWeatherShow, weatherOfSpan, type WeatherMonth } from "@/lib/weather";
 
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
@@ -43,7 +43,7 @@ function computeRows(weeks: { no: number; from: string; to: string }[], days: Re
         if (count > 1) r.packs += it.qty;
         r.berries += it.qty * count;
         r.kg += (it.qty * unitWeight(g)) / 1000;
-        const amt = it.qty * (it.price ?? 0);
+        const amt = shipAmount(it.qty, it.price ?? 0);
         r.amount += amt;
         r.byGrade[g.id] = (r.byGrade[g.id] ?? 0) + it.qty;
         r.byGroup[g.group] = (r.byGroup[g.group] ?? 0) + amt;
@@ -193,7 +193,7 @@ function Report({
   return (
     <>
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Tile label={`${year}年の出荷金額`} value={yen(total.amount)} strong />
+        <Tile label={`${year}年の出荷金額（税込）`} value={yen(total.amount)} strong />
         <Tile label="パック数量" value={num(total.packs)} />
         <Tile label="粒数" value={`${num(total.berries)}粒`} />
         <Tile label="出荷重量" value={`${num(total.kg)}kg`} />
