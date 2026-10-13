@@ -239,6 +239,11 @@ export const saveReceivable = onCall(async (req) => {
     const patch: Record<string, unknown> = { updatedAt: now, updatedBy: uid };
     if (dueDate !== undefined) patch.dueDate = dueDate;
     if (memo !== undefined) patch.memo = memo;
+    // 納品日（売掛の日付）は、会計から作られたものも直せる（請求書・納品書の日付になる。会計の日付は変えない）
+    if (req.data?.date !== undefined) {
+      if (typeof req.data.date !== "string" || !DATE_RE.test(req.data.date)) throw new HttpsError("invalid-argument", "納品日が正しくありません");
+      patch.date = req.data.date;
+    }
     if (status === "collected") {
       patch.status = "collected";
       patch.collectedAt = now;

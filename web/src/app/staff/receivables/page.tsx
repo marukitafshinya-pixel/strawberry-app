@@ -110,7 +110,7 @@ function AddForm({ onClose }: { onClose: () => void }) {
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm">
-          <span className="text-gray-600">発生日</span>
+          <span className="text-gray-600">納品日</span>
           <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
         </label>
         <label className="block text-sm">
@@ -140,6 +140,8 @@ function ReceivableRow({ r, today }: { r: Receivable; today: string }) {
   const [error, setError] = useState("");
   const [editingDue, setEditingDue] = useState(false);
   const [due, setDue] = useState(r.dueDate ?? "");
+  const [editingDate, setEditingDate] = useState(false);
+  const [date, setDate] = useState(r.date);
   const overdue = r.status === "open" && r.dueDate !== null && r.dueDate < today;
 
   async function run(data: Record<string, unknown>, fn = "saveReceivable") {
@@ -183,7 +185,28 @@ function ReceivableRow({ r, today }: { r: Receivable; today: string }) {
         </div>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
-        <span>発生日 {formatJa(r.date)}</span>
+        {editingDate ? (
+          <span className="flex items-center gap-1">
+            納品日
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded border px-2 py-1 text-base" />
+            <button disabled={busy || !date} onClick={async () => (await run({ date })) && setEditingDate(false)} className="rounded border px-2 py-1">
+              保存
+            </button>
+            <button
+              onClick={() => {
+                setDate(r.date);
+                setEditingDate(false);
+              }}
+              className="px-1 text-gray-500 underline"
+            >
+              やめる
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setEditingDate(true)} className="underline" title="押すと納品日を直せます">
+            納品日 {formatJa(r.date)}
+          </button>
+        )}
         {r.status === "collected" && r.collectedDate && <span>回収日 {formatJa(r.collectedDate)}</span>}
         {r.status === "open" &&
           (editingDue ? (
