@@ -7,6 +7,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv, parseCsv } from "@/lib/csv";
+import { readPayrollPdf } from "@/lib/payrollPdf";
 import { shiftMonth, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import {
@@ -164,17 +165,23 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     }
   }
 
-  /** CSVの金額を表に入れる。社員番号で従業員を探し、いない人は新しく登録する */
+  /** CSV・給与集計表のPDFの金額を表に入れる。社員番号で従業員を探し、いない人は新しく登録する */
   async function importCsv(file: File) {
     setError("");
     setMessage("");
     try {
-      const { entries, error } = parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      const pdf = isPdf ? await readPayrollPdf(file) : null;
+      const { entries, error } = pdf ?? parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
       if (error) return setError(`取り込めませんでした：${error}`);
       const byCode = new Map(employees.map((e) => [e.code, e]));
       const added = entries.filter((x) => !byCode.has(x.code));
+      const label = (m: string) => `${m.replace("-", "年")}月度`;
       const text = [
-        `${entries.length}人分の金額を ${month.replace("-", "年")}月度 の表に入れます。`,
+        // PDFに書いてある月度と、いま開いている月度が違うときは知らせる
+        pdf?.month && pdf.month !== month ? `⚠ このPDFは ${label(pdf.month)} の給与集計表です（いま開いているのは ${label(month)}）。\n` : "",
+        pdf?.mismatches.length ? `⚠ 読み取った金額の合計が、PDFの合計と合わない人がいます。読み込んだあと、表を確かめてください。\n${pdf.mismatches.join("\n")}\n` : "",
+        `${entries.length}人分の金額を ${label(month)} の表に入れます。`,
         "表に入っている同じ人の金額は上書きされます。",
         added.length > 0 ? `\n新しく従業員として登録する人：${added.length}人\n（${added.map((x) => x.name).join("、")}）` : "",
       ].join("\n");
@@ -262,12 +269,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           CSVで書き出す
         </button>
         <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-3 py-2 text-sm">
-          CSVから取り込む
+          CSV・PDFから取り込む
         </button>
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,text/csv,.pdf,application/pdf"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -278,7 +285,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
 
       {people.length === 0 && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-amber-800">
-          まだ従業員が登録されていません。「CSVから取り込む」でまとめて登録するか、
+          まだ従業員が登録されていません。「CSV・PDFから取り込む」でまとめて登録するか、
           <Link href="/staff/payroll/employees/" className="underline">従業員の登録</Link> から1人ずつ追加してください。
         </p>
       )}
