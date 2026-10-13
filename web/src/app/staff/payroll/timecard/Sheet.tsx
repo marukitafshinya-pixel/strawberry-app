@@ -141,10 +141,15 @@ function Row({ d, edit }: { d: DayResult; edit?: SheetEdit }) {
 
 /** 確認欄に出す、直す前と後（例「退勤 17:04→18:04」「休憩 60分→30分」）。元と同じになったものは出さない */
 function editedParts(d: DayResult): string[] {
-  const parts = d.raw?.e ? (["i", "o"] as const).filter((k) => d.raw?.[k] !== d[k]).map((k) => `${k === "i" ? "出勤" : "退勤"} ${hm(d.raw?.[k]) || "なし"}→${hm(d[k]) || "なし"}`) : [];
+  const parts = d.raw?.e
+    ? (["i", "o"] as const).filter((k) => d.raw?.[k] !== d[k]).map((k) => `${k === "i" ? "出勤" : "退勤"} ${hm(d.raw?.[k]) || "なし"}→${hm(d[k]) || "なし"}`)
+    : [];
   if (d.brkEdited && d.brk !== d.autoBrk) parts.push(`休憩 ${d.autoBrk}分→${d.brk}分`);
   return parts;
 }
+
+/** 休憩のマスに出す、押すだけで決められる休憩（分） */
+const BREAK_CHOICES = [15, 30, 45, 60] as const;
 
 /** 直す小さな入力欄。開いたらすぐテンキーで打てる。エンターで確定、Esc でやめる */
 function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which; x: number; y: number; edit: SheetEdit; onClose: () => void }) {
@@ -158,14 +163,17 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
     ref.current?.focus();
   }, []);
   const fail = () => alert("保存できませんでした。もう一度やり直してください");
+  /** 休憩を決める（分。null＝自動に戻す） */
+  function setBreak(b: number | null) {
+    onClose();
+    // 自動の休憩と同じ分なら、直していないのと同じ（直した印を消す）
+    edit.brk(d.date, b === d.autoBrk ? null : b).catch(fail);
+  }
   function commit() {
     if (isBrk) {
       const b = parseBreak(v);
       if (b === undefined) return setErr("休憩は分で入れてください（30＝30分、90＝1時間30分）");
-      onClose();
-      // 自動の休憩と同じ分なら、直していないのと同じ（直した印を消す）
-      edit.brk(d.date, b === d.autoBrk ? null : b).catch(fail);
-      return;
+      return setBreak(b);
     }
     const t = parseKeyed(v);
     if (t === undefined) return setErr("時刻は 1730 や 17:30 のように入れてください");
@@ -185,7 +193,7 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
       <div className="fixed inset-0 z-40 print:hidden" onClick={onClose} />
       <div
         className="fixed z-50 w-64 rounded-xl border-2 border-sky-600 bg-white p-3 text-sm shadow-xl print:hidden"
-        style={{ left: Math.max(8, Math.min(x, window.innerWidth - 272)), top: Math.min(y + 4, window.innerHeight - 200) }}
+        style={{ left: Math.max(8, Math.min(x, window.innerWidth - 272)), top: Math.min(y + 4, window.innerHeight - (isBrk ? 260 : 200)) }}
       >
         <p className="font-bold">
           {md(d.date)}の{label}
@@ -208,10 +216,24 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
           }}
           className="mt-2 w-full rounded-lg border-2 px-3 py-2 text-center text-2xl tabular-nums"
         />
+        {isBrk && (
+          // よく使う休憩は、押すだけで決められる
+          <div className="mt-2 grid grid-cols-4 gap-1">
+            {BREAK_CHOICES.map((m) => (
+              <button
+                key={m}
+                onClick={() => setBreak(m)}
+                className={`rounded-lg border px-1 py-1.5 font-bold tabular-nums ${d.brk === m ? "border-sky-600 bg-sky-50 text-sky-800" : "bg-white"}`}
+              >
+                {m}分
+              </button>
+            ))}
+          </div>
+        )}
         {err && <p className="mt-1 text-xs text-red-600">{err}</p>}
         <p className="mt-1 text-xs text-gray-500">
           {isBrk
-            ? "分を打ってエンターで確定（30＝30分、0＝休憩なし）。空のままエンターで自動の休憩に戻す。Escでやめる"
+            ? "ボタンを押すか、分を打ってエンターで確定（0＝休憩なし）。空のままエンターで自動の休憩に戻す。Escでやめる"
             : "数字を打ってエンターで確定（1730＝17:30）。空のままエンターで打刻なし。Escでやめる"}
         </p>
         {canReset && (
