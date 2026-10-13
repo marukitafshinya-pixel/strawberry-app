@@ -316,9 +316,17 @@ export function periodMonths(month: string, closeDay: number): string[] {
 
 export type PersonResult = { card: string; days: DayResult[]; workDays: number; work: number; over: number; problems: number; edited: number };
 
-/** 1人分（1枚のカード）の給与の月の集計 */
-export function computePerson(card: string, month: string, data: Record<string, TimecardMonth | null>, cfg: TimecardConfig): PersonResult {
-  const days = periodDays(month, cfg.closeDay).map((date) => computeDay(date, data[date.slice(0, 7)]?.cards[card]?.[date.slice(8)] ?? null, cfg));
+/** 1人分（1枚のカード）の給与の月の集計。noOvertime（管理職）のときは残業を数えない */
+export function computePerson(
+  card: string,
+  month: string,
+  data: Record<string, TimecardMonth | null>,
+  cfg: TimecardConfig,
+  opts: { noOvertime?: boolean } = {},
+): PersonResult {
+  const days = periodDays(month, cfg.closeDay)
+    .map((date) => computeDay(date, data[date.slice(0, 7)]?.cards[card]?.[date.slice(8)] ?? null, cfg))
+    .map((d) => (opts.noOvertime ? { ...d, over: 0 } : d));
   return {
     card,
     days,

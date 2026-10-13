@@ -78,6 +78,7 @@ export default function EmployeesPage() {
                 </td>
                 <td className="px-3 py-2">
                   <KindBadge kind={e.kind} />
+                  {e.manager && <span className="ml-1 rounded bg-gray-200 px-1.5 text-xs text-gray-700">管理職</span>}
                 </td>
                 <td className="px-3 py-2">{e.payMethod === "cash" ? "現金" : "振込"}</td>
                 <td className="px-3 py-2">
@@ -165,6 +166,10 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
           ))}
         </div>
       </fieldset>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!e.manager} onChange={(x) => set({ manager: x.target.checked })} />
+        管理職（残業がつかない。タイムカードの集計で残業を数えません）
+      </label>
       <fieldset className="text-sm">
         <legend className="text-gray-600">支払方法</legend>
         <div className="mt-1 flex gap-4">

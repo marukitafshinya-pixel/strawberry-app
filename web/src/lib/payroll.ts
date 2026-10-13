@@ -21,6 +21,8 @@ export type Employee = {
   active: boolean;
   /** 区分：役員・社員・アルバイト（決めていない人もいる） */
   kind?: EmployeeKind;
+  /** 管理職（残業がつかない）。タイムカードの集計で残業を数えない */
+  manager?: boolean;
 };
 
 export type EmployeeKind = "officer" | "regular" | "part";

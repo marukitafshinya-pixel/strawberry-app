@@ -64,9 +64,15 @@ export default function TimecardPage() {
   const title = `${reiwa(y)} ${m}月度分`;
   const days = cfg ? periodDays(month, cfg.closeDay) : [];
   const people =
-    cfg && data && employees ? cardsIn(month, data, cfg).map((c) => ({ p: computePerson(c, month, data, cfg), e: employeeForCard(c, cfg, employees) })) : null;
+    cfg && data && employees
+      ? cardsIn(month, data, cfg).map((c) => {
+          const e = employeeForCard(c, cfg, employees);
+          return { p: computePerson(c, month, data, cfg, { noOvertime: e?.manager }), e };
+        })
+      : null;
   const nameOf = (c: string) => (cfg && employees ? (employeeForCard(c, cfg, employees)?.name ?? `（カード${c}・従業員が未設定）`) : "");
-  const selected = card && cfg && data ? computePerson(card, month, data, cfg) : null;
+  const selected =
+    card && cfg && data ? computePerson(card, month, data, cfg, { noOvertime: !!employees && employeeForCard(card, cfg, employees)?.manager }) : null;
   const cardList = people?.map((x) => x.p.card) ?? [];
   const at = card ? cardList.indexOf(card) : -1;
 
@@ -194,7 +200,7 @@ export default function TimecardPage() {
                     {hm(p.work)}
                     <span className="ml-1 text-xs font-normal text-gray-500">（{hours2(p.work)}h）</span>
                   </td>
-                  <td className="px-3 py-2 text-right">{p.over ? hm(p.over) : ""}</td>
+                  <td className="px-3 py-2 text-right">{e?.manager ? <span className="text-xs text-gray-500">管理職</span> : p.over ? hm(p.over) : ""}</td>
                   <td className="px-3 py-2 text-xs">
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
                     {p.edited > 0 && <span className="text-amber-800">直した {p.edited}件</span>}
