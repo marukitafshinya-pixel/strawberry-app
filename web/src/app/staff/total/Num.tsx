@@ -8,11 +8,14 @@ export function Num({
   onChange,
   label,
   placeholder,
+  className = "w-[5.2rem] rounded border px-1 py-1 text-right",
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
   label: string;
   placeholder?: string;
+  /** 入力欄の見た目（幅など） */
+  className?: string;
 }) {
   // 3けたごとにカンマを入れて見せる
   const fmt = (v: number | null) => (v === null ? "" : v.toLocaleString("ja-JP"));
@@ -40,7 +43,7 @@ export function Num({
         setPrev(n);
         onChange(n);
       }}
-      className="w-[5.2rem] rounded border px-1 py-1 text-right"
+      className={className}
     />
   );
 }

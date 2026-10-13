@@ -3,7 +3,7 @@
 // 目標と実績（管理者だけ）：月ごとに目標を入れて、実績と達成率を見る
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { todayJST } from "@/lib/date";
@@ -20,7 +20,9 @@ const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
 /** 目標を入れた月だけの実績の合計（年間の達成率は、目標を入れた月どうしで比べる） */
 const onTarget = (l: { target: number[]; actual: number[] }) => sum(l.actual.filter((_, i) => l.target[i]));
 /** 目標・実績・達成率の1段（高さをそろえて、左の見出しと横に並ぶようにする） */
-const SUB = "flex h-9 items-center";
+const SUB = "flex h-[26px] items-center";
+/** 表の中の入力欄（列の幅いっぱい） */
+const INPUT = "w-full min-w-0 rounded border px-0.5 py-0.5 text-right text-xs";
 
 export default function GoalsPage() {
   return (
@@ -69,38 +71,46 @@ function GoalsView() {
         const ship = MONTHS.map((m) =>
           Object.entries(shipments)
             .filter(([d]) => inMonth(d, m))
-            .reduce((n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? shipAmount(it.qty, it.price) : 0), 0), 0),
+            .reduce(
+              (n, [, items]) => n + Object.values(items).reduce((a, it) => a + (it.qty && it.price !== undefined ? shipAmount(it.qty, it.price) : 0), 0),
+              0,
+            ),
         );
         return { store: storeAll.map((v, i) => v - regiCredit[i]), gaihan, ship, labor: MONTHS.map((m) => labor[m] ?? 0) };
       })()
     : null;
 
-  return (
-    <div className="pb-24">
-      <p className="text-sm print:hidden">
-        <Link href="/staff/" className="text-gray-500 underline">
-          ← メニュー
-        </Link>
-      </p>
-      <h1 className="mt-2 text-xl font-bold">目標と実績（{year}年）</h1>
-      <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
-        <button onClick={() => setYear(year - 1)} className="rounded-lg border bg-white px-3 py-2">
+  // 見出しと年の切り替え（保存ボタンは表の側で、この横に並べる）
+  const header = (
+    <>
+      <Link href="/staff/" className="text-sm text-gray-500 underline print:hidden">
+        ← メニュー
+      </Link>
+      <h1 className="text-xl font-bold">目標と実績（{year}年）</h1>
+      <div className="flex items-center gap-1.5 print:hidden">
+        <button onClick={() => setYear(year - 1)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
           ‹ 前の年
         </button>
-        <span className="text-lg font-bold">{year}年</span>
-        <button onClick={() => setYear(year + 1)} className="rounded-lg border bg-white px-3 py-2">
+        <button onClick={() => setYear(year + 1)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
           次の年 ›
         </button>
         {year !== thisYear && (
-          <button onClick={() => setYear(thisYear)} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          <button onClick={() => setYear(thisYear)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
             今年
           </button>
         )}
       </div>
+    </>
+  );
+  return (
+    <div>
       {!ready || !actual ? (
-        <p className="mt-4 text-gray-500">読み込み中…</p>
+        <>
+          <div className="flex flex-wrap items-center gap-2">{header}</div>
+          <p className="mt-4 text-gray-500">読み込み中…</p>
+        </>
       ) : (
-        <Table key={year} year={year} actual={actual} savedTargets={goals.targets} savedHobe={goals.hobe} />
+        <Table key={year} year={year} header={header} actual={actual} savedTargets={goals.targets} savedHobe={goals.hobe} />
       )}
     </div>
   );
@@ -122,11 +132,13 @@ type Line = {
 
 function Table({
   year,
+  header,
   actual,
   savedTargets,
   savedHobe,
 }: {
   year: number;
+  header: ReactNode;
   actual: Record<Exclude<GoalKey, "hobe">, number[]>;
   savedTargets: GoalMonths;
   savedHobe: HobeMonths;
@@ -209,22 +221,42 @@ function Table({
   const hobeL = lines.find((l) => l.key === "hobe")!;
   return (
     <>
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {header}
+        {/* 保存は上に置く（下に固定すると、表のいちばん下の行が隠れるため） */}
+        <div className="ml-auto flex items-center gap-2 print:hidden">
+          {dirty && <span className="text-sm text-amber-700">まだ保存していません</span>}
+          {msg && <span className="text-sm text-gray-600">{msg}</span>}
+          {err && <span className="text-sm text-red-600">{err}</span>}
+          <button onClick={save} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-1.5 font-bold text-white disabled:opacity-40">
+            {saving ? "保存中…" : "保存する"}
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <Tile label="いちご金額（店舗・外販・出荷）" target={sum(ichigo.target)} actual={sum(ichigo.actual)} onTarget={onTarget(ichigo)} strong />
         <Tile label="人件費" target={sum(laborL.target)} actual={sum(laborL.actual)} onTarget={onTarget(laborL)} cost />
         <Tile label="ホーブへの支払い" target={sum(hobeL.target)} actual={sum(hobeL.actual)} onTarget={onTarget(hobeL)} cost />
       </div>
-      <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
-        <table className="min-w-max text-sm tabular-nums">
-          <thead className="bg-gray-50 text-xs text-gray-600">
+      {/* 横にスクロールしなくても1画面に収まるよう、列の幅を画面に合わせる */}
+      <div className="mt-2 rounded-2xl bg-white shadow-sm">
+        <table className="w-full table-fixed text-xs tabular-nums">
+          <colgroup>
+            <col className="w-[7.5rem]" />
+            {MONTHS.map((m) => (
+              <col key={m} />
+            ))}
+            <col className="w-[5.5rem]" />
+          </colgroup>
+          <thead className="bg-gray-50 text-gray-600">
             <tr>
-              <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left">項目</th>
+              <th className="px-2 py-1.5 text-left">項目</th>
               {MONTHS.map((m) => (
-                <th key={m} className={`px-1 py-2 text-right ${m === curMonth ? "text-berry-dark" : ""}`}>
-                  {Number(m)}月{m === curMonth && <span className="ml-0.5 text-[10px]">（今月）</span>}
+                <th key={m} className={`px-0.5 py-1.5 text-right ${m === curMonth ? "bg-berry/10 text-berry-dark" : ""}`}>
+                  {Number(m)}月
                 </th>
               ))}
-              <th className="bg-berry/10 px-2 py-2 text-right">年計</th>
+              <th className="bg-berry/10 px-1 py-1.5 text-right">年計</th>
             </tr>
           </thead>
           <tbody>
@@ -232,17 +264,20 @@ function Table({
               const bg = l.total ? "bg-rose-50" : l.cost ? "bg-slate-50" : "bg-white";
               return (
                 <tr key={l.key} className={`border-t ${l.total ? "font-bold" : ""} ${l.key === "labor" ? "border-t-2 border-gray-300" : ""}`}>
-                  <th className={`sticky left-0 z-10 whitespace-nowrap px-2 py-1.5 text-left align-top font-[inherit] ${bg}`}>
-                    <div className="h-6">{l.label}</div>
-                    {["目標", "実績", l.cost ? "目標比" : "達成率"].map((x) => (
-                      <div key={x} className={`${SUB} text-[11px] font-normal text-gray-500`}>
-                        {x}
-                      </div>
-                    ))}
+                  <th className={`px-1.5 py-1 text-left align-top font-[inherit] ${bg}`}>
+                    <div className="flex gap-1">
+                      <span className="min-w-0 flex-1 pt-1 leading-tight">{l.label}</span>
+                      <span className="shrink-0 text-right text-[10px] font-normal text-gray-500">
+                        {["目標", "実績", l.cost ? "目標比" : "達成率"].map((x) => (
+                          <span key={x} className={`${SUB} justify-end`}>
+                            {x}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
                   </th>
                   {MONTHS.map((m, i) => (
-                    <td key={m} className={`px-1 py-1.5 text-right align-top ${bg}`}>
-                      <div className="h-6" />
+                    <td key={m} className={`px-0.5 py-1 text-right align-top ${bg} ${m === curMonth ? "ring-1 ring-inset ring-berry/30" : ""}`}>
                       <div className={`${SUB} justify-end`}>
                         {l.input ? (
                           <Num
@@ -250,16 +285,23 @@ function Table({
                             label={`${Number(m)}月の${l.label}の目標`}
                             placeholder="目標"
                             onChange={(v) => setTarget(m, l.input!, v)}
+                            className={INPUT}
                           />
                         ) : (
-                          <span className="px-1">{l.target[i] ? yen(l.target[i]) : "－"}</span>
+                          <span className="truncate">{l.target[i] ? yen(l.target[i]) : "－"}</span>
                         )}
                       </div>
                       <div className={`${SUB} justify-end`}>
                         {l.actualInput ? (
-                          <Num value={hobe[m] ?? null} label={`${Number(m)}月の${l.label}の実績`} placeholder="実績" onChange={(v) => setHobeActual(m, v)} />
+                          <Num
+                            value={hobe[m] ?? null}
+                            label={`${Number(m)}月の${l.label}の実績`}
+                            placeholder="実績"
+                            onChange={(v) => setHobeActual(m, v)}
+                            className={INPUT}
+                          />
                         ) : (
-                          <span className="px-1">{l.actual[i] ? yen(l.actual[i]) : "－"}</span>
+                          <span className="truncate">{l.actual[i] ? yen(l.actual[i]) : "－"}</span>
                         )}
                       </div>
                       <div className={`${SUB} justify-end`}>
@@ -267,8 +309,7 @@ function Table({
                       </div>
                     </td>
                   ))}
-                  <td className="bg-berry/5 px-2 py-1.5 text-right align-top font-bold">
-                    <div className="h-6" />
+                  <td className="bg-berry/5 px-1 py-1 text-right align-top font-bold">
                     <div className={`${SUB} justify-end`}>{yen(sum(l.target))}</div>
                     <div className={`${SUB} justify-end`}>{yen(sum(l.actual))}</div>
                     <div className={`${SUB} justify-end`}>
@@ -296,17 +337,6 @@ function Table({
         </button>
       </div>
       <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } body { background: #fff !important; } }`}</style>
-
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
-        <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <button onClick={save} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-2.5 font-bold text-white disabled:opacity-40">
-            {saving ? "保存中…" : "保存する"}
-          </button>
-          {dirty && <span className="text-sm text-amber-700">まだ保存していません</span>}
-          {msg && <span className="text-sm text-gray-600">{msg}</span>}
-          {err && <span className="text-sm text-red-600">{err}</span>}
-        </div>
-      </div>
     </>
   );
 }
@@ -315,10 +345,10 @@ const pct = (a: number, t: number) => (t ? `${Math.round((a / t) * 1000) / 10}%`
 
 /** 達成率（費用は目標比）。売上は100%以上が緑、費用は100%以下が緑 */
 function Rate({ actual, target, cost }: { actual: number; target: number; cost?: boolean }) {
-  if (!target) return <span className="pr-1 text-[11px] font-normal text-gray-300">－</span>;
+  if (!target) return <span className="text-[10px] font-normal text-gray-300">－</span>;
   const p = Math.round((actual / target) * 1000) / 10;
   const good = cost ? p <= 100 : p >= 100;
-  return <span className={`pr-1 text-[11px] font-semibold ${good ? "text-emerald-700" : "text-red-600"}`}>{p.toLocaleString("ja-JP")}%</span>;
+  return <span className={`text-[11px] font-semibold ${good ? "text-emerald-700" : "text-red-600"}`}>{p.toLocaleString("ja-JP")}%</span>;
 }
 
 function Tile({
@@ -339,9 +369,9 @@ function Tile({
   const p = target ? Math.round((onTarget / target) * 1000) / 10 : null;
   const good = p !== null && (cost ? p <= 100 : p >= 100);
   return (
-    <div className={`rounded-xl p-3 shadow-sm ${strong ? "bg-berry text-white" : "bg-white"}`}>
+    <div className={`rounded-xl px-3 py-2 shadow-sm ${strong ? "bg-berry text-white" : "bg-white"}`}>
       <p className={`text-xs ${strong ? "text-white/80" : "text-gray-500"}`}>{label}（年間）</p>
-      <p className="mt-1 text-xl font-bold tabular-nums">実績 {yen(actual)}円</p>
+      <p className="text-lg font-bold tabular-nums">実績 {yen(actual)}円</p>
       <p className={`mt-0.5 text-xs tabular-nums ${strong ? "text-white/90" : "text-gray-600"}`}>
         目標 {yen(target)}円
         {p !== null && (
