@@ -5,7 +5,7 @@
 // 収穫者と回る順は、作業配置表の名前と矢印から読む（矢印の先の名前のないハウスにも同じ人を入れる）。
 // 最初のハウスの「入った」には収穫の開始時刻（管理者が変えられる）を入れておく。1ケースあたりの時間は管理者だけに見える
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { addDays, formatJa, todayJST } from "@/lib/date";
@@ -51,11 +51,86 @@ export default function HarvestPage() {
   const use = useHouseUse(date);
   const members = useShiftMembers();
   const cfg = useHarvestConfig();
+  const narrow = useNarrow();
+  /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
+  const [phoneView, setPhoneView] = useState<boolean | null>(null);
+  const phone = phoneView ?? narrow;
 
   if (role !== "admin" && role !== "staff") return <p>この画面はスタッフだけが使えます。</p>;
   const isAdmin = role === "admin";
   const tooOld = !isAdmin && date < addDays(todayJST(), -STAFF_DAYS);
   const total = rec ? Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0) : 0;
+
+  const toggle = !narrow && (
+    <button onClick={() => setPhoneView(!phone)} className="rounded-lg border bg-white px-3 py-2 text-sm">
+      {phone ? "🖥 表の画面にもどす" : "📱 携帯の画面で見る"}
+    </button>
+  );
+  const content = tooOld ? (
+    <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">{STAFF_DAYS}日より前の記録は、管理者だけが見たり直したりできます。</p>
+  ) : !template || haichi === null || !rec || !use || !members || !cfg ? (
+    <p className="mt-4 text-gray-500">読み込み中…</p>
+  ) : (
+    <Sheet
+      date={date}
+      houses={harvestHouses(template)}
+      plan={planHarvest(template, haichi)}
+      startTime={cfg.startTime}
+      rec={rec}
+      use={use}
+      members={members}
+      isAdmin={isAdmin}
+      phone={phone}
+    />
+  );
+
+  if (phone) {
+    // 携帯の画面：上に日付と合計を小さくまとめ、ハウスはカードで縦に並べる
+    const screen = (
+      <div className="pb-6">
+        <div className="sticky top-0 z-20 -mx-3 border-b bg-white px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-1">
+            <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-2 py-1.5">
+              ◀
+            </button>
+            <span className="flex-1 text-center font-bold">{formatJa(date)}</span>
+            <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-2 py-1.5">
+              ▶
+            </button>
+            {date !== todayJST() && (
+              <button onClick={() => setDate(todayJST())} className="rounded-lg border px-2 py-1.5 text-sm">
+                今日
+              </button>
+            )}
+          </div>
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              <Link href="/staff/" className="underline">
+                ← メニュー
+              </Link>
+            </span>
+            <span className="tabular-nums">
+              合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
+            </span>
+          </div>
+        </div>
+        {content}
+      </div>
+    );
+    if (narrow) return screen;
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold">🍓 収穫管理（携帯の画面）</h1>
+          <span className="text-sm text-gray-500">携帯で開くと、この形になります。ここでもそのまま入力できます。</span>
+          <span className="ml-auto">{toggle}</span>
+        </div>
+        <div className="mx-auto mt-3 h-[760px] w-[390px] overflow-hidden rounded-[2.5rem] border-[10px] border-gray-800 bg-[#fdf6f4] shadow-2xl">
+          <div className="h-full overflow-y-auto px-3">{screen}</div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -83,29 +158,14 @@ export default function HarvestPage() {
           合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
         </span>
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
+        {toggle}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">
             📊 収穫の実績
           </Link>
         )}
       </div>
-
-      {tooOld ? (
-        <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">{STAFF_DAYS}日より前の記録は、管理者だけが見たり直したりできます。</p>
-      ) : !template || haichi === null || !rec || !use || !members || !cfg ? (
-        <p className="mt-4 text-gray-500">読み込み中…</p>
-      ) : (
-        <Sheet
-          date={date}
-          houses={harvestHouses(template)}
-          plan={planHarvest(template, haichi)}
-          startTime={cfg.startTime}
-          rec={rec}
-          use={use}
-          members={members}
-          isAdmin={isAdmin}
-        />
-      )}
+      {content}
     </>
   );
 }
@@ -119,8 +179,11 @@ function Sheet({
   use,
   members,
   isAdmin,
+  phone,
 }: {
   date: string;
+  /** 携帯の画面（ハウスをカードで縦に並べる） */
+  phone: boolean;
   /** 作業配置表の収穫の枠の順 */
   houses: string[];
   /** 作業配置表から読んだ、収穫者と回る順 */
@@ -208,22 +271,166 @@ function Sheet({
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
   }
+  // ---- 1つのハウスの部品（表の画面と携帯の画面で同じものを使う）
+  const usageSelect = (h: string, cls = "") => {
+    const u = houseUseOf(usageOf(h));
+    return (
+      <select value={u.key} onChange={(e) => run(setUse(h, e.target.value as HouseUse))} className={`rounded-lg border px-1 py-2 font-bold ${u.cls} ${cls}`}>
+        {HOUSE_USES.map((x) => (
+          <option key={x.key} value={x.key}>
+            {x.short} {x.label.replace(/（.*）/, "")}
+          </option>
+        ))}
+      </select>
+    );
+  };
+  const membersOf = (h: string) => (
+    <Members
+      ids={who(h)}
+      planned={!rec[h]?.members && who(h).length > 0}
+      names={names}
+      members={members}
+      onChange={(next) => run(save(h, { members: next }))}
+      onPick={(id, e) => onPick(id, h, e)}
+    />
+  );
+  const startCell = (h: string, small?: boolean) => (
+    <TextCell
+      key={`s${startOf(h)}`}
+      value={clock(startOf(h))}
+      planned={rec[h]?.start == null && startOf(h) != null}
+      placeholder="600"
+      small={small}
+      parse={parseClock}
+      onCommit={(v) => run(save(h, { start: v }))}
+    />
+  );
+  const endCell = (h: string, small?: boolean) => (
+    <TextCell key={`e${rec[h]?.end}`} value={clock(rec[h]?.end)} placeholder="710" small={small} parse={parseClock} onCommit={(v) => run(setEnd(h, v))} />
+  );
+  const casesCell = (h: string) => (
+    <TextCell
+      key={`c${rec[h]?.cases}`}
+      value={rec[h]?.cases ? round1(rec[h].cases!).toFixed(1) : ""}
+      placeholder="0.0"
+      decimal
+      big
+      parse={parseCases}
+      onCommit={(v) => run(save(h, { cases: v ?? 0 }))}
+    />
+  );
+  const minus = (h: string, cls = "") => (
+    <button
+      onClick={() => run(addCases(date, h, -1, pending(h)))}
+      disabled={!rec[h]?.cases || rec[h].cases! < 1}
+      className={`rounded-lg border px-3 py-2 text-gray-600 disabled:opacity-30 ${cls}`}
+      aria-label={`No.${h} を1ケース減らす`}
+    >
+      −1
+    </button>
+  );
+  const plus = (h: string, cls = "") => (
+    <button
+      onClick={() => run(addCases(date, h, 1, pending(h)))}
+      className={`rounded-lg bg-berry font-bold text-white active:scale-95 ${cls}`}
+      aria-label={`No.${h} に1ケース足す`}
+    >
+      ＋1
+    </button>
+  );
+  const rateOf = (h: string) => {
+    const ms = who(h);
+    if (ms.length > 1) return <span className="text-xs text-gray-500">共同</span>;
+    return perCaseText(solePerCase({ ...rec[h], start: startOf(h), members: ms }));
+  };
+  const offNote = (h: string) => {
+    const u = houseUseOf(usageOf(h));
+    return (
+      <>
+        {u.label}
+        {rec[h]?.cases ? `（確定数 ${fmtCases(rec[h].cases!)} が入っています）` : ""}
+      </>
+    );
+  };
+  const isOff = (h: string) => NO_HARVEST.includes(usageOf(h));
+
+  const help = (
+    <>
+      集荷のたびに「＋1」を押します（押すとすぐ保存）。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。端数は確定数の欄に
+      5.3 のように打てます。時刻は「710」で
+      7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
+      {use.from !== date &&
+        (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
+    </>
+  );
+  const legend = (
+    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+      {HOUSE_USES.map((u) => (
+        <span key={u.key} className={`rounded border px-2 py-0.5 ${u.cls}`}>
+          {u.short}＝{u.label}
+        </span>
+      ))}
+    </div>
+  );
+  const dragChip = drag && (
+    <div
+      className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-amber-100 px-3 py-1 font-bold shadow-lg"
+      style={{ left: drag.x, top: drag.y }}
+    >
+      {names.get(drag.id)}
+    </div>
+  );
+
+  if (phone)
+    return (
+      <>
+        <details className="mt-2 text-sm text-gray-600">
+          <summary className="cursor-pointer">使い方</summary>
+          <p className="mt-1">{help}</p>
+          {legend}
+        </details>
+        {error && <p className="mt-2 font-bold text-red-600">{error}</p>}
+        <div className="mt-2 space-y-2">
+          {rows.map((h) =>
+            isOff(h) ? (
+              <div key={h} data-drop={h} className="flex items-center gap-2 rounded-xl border bg-gray-50 px-3 py-2">
+                <span className="w-14 text-lg font-bold">No.{h}</span>
+                {usageSelect(h, "py-1 text-sm")}
+                <span className="truncate text-sm text-gray-500">{offNote(h)}</span>
+              </div>
+            ) : (
+              <div key={h} data-drop={h} className="rounded-xl border bg-white p-2.5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className="w-14 text-lg font-bold">No.{h}</span>
+                  {usageSelect(h, "py-1 text-sm")}
+                  {isAdmin && <span className="text-xs text-sky-800">{rateOf(h)}</span>}
+                  <span className="ml-auto text-3xl font-bold tabular-nums text-berry">{fmtCases(rec[h]?.cases ?? 0)}</span>
+                </div>
+                <div className="mt-1.5">{membersOf(h)}</div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500">入</span>
+                  {startCell(h, true)}
+                  <span className="text-xs text-gray-500">終</span>
+                  {endCell(h, true)}
+                  {minus(h, "ml-auto px-2.5 py-3")}
+                  {plus(h, "w-20 py-3 text-xl")}
+                </div>
+                <details className="mt-1 text-xs text-gray-500">
+                  <summary className="cursor-pointer">確定数を打って直す</summary>
+                  <div className="mt-1">{casesCell(h)}</div>
+                </details>
+              </div>
+            ),
+          )}
+        </div>
+        {dragChip}
+      </>
+    );
+
   return (
     <>
-      <p className="mt-2 text-sm text-gray-600">
-        集荷のたびに「＋1」を押します（押すとすぐ保存）。名前を引っぱって次のハウスの行に落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。端数は確定数の欄に
-        5.3 のように打てます。時刻は「710」で
-        7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
-        {use.from !== date &&
-          (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
-      </p>
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        {HOUSE_USES.map((u) => (
-          <span key={u.key} className={`rounded border px-2 py-0.5 ${u.cls}`}>
-            {u.short}＝{u.label}
-          </span>
-        ))}
-      </div>
+      <p className="mt-2 text-sm text-gray-600">{help}</p>
+      {legend}
       {error && <p className="mt-2 font-bold text-red-600">{error}</p>}
       <div className="mt-2 overflow-x-auto rounded-xl border bg-white">
         <table className="w-full min-w-[900px] text-sm tabular-nums">
@@ -240,107 +447,33 @@ function Sheet({
             </tr>
           </thead>
           <tbody>
-            {rows.map((h) => {
-              const u = houseUseOf(usageOf(h));
-              const r = rec[h] ?? {};
-              const off = NO_HARVEST.includes(u.key);
-              const ms = who(h);
-              const p = solePerCase({ ...r, start: startOf(h), members: ms });
-              return (
-                <tr key={h} data-drop={h} className={`border-t ${off ? "bg-gray-50" : ""}`}>
-                  <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">No.{h}</td>
-                  <td className="px-2 py-1.5">
-                    <select
-                      value={u.key}
-                      onChange={(e) => run(setUse(h, e.target.value as HouseUse))}
-                      className={`rounded-lg border px-1 py-2 font-bold ${u.cls}`}
-                    >
-                      {HOUSE_USES.map((x) => (
-                        <option key={x.key} value={x.key}>
-                          {x.short} {x.label.replace(/（.*）/, "")}
-                        </option>
-                      ))}
-                    </select>
+            {rows.map((h) => (
+              <tr key={h} data-drop={h} className={`border-t ${isOff(h) ? "bg-gray-50" : ""}`}>
+                <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">No.{h}</td>
+                <td className="px-2 py-1.5">{usageSelect(h)}</td>
+                {isOff(h) ? (
+                  <td colSpan={isAdmin ? 6 : 5} className="px-2 py-1.5 text-gray-500">
+                    {offNote(h)}
                   </td>
-                  {off ? (
-                    <td colSpan={isAdmin ? 6 : 5} className="px-2 py-1.5 text-gray-500">
-                      {u.label}
-                      {r.cases ? `（確定数 ${fmtCases(r.cases)} が入っています）` : ""}
+                ) : (
+                  <>
+                    <td className="px-2 py-1.5">{membersOf(h)}</td>
+                    <td className="px-2 py-1.5">{startCell(h)}</td>
+                    <td className="px-2 py-1.5">{endCell(h)}</td>
+                    <td className="px-2 py-1.5">{casesCell(h)}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">
+                      {minus(h, "mr-1")}
+                      {plus(h, "px-5 py-2 text-lg")}
                     </td>
-                  ) : (
-                    <>
-                      <td className="px-2 py-1.5">
-                        <Members
-                          ids={ms}
-                          planned={!r.members && ms.length > 0}
-                          names={names}
-                          members={members}
-                          onChange={(next) => run(save(h, { members: next }))}
-                          onPick={(id, e) => onPick(id, h, e)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <TextCell
-                          key={`s${startOf(h)}`}
-                          value={clock(startOf(h))}
-                          planned={r.start == null && startOf(h) != null}
-                          placeholder="600"
-                          parse={parseClock}
-                          onCommit={(v) => run(save(h, { start: v }))}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <TextCell key={`e${r.end}`} value={clock(r.end)} placeholder="710" parse={parseClock} onCommit={(v) => run(setEnd(h, v))} />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <TextCell
-                          key={`c${r.cases}`}
-                          value={r.cases ? round1(r.cases).toFixed(1) : ""}
-                          placeholder="0.0"
-                          decimal
-                          big
-                          parse={parseCases}
-                          onCommit={(v) => run(save(h, { cases: v ?? 0 }))}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">
-                        <button
-                          onClick={() => run(addCases(date, h, -1, pending(h)))}
-                          disabled={!r.cases || r.cases < 1}
-                          className="mr-1 rounded-lg border px-3 py-2 text-gray-600 disabled:opacity-30"
-                          aria-label={`No.${h} を1ケース減らす`}
-                        >
-                          −1
-                        </button>
-                        <button
-                          onClick={() => run(addCases(date, h, 1, pending(h)))}
-                          className="rounded-lg bg-berry px-5 py-2 text-lg font-bold text-white active:scale-95"
-                          aria-label={`No.${h} に1ケース足す`}
-                        >
-                          ＋1
-                        </button>
-                      </td>
-                      {isAdmin && (
-                        <td className="px-2 py-1.5 text-right text-sky-800">
-                          {ms.length > 1 ? <span className="text-xs text-gray-500">共同</span> : perCaseText(p)}
-                        </td>
-                      )}
-                    </>
-                  )}
-                </tr>
-              );
-            })}
+                    {isAdmin && <td className="px-2 py-1.5 text-right text-sky-800">{rateOf(h)}</td>}
+                  </>
+                )}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      {drag && (
-        <div
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-amber-100 px-3 py-1 font-bold shadow-lg"
-          style={{ left: drag.x, top: drag.y }}
-        >
-          {names.get(drag.id)}
-        </div>
-      )}
+      {dragChip}
       {isAdmin && (
         <p className="mt-1 text-xs text-gray-500">「1ケース」は1人だけで収穫したハウスで計算します。応援が入ったハウス（共同）は、ケース数だけ数えます。</p>
       )}
@@ -400,6 +533,7 @@ function TextCell<T>({
   value,
   placeholder,
   planned,
+  small,
   decimal,
   big,
   parse,
@@ -409,6 +543,8 @@ function TextCell<T>({
   placeholder: string;
   /** 作業配置表から入れた値（まだ保存していない）。点線で出す */
   planned?: boolean;
+  /** 携帯の画面用の小さい欄 */
+  small?: boolean;
   decimal?: boolean;
   big?: boolean;
   parse: (s: string) => T | undefined;
@@ -433,7 +569,7 @@ function TextCell<T>({
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
-      className={`rounded-lg border px-2 py-2 text-center ${big ? "w-20 text-xl font-bold" : "w-20 text-base"} ${bad ? "border-red-500 bg-red-50" : planned ? "border-dashed border-sky-400 bg-sky-50 text-sky-900" : ""}`}
+      className={`rounded-lg border px-2 py-2 text-center ${big ? "w-20 text-xl font-bold" : small ? "w-16 px-1 text-base" : "w-20 text-base"} ${bad ? "border-red-500 bg-red-50" : planned ? "border-dashed border-sky-400 bg-sky-50 text-sky-900" : ""}`}
     />
   );
 }
@@ -461,4 +597,17 @@ function StartTime({ value, isAdmin }: { value: number; isAdmin: boolean }) {
       {error && <span className="text-red-600">{error}</span>}
     </span>
   );
+}
+
+/** 画面の幅が携帯くらい（640px より狭い）か */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const on = () => setNarrow(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
 }
