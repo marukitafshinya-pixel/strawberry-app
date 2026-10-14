@@ -8,6 +8,7 @@ import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
 import { EMPLOYEE_KINDS, useEmployees, type Employee } from "@/lib/payroll";
 import { newId } from "@/lib/settings";
+import { RateFromPayroll } from "./RateFromPayroll";
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
 
@@ -51,7 +52,20 @@ export default function EmployeesPage() {
         退職した人も表示する
       </label>
 
-      {editing && <EmployeeForm employee={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <EmployeeForm
+          key={editing.id}
+          employee={editing}
+          onClose={() => setEditing(null)}
+          // 一覧にいる人なら、矢印で前・次の人に切り替えられる（同じ項目を続けて直しやすいように）
+          nav={(() => {
+            const i = shown.findIndex((x) => x.id === editing.id);
+            if (i < 0) return undefined;
+            return { pos: `${i + 1} / ${shown.length}`, prev: shown[i - 1], next: shown[i + 1], go: setEditing };
+          })()}
+        />
+      )}
+      {list && <RateFromPayroll employees={list} />}
 
       {error ? <p className="mt-3 text-red-600">{errorText(error)}</p> : null}
       {!list && !error && <p className="mt-3 text-gray-500">読み込み中…</p>}
@@ -99,17 +113,32 @@ export default function EmployeesPage() {
   );
 }
 
-function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+type FormNav = { pos: string; prev?: Employee; next?: Employee; go: (e: Employee) => void };
+
+function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose: () => void; nav?: FormNav }) {
   const [e, setE] = useState(employee);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const set = (patch: Partial<Employee>) => setE({ ...e, ...patch });
+  const dirty = JSON.stringify(e) !== JSON.stringify(employee);
 
   async function save(ev: FormEvent) {
     ev.preventDefault();
+    if (await persist()) onClose();
+  }
+
+  /** 前・次の人へ。直したところがあれば保存してから切り替える */
+  async function move(to: Employee | undefined) {
+    if (!to || !nav) return;
+    if (dirty && !(await persist())) return;
+    nav.go(to);
+  }
+
+  /** 保存する。できたら true */
+  async function persist(): Promise<boolean> {
     setError("");
-    if (!e.name.trim()) return setError("氏名を入れてください");
-    if (e.accountNumber && !/^[0-9-]{1,20}$/.test(e.accountNumber)) return setError("口座番号は数字で入れてください");
+    if (!e.name.trim()) return (setError("氏名を入れてください"), false);
+    if (e.accountNumber && !/^[0-9-]{1,20}$/.test(e.accountNumber)) return (setError("口座番号は数字で入れてください"), false);
     setSaving(true);
     try {
       const { db } = await getFirebase();
@@ -125,9 +154,10 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
         accountNumber: rest.accountNumber.trim(),
         updatedAt: serverTimestamp(),
       });
-      onClose();
+      return true;
     } catch (err) {
       setError(errorText(err));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -149,6 +179,28 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
 
   return (
     <form onSubmit={save} className="mt-3 space-y-3 rounded-2xl bg-white p-4 shadow-sm sm:max-w-lg">
+      {nav && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void move(nav.prev)}
+            disabled={!nav.prev || saving}
+            className="rounded-lg border px-4 py-2 font-bold disabled:opacity-30"
+          >
+            ◀ 前の人
+          </button>
+          <span className="flex-1 text-center text-sm text-gray-500 tabular-nums">{nav.pos}</span>
+          <button
+            type="button"
+            onClick={() => void move(nav.next)}
+            disabled={!nav.next || saving}
+            className="rounded-lg border px-4 py-2 font-bold disabled:opacity-30"
+          >
+            次の人 ▶
+          </button>
+        </div>
+      )}
+      {nav && <p className="-mt-1 text-xs text-gray-500">直したところは、前・次の人に切り替えるときに保存されます。</p>}
       <div className="grid grid-cols-[6rem_1fr] gap-3">
         <label className="block text-sm">
           <span className="text-gray-600">社員番号</span>

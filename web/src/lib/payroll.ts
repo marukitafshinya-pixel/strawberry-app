@@ -39,6 +39,13 @@ export function hourlyBasePay(rate: number, work: number, over: number, overtime
   return Math.floor((rate * (work - o) + rate * 1.25 * o) / 60 + 1e-9);
 }
 
+/** 支給した「基本給（時給）」とタイムカードの時間から、時給を逆算する（円・整数）。時間がなければ null */
+export function rateFromPay(amount: number, work: number, over: number, overtime: boolean): number | null {
+  const o = overtime ? over : 0;
+  const hours = (work - o + 1.25 * o) / 60;
+  return hours > 0 ? Math.round(amount / hours) : null;
+}
+
 export type EmployeeKind = "officer" | "regular" | "part";
 export const EMPLOYEE_KINDS: { key: EmployeeKind; label: string; badge: string }[] = [
   { key: "officer", label: "役員", badge: "bg-purple-100 text-purple-800" },
