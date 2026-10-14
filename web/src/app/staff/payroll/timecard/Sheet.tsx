@@ -116,7 +116,7 @@ function PayBox({ pay, person }: { pay: TimecardPay; person: PersonResult }) {
         )}
         {pay.commutePerDay > 0 && (
           <tr>
-            <th>交通費</th>
+            <th>交通費（{pay.commuteTaxable ? "課税" : "非課税"}）</th>
             <td className="text-right">
               {yen(pay.commutePerDay)} × {person.workDays}日
             </td>

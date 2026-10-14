@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv } from "@/lib/csv";
 import { isValidYmd, shiftMonth, todayJST } from "@/lib/date";
-import { hourlyBasePay, paysOvertime, reiwa, timecardPay, useEmployees } from "@/lib/payroll";
+import { hourlyBasePay, paysOvertime, reiwa, timecardPay, useEmployees, type Employee } from "@/lib/payroll";
 import { downloadCsv } from "@/lib/report";
 import {
   CLOSE_DAY_CHOICES,
@@ -38,6 +38,13 @@ import {
   type TimecardConfig,
 } from "@/lib/timecard";
 import { TimecardSheet } from "./Sheet";
+
+/** 弥生に渡す交通費の2列（非課税通勤費・課税通勤費）。交通費が日額でない人は両方空欄（弥生の金額のまま） */
+function commuteCols(e: Employee, workDays: number): [string, string] {
+  if (!e.commutePerDay) return ["", ""];
+  const amount = String(e.commutePerDay * workDays);
+  return e.commuteTaxable ? ["0", amount] : [amount, "0"];
+}
 
 const mdOf = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
@@ -144,7 +151,7 @@ export default function TimecardPage() {
           </button>
         )}
         {people && people.length > 0 && (
-          // 弥生給与の「明細データのインポート」用：1人1行（従業員コード・氏名・出勤日数・実働時間・普通残業時間・基本給（時給）・非課税通勤費）。Shift_JIS
+          // 弥生給与の「明細データのインポート」用：1人1行（従業員コード・氏名・出勤日数・実働時間・普通残業時間・基本給（時給）・非課税通勤費・課税通勤費）。Shift_JIS
           <button
             onClick={() => {
               const missing = people.filter((x) => !x.e).map((x) => `カード${x.p.card}`);
@@ -160,7 +167,7 @@ export default function TimecardPage() {
               downloadCsv(
                 `yayoi_kintai_${month}.csv`,
                 [
-                  ["従業員コード", "氏名", "出勤日数", "実働時間", "普通残業時間", "基本給（時給）", "非課税通勤費"],
+                  ["従業員コード", "氏名", "出勤日数", "実働時間", "普通残業時間", "基本給（時給）", "非課税通勤費", "課税通勤費"],
                   ...people
                     .filter((x) => x.e)
                     .map(({ p, e }) => [
@@ -172,8 +179,9 @@ export default function TimecardPage() {
                       paysOvertime(e!) && p.over ? hm(p.over) : "",
                       // 時給の人だけ。弥生は残業の25％増しを計算しないので、増し分を入れた金額をアプリで出す
                       e!.hourlyRate ? String(hourlyBasePay(e!.hourlyRate, p.work, p.over, paysOvertime(e!))) : "",
-                      // 交通費が日額の人だけ：日額 × 出勤日数
-                      e!.commutePerDay ? String(e!.commutePerDay * p.workDays) : "",
+                      // 交通費が日額の人だけ：日額 × 出勤日数を、非課税か課税のどちらかに入れ、もう一方は 0
+                      // （弥生が従業員の設定から自動で入れた交通費を 0 で上書きして、二重にならないように）
+                      ...commuteCols(e!, p.workDays),
                     ]),
                 ],
                 { shiftJis: true },

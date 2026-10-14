@@ -94,7 +94,9 @@ export default function EmployeesPage() {
                   <KindBadge kind={e.kind} />
                   {e.manager && <span className="ml-1 rounded bg-gray-200 px-1.5 text-xs text-gray-700">管理職</span>}
                   {e.commutePerDay ? (
-                    <span className="ml-1 text-xs text-gray-600 tabular-nums">交通費 {e.commutePerDay.toLocaleString("ja-JP")}円/日</span>
+                    <span className="ml-1 text-xs text-gray-600 tabular-nums">
+                      交通費 {e.commutePerDay.toLocaleString("ja-JP")}円/日{e.commuteTaxable ? "（課税）" : ""}
+                    </span>
                   ) : null}
                   {e.hourlyRate ? <span className="ml-1 text-xs text-gray-600 tabular-nums">時給 {e.hourlyRate.toLocaleString("ja-JP")}円</span> : null}
                 </td>
@@ -146,11 +148,12 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
     try {
       const { db } = await getFirebase();
       const { id, ...data } = e;
-      const { hourlyRate, commutePerDay, ...rest } = data;
+      const { hourlyRate, commutePerDay, commuteTaxable, ...rest } = data;
       await setDoc(doc(db, `employees/${id}`), {
         ...rest,
         ...(hourlyRate ? { hourlyRate } : {}),
         ...(commutePerDay ? { commutePerDay } : {}),
+        ...(commutePerDay && commuteTaxable ? { commuteTaxable: true } : {}),
         code: rest.code.trim(),
         name: rest.name.trim(),
         bankName: rest.bankName.trim(),
@@ -258,6 +261,21 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
           />
         </label>
       </div>
+      {!!e.commutePerDay && (
+        <fieldset className="text-sm">
+          <legend className="text-gray-600">交通費の区分</legend>
+          <div className="mt-1 flex flex-wrap gap-4">
+            <label className="flex items-center gap-1">
+              <input type="radio" name="commuteTaxable" checked={!e.commuteTaxable} onChange={() => set({ commuteTaxable: undefined })} />
+              非課税
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" name="commuteTaxable" checked={!!e.commuteTaxable} onChange={() => set({ commuteTaxable: true })} />
+              課税（家から2km未満など）
+            </label>
+          </div>
+        </fieldset>
+      )}
       <fieldset className="text-sm">
         <legend className="text-gray-600">支払方法</legend>
         <div className="mt-1 flex gap-4">

@@ -27,6 +27,8 @@ export type Employee = {
   hourlyRate?: number;
   /** 交通費（1日いくら・円）。出勤日数をかけて「非課税通勤費」として弥生に渡す */
   commutePerDay?: number;
+  /** 交通費に税金がかかる（家から2km未満など）。弥生には「課税通勤費」として渡す */
+  commuteTaxable?: boolean;
 };
 
 /** 残業代（25％増し）を払う人：アルバイト（区分を決めていない人も含む）で、管理職でない人 */
@@ -52,6 +54,7 @@ export type TimecardPay = {
   hourly: number;
   commutePerDay: number;
   commute: number;
+  commuteTaxable: boolean;
 };
 export function timecardPay(e: Employee, p: { work: number; over: number; workDays: number }): TimecardPay | null {
   const rate = e.hourlyRate ?? 0;
@@ -61,7 +64,7 @@ export function timecardPay(e: Employee, p: { work: number; over: number; workDa
   const hourly = rate ? hourlyBasePay(rate, p.work, p.over, overtime) : 0;
   // 時間内の分は切り捨て、時間外は残り（2つを足すと、まとめて切り捨てた基本給（時給）とぴったり同じになる）
   const base = rate ? Math.min(hourly, Math.floor((rate * (p.work - (overtime ? p.over : 0))) / 60 + 1e-9)) : 0;
-  return { rate, overtime, base, overPay: hourly - base, hourly, commutePerDay, commute: commutePerDay * p.workDays };
+  return { rate, overtime, base, overPay: hourly - base, hourly, commutePerDay, commute: commutePerDay * p.workDays, commuteTaxable: !!e.commuteTaxable };
 }
 
 /** 支給した「基本給（時給）」とタイムカードの時間から、時給を逆算する（円・整数）。時間がなければ null */
