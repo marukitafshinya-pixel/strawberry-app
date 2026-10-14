@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv } from "@/lib/csv";
 import { isValidYmd, shiftMonth, todayJST } from "@/lib/date";
-import { reiwa, useEmployees } from "@/lib/payroll";
+import { hourlyBasePay, paysOvertime, reiwa, useEmployees } from "@/lib/payroll";
 import { downloadCsv } from "@/lib/report";
 import {
   CLOSE_DAY_CHOICES,
@@ -144,15 +144,23 @@ export default function TimecardPage() {
           </button>
         )}
         {people && people.length > 0 && (
-          // 弥生給与の「明細データのインポート」用：1人1行（従業員コード・氏名・出勤日数・実働時間・普通残業時間）。Shift_JIS
+          // 弥生給与の「明細データのインポート」用：1人1行（従業員コード・氏名・出勤日数・実働時間・普通残業時間・基本給（時給））。Shift_JIS
           <button
             onClick={() => {
               const missing = people.filter((x) => !x.e).map((x) => `カード${x.p.card}`);
               if (missing.length && !window.confirm(`従業員とひも付いていないカードは書き出しません：${missing.join("、")}\nこのまま書き出しますか？`)) return;
+              const noRate = people.filter((x) => x.e && paysOvertime(x.e) && !x.e.hourlyRate).map((x) => x.e!.name);
+              if (
+                noRate.length &&
+                !window.confirm(
+                  `時給が入っていないアルバイトは「基本給（時給）」が空欄になります：${noRate.join("、")}\n（「従業員の登録」で時給を入れられます）このまま書き出しますか？`,
+                )
+              )
+                return;
               downloadCsv(
                 `yayoi_kintai_${month}.csv`,
                 [
-                  ["従業員コード", "氏名", "出勤日数", "実働時間", "普通残業時間"],
+                  ["従業員コード", "氏名", "出勤日数", "実働時間", "普通残業時間", "基本給（時給）"],
                   ...people
                     .filter((x) => x.e)
                     .map(({ p, e }) => [
@@ -161,7 +169,9 @@ export default function TimecardPage() {
                       p.workDays.toFixed(2),
                       hm(p.work),
                       // 残業代を払うのはアルバイト（区分を決めていない人も含む）だけ。社員・役員・管理職は空欄
-                      !e!.manager && (!e!.kind || e!.kind === "part") && p.over ? hm(p.over) : "",
+                      paysOvertime(e!) && p.over ? hm(p.over) : "",
+                      // 時給の人だけ。弥生は残業の25％増しを計算しないので、増し分を入れた金額をアプリで出す
+                      e!.hourlyRate ? String(hourlyBasePay(e!.hourlyRate, p.work, p.over, paysOvertime(e!))) : "",
                     ]),
                 ],
                 { shiftJis: true },
@@ -204,6 +214,7 @@ export default function TimecardPage() {
                 <th className="px-3 py-2 text-right">出勤日数</th>
                 <th className="px-3 py-2 text-right">労働時間</th>
                 <th className="px-3 py-2 text-right">うち残業</th>
+                <th className="px-3 py-2 text-right">基本給（時給）</th>
                 <th className="px-3 py-2">確認</th>
               </tr>
             </thead>
@@ -231,6 +242,9 @@ export default function TimecardPage() {
                     <span className="ml-1 text-xs font-normal text-gray-500">（{hours2(p.work)}h）</span>
                   </td>
                   <td className="px-3 py-2 text-right">{e?.manager ? <span className="text-xs text-gray-500">管理職</span> : p.over ? hm(p.over) : ""}</td>
+                  <td className="px-3 py-2 text-right">
+                    {e?.hourlyRate ? `${hourlyBasePay(e.hourlyRate, p.work, p.over, paysOvertime(e)).toLocaleString("ja-JP")}円` : ""}
+                  </td>
                   <td className="px-3 py-2 text-xs">
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
                     {p.edited > 0 && <span className="text-amber-800">直した {p.edited}件</span>}
@@ -246,6 +260,7 @@ export default function TimecardPage() {
                 <td className="px-3 py-2 text-right">{people.reduce((a, x) => a + x.p.workDays, 0)}日</td>
                 <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.work, 0))}</td>
                 <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.over, 0))}</td>
+                <td />
                 <td className="px-3 py-2 text-xs text-red-700">
                   {people.some((x) => x.p.problems) ? `要確認 ${people.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
                 </td>

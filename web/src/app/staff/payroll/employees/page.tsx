@@ -79,6 +79,7 @@ export default function EmployeesPage() {
                 <td className="px-3 py-2">
                   <KindBadge kind={e.kind} />
                   {e.manager && <span className="ml-1 rounded bg-gray-200 px-1.5 text-xs text-gray-700">管理職</span>}
+                  {e.hourlyRate ? <span className="ml-1 text-xs text-gray-600 tabular-nums">時給 {e.hourlyRate.toLocaleString("ja-JP")}円</span> : null}
                 </td>
                 <td className="px-3 py-2">{e.payMethod === "cash" ? "現金" : "振込"}</td>
                 <td className="px-3 py-2">
@@ -113,13 +114,15 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
     try {
       const { db } = await getFirebase();
       const { id, ...data } = e;
+      const { hourlyRate, ...rest } = data;
       await setDoc(doc(db, `employees/${id}`), {
-        ...data,
-        code: data.code.trim(),
-        name: data.name.trim(),
-        bankName: data.bankName.trim(),
-        branchName: data.branchName.trim(),
-        accountNumber: data.accountNumber.trim(),
+        ...rest,
+        ...(hourlyRate ? { hourlyRate } : {}),
+        code: rest.code.trim(),
+        name: rest.name.trim(),
+        bankName: rest.bankName.trim(),
+        branchName: rest.branchName.trim(),
+        accountNumber: rest.accountNumber.trim(),
         updatedAt: serverTimestamp(),
       });
       onClose();
@@ -131,7 +134,8 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
   }
 
   async function remove() {
-    if (!window.confirm(`${e.name} さんを削除しますか？\n過去の給与の記録に名前が出なくなります。辞めた人は「在籍中」のチェックを外すのがおすすめです。`)) return;
+    if (!window.confirm(`${e.name} さんを削除しますか？\n過去の給与の記録に名前が出なくなります。辞めた人は「在籍中」のチェックを外すのがおすすめです。`))
+      return;
     setSaving(true);
     try {
       const { db } = await getFirebase();
@@ -169,6 +173,19 @@ function EmployeeForm({ employee, onClose }: { employee: Employee; onClose: () =
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!e.manager} onChange={(x) => set({ manager: x.target.checked })} />
         管理職（残業がつかない。タイムカードの集計で残業を数えません）
+      </label>
+      <label className="block text-sm sm:max-w-[12rem]">
+        <span className="text-gray-600">時給（円）</span>
+        <input
+          value={e.hourlyRate ?? ""}
+          inputMode="numeric"
+          placeholder="時給の人だけ"
+          onChange={(x) => {
+            const v = x.target.value.replace(/[^0-9]/g, "");
+            set({ hourlyRate: v ? Math.min(Number(v), 99999) : undefined });
+          }}
+          className={input}
+        />
       </label>
       <fieldset className="text-sm">
         <legend className="text-gray-600">支払方法</legend>

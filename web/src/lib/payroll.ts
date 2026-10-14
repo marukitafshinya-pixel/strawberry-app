@@ -23,7 +23,21 @@ export type Employee = {
   kind?: EmployeeKind;
   /** 管理職（残業がつかない）。タイムカードの集計で残業を数えない */
   manager?: boolean;
+  /** 時給（円）。タイムカードから「基本給（時給）」を計算して弥生に渡すときに使う */
+  hourlyRate?: number;
 };
+
+/** 残業代（25％増し）を払う人：アルバイト（区分を決めていない人も含む）で、管理職でない人 */
+export const paysOvertime = (e: Pick<Employee, "kind" | "manager">) => !e.manager && (!e.kind || e.kind === "part");
+
+/**
+ * タイムカードの時間から「基本給（時給）」を計算する（円未満は切り捨て）。
+ * 残業を払う人は 時給 ×（残業でない時間 ＋ 残業 × 1.25）、ほかの人は 時給 × 労働時間。work・over は分
+ */
+export function hourlyBasePay(rate: number, work: number, over: number, overtime: boolean): number {
+  const o = overtime ? over : 0;
+  return Math.floor((rate * (work - o) + rate * 1.25 * o) / 60 + 1e-9);
+}
 
 export type EmployeeKind = "officer" | "regular" | "part";
 export const EMPLOYEE_KINDS: { key: EmployeeKind; label: string; badge: string }[] = [
@@ -98,7 +112,11 @@ export const EMPLOYER_RATES = { employment: 0.0095, childAllowance: 0.0036, pens
  * - 子ども・子育て拠出金（児童手当拠出金）：厚生年金に入っている人の標準報酬月額 × 率（標準報酬月額は本人の厚生年金保険料から求める）
  */
 export function computeEmployer(rows: Record<string, PayRow>): Partial<Record<EmployerKey, number>> {
-  let health = 0, care = 0, pension = 0, employment = 0, child = 0;
+  let health = 0,
+    care = 0,
+    pension = 0,
+    employment = 0,
+    child = 0;
   for (const r of Object.values(rows)) {
     health += v(r, "health");
     care += v(r, "care");
@@ -139,9 +157,7 @@ export function useEmployees() {
         collection(db, "employees"),
         (snap) =>
           setList(
-            snap.docs
-              .map((d) => ({ id: d.id, ...(d.data() as Omit<Employee, "id">) }))
-              .sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true })),
+            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Employee, "id">) })).sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true })),
           ),
         setError,
       );
