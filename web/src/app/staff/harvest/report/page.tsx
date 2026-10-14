@@ -57,6 +57,10 @@ export default function HarvestReportPage() {
   return (
     <>
       <p className="text-sm">
+        <Link href="/staff/" className="text-gray-500 underline">
+          ← メニュー
+        </Link>
+        <span className="mx-2 text-gray-300">|</span>
         <Link href="/staff/harvest/" className="text-gray-500 underline">
           ← 収穫管理（入力）
         </Link>

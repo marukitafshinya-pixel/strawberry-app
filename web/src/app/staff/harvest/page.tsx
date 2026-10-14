@@ -59,7 +59,12 @@ export default function HarvestPage() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
+      <p className="text-sm">
+        <Link href="/staff/" className="text-gray-500 underline">
+          ← メニュー
+        </Link>
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-bold">🍓 収穫管理</h1>
         <button onClick={() => setDate(addDays(date, -1))} className="ml-2 rounded-lg border bg-white px-3 py-2">
           ◀
