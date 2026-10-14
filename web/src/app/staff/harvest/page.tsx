@@ -4,7 +4,7 @@
 // 確定数は集荷のたびに「＋1」を押して数える（押すたびにすぐ保存。どの端末でも同じ数になる）。
 // 収穫者は、はじめは作業配置表の収穫の枠から入っている。1ケースあたりの時間は管理者だけに見える
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { addDays, formatJa, todayJST } from "@/lib/date";
@@ -110,6 +110,9 @@ function Sheet({
   isAdmin: boolean;
 }) {
   const [error, setError] = useState("");
+  /** ドラッグ中の名前と指の位置 */
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  const start = useRef<{ id: string; from: string; x: number; y: number; moved: boolean } | null>(null);
   const names = new Map(members.map((m) => [m.id, m.name]));
   const usageOf = (h: string) => use.houses[h] ?? "harvest";
   /** そのハウスの収穫者（保存していなければ作業配置表の人） */
@@ -139,11 +142,45 @@ function Sheet({
 
   // 作業配置表の収穫の枠と同じ並び（1・6・8・4・5・9・10・17〜27）
   const rows = houses;
+
+  /** 名前を別のハウスへ入れる（元のハウスにも残す）。入ったが空なら、元のハウスの終わった時刻を入れる */
+  function dropTo(id: string, from: string, to: string) {
+    if (to === from || NO_HARVEST.includes(usageOf(to))) return;
+    const cur = who(to);
+    const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
+    run(saveHouseHarvest(date, to, { members: cur.includes(id) ? cur : [...cur, id], ...startAt }));
+  }
+  /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
+  function onPick(id: string, from: string, e: React.PointerEvent) {
+    e.preventDefault();
+    start.current = { id, from, x: e.clientX, y: e.clientY, moved: false };
+    const move = (ev: PointerEvent) => {
+      const s = start.current;
+      if (!s || (!s.moved && Math.hypot(ev.clientX - s.x, ev.clientY - s.y) < 8)) return;
+      s.moved = true;
+      setDrag({ id: s.id, x: ev.clientX, y: ev.clientY });
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      const s = start.current;
+      start.current = null;
+      setDrag(null);
+      if (!s) return;
+      if (!s.moved) return void run(saveHouseHarvest(date, s.from, { members: who(s.from).filter((x) => x !== s.id) }));
+      const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
+      if (target?.dataset.drop) dropTo(s.id, s.from, target.dataset.drop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
   return (
     <>
       <p className="mt-2 text-sm text-gray-600">
-        集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は確定数の欄に 5.3 のように打てます。時刻は「710」で
-        7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。
+        集荷のたびに「＋1」を押します（押すとすぐ保存）。名前を引っぱって次のハウスの行に落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。端数は確定数の欄に
+        5.3 のように打てます。時刻は「710」で 7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。
         {use.from !== date &&
           (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
       </p>
@@ -177,7 +214,7 @@ function Sheet({
               const ms = who(h);
               const p = solePerCase({ ...r, members: ms });
               return (
-                <tr key={h} className={`border-t ${off ? "bg-gray-50" : ""}`}>
+                <tr key={h} data-drop={h} className={`border-t ${off ? "bg-gray-50" : ""}`}>
                   <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">No.{h}</td>
                   <td className="px-2 py-1.5">
                     <select
@@ -206,6 +243,7 @@ function Sheet({
                           names={names}
                           members={members}
                           onChange={(next) => run(saveHouseHarvest(date, h, { members: next }))}
+                          onPick={(id, e) => onPick(id, h, e)}
                         />
                       </td>
                       <td className="px-2 py-1.5">
@@ -261,6 +299,14 @@ function Sheet({
           </tbody>
         </table>
       </div>
+      {drag && (
+        <div
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-amber-100 px-3 py-1 font-bold shadow-lg"
+          style={{ left: drag.x, top: drag.y }}
+        >
+          {names.get(drag.id)}
+        </div>
+      )}
       {isAdmin && (
         <p className="mt-1 text-xs text-gray-500">「1ケース」は1人だけで収穫したハウスで計算します。応援が入ったハウス（共同）は、ケース数だけ数えます。</p>
       )}
@@ -268,19 +314,21 @@ function Sheet({
   );
 }
 
-/** 収穫者：名前を押すと外せる。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない） */
+/** 収穫者：名前を押すと外せる。名前を引っぱって別のハウスの行に落とすと、そのハウスにも入る。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない） */
 function Members({
   ids,
   planned,
   names,
   members,
   onChange,
+  onPick,
 }: {
   ids: string[];
   planned: boolean;
   names: Map<string, string>;
   members: ShiftMember[];
   onChange: (ids: string[]) => void;
+  onPick: (id: string, e: React.PointerEvent) => void;
 }) {
   const candidates = members.filter((m) => m.active && !ids.includes(m.id)).sort((a, b) => Number(!!b.harvest) - Number(!!a.harvest) || a.order - b.order);
   return (
@@ -288,9 +336,9 @@ function Members({
       {ids.map((id) => (
         <button
           key={id}
-          onClick={() => onChange(ids.filter((x) => x !== id))}
-          title="押すと外せます"
-          className={`rounded-full border px-2 py-1 ${planned ? "border-dashed border-sky-400 bg-sky-50 text-sky-900" : "bg-amber-50"}`}
+          onPointerDown={(e) => onPick(id, e)}
+          title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
+          className={`touch-none select-none rounded-full border px-2 py-1 ${planned ? "border-dashed border-sky-400 bg-sky-50 text-sky-900" : "bg-amber-50"}`}
         >
           {names.get(id) ?? "（いない人）"} ×
         </button>
