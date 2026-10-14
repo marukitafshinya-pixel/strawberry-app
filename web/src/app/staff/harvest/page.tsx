@@ -359,7 +359,8 @@ function Members({
   onChange: (ids: string[]) => void;
   onPick: (id: string, e: React.PointerEvent) => void;
 }) {
-  const candidates = members.filter((m) => m.active && !ids.includes(m.id)).sort((a, b) => Number(!!b.harvest) - Number(!!a.harvest) || a.order - b.order);
+  // 足せるのは、勤務管理表で「収穫可」にしている人だけ
+  const candidates = members.filter((m) => m.active && m.harvest && !ids.includes(m.id)).sort((a, b) => a.order - b.order);
   return (
     <div className="flex flex-wrap items-center gap-1">
       {ids.map((id) => (
