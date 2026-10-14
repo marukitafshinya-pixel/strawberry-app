@@ -505,5 +505,8 @@ describe("収穫管理 (harvest・houseUse・config/harvest)", () => {
     await assertSucceeds(getDoc(doc(staff(), "config/harvest")));
     await assertFails(setDoc(doc(staff(), "config/harvest"), { groups: [] }));
     await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { groups: [{ name: "1・6・8", houses: ["1", "6", "8"] }] }));
+    await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { groups: [], startTime: 360 }));
+    await assertFails(setDoc(doc(admin(), "config/harvest"), { groups: [], startTime: "6:00" }));
+    await assertFails(setDoc(doc(staff(), "config/harvest"), { startTime: 330 }));
   });
 });

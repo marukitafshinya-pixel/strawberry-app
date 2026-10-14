@@ -2,7 +2,8 @@
 
 // 収穫管理の入力（棟別出荷調査票）：ハウスが1行。使い方・収穫者・入った時刻・終わった時刻・確定数を入れる。
 // 確定数は集荷のたびに「＋1」を押して数える（押すたびにすぐ保存。どの端末でも同じ数になる）。
-// 収穫者は、はじめは作業配置表の収穫の枠から入っている。1ケースあたりの時間は管理者だけに見える
+// 収穫者と回る順は、作業配置表の名前と矢印から読む（矢印の先の名前のないハウスにも同じ人を入れる）。
+// 最初のハウスの「入った」には収穫の開始時刻（管理者が変えられる）を入れておく。1ケースあたりの時間は管理者だけに見える
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -13,7 +14,7 @@ import {
   addCases,
   clock,
   fmtCases,
-  haichiMembers,
+  planHarvest,
   harvestHouses,
   HOUSE_USES,
   houseUseOf,
@@ -21,12 +22,15 @@ import {
   parseClock,
   perCaseText,
   round1,
+  saveHarvestStart,
   saveHouseHarvest,
   saveHouseUse,
   solePerCase,
+  useHarvestConfig,
   useHarvestDay,
   useHouseUse,
   type HarvestDoc,
+  type HarvestPlan,
   type HouseHarvest,
   type HouseUse,
   type HouseUseMap,
@@ -46,6 +50,7 @@ export default function HarvestPage() {
   const rec = useHarvestDay(date);
   const use = useHouseUse(date);
   const members = useShiftMembers();
+  const cfg = useHarvestConfig();
 
   if (role !== "admin" && role !== "staff") return <p>この画面はスタッフだけが使えます。</p>;
   const isAdmin = role === "admin";
@@ -72,6 +77,7 @@ export default function HarvestPage() {
         <span className="ml-auto rounded-lg bg-rose-50 px-3 py-2 text-lg tabular-nums">
           合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
         </span>
+        {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">
             📊 収穫の実績
@@ -81,10 +87,19 @@ export default function HarvestPage() {
 
       {tooOld ? (
         <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">{STAFF_DAYS}日より前の記録は、管理者だけが見たり直したりできます。</p>
-      ) : !template || haichi === null || !rec || !use || !members ? (
+      ) : !template || haichi === null || !rec || !use || !members || !cfg ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Sheet date={date} houses={harvestHouses(template)} planned={haichiMembers(template, haichi)} rec={rec} use={use} members={members} isAdmin={isAdmin} />
+        <Sheet
+          date={date}
+          houses={harvestHouses(template)}
+          plan={planHarvest(template, haichi)}
+          startTime={cfg.startTime}
+          rec={rec}
+          use={use}
+          members={members}
+          isAdmin={isAdmin}
+        />
       )}
     </>
   );
@@ -93,17 +108,20 @@ export default function HarvestPage() {
 function Sheet({
   date,
   houses,
-  planned,
+  plan,
+  startTime,
   rec,
   use,
   members,
   isAdmin,
 }: {
   date: string;
-  /** 作業配置表の枠の順（収穫者が回る順） */
+  /** 作業配置表の収穫の枠の順 */
   houses: string[];
-  /** 作業配置表で割り振られた人 */
-  planned: Record<string, string[]>;
+  /** 作業配置表から読んだ、収穫者と回る順 */
+  plan: HarvestPlan;
+  /** 収穫の開始時刻（分） */
+  startTime: number;
   rec: HarvestDoc;
   use: { houses: HouseUseMap; from: string | null };
   members: ShiftMember[];
@@ -116,22 +134,31 @@ function Sheet({
   const names = new Map(members.map((m) => [m.id, m.name]));
   const usageOf = (h: string) => use.houses[h] ?? "harvest";
   /** そのハウスの収穫者（保存していなければ作業配置表の人） */
-  const who = (h: string) => rec[h]?.members ?? planned[h] ?? [];
+  const who = (h: string) => rec[h]?.members ?? plan.members[h] ?? [];
+  /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
+  const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
+  /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
+  const startOf = (h: string) => rec[h]?.start ?? plannedStart(h);
+  /** まだ保存していない予定（収穫者・開始時刻）。そのハウスを初めて保存するときに一緒に保存する */
+  const pending = (h: string): HouseHarvest => ({
+    ...(rec[h]?.members ? {} : { members: who(h) }),
+    ...(rec[h]?.start == null && plannedStart(h) != null ? { start: plannedStart(h) } : {}),
+  });
   const run = (p: Promise<unknown>) => {
     setError("");
     p.catch((e) => setError(errorText(e)));
   };
-  /** 1つのハウスを保存する。収穫者をまだ保存していなければ、いま見えている人も一緒に保存する */
-  const save = (h: string, patch: HouseHarvest) => saveHouseHarvest(date, h, rec[h]?.members ? patch : { members: who(h), ...patch });
+  /** 1つのハウスを保存する。まだ保存していない予定（収穫者・開始時刻）も一緒に保存する */
+  const save = (h: string, patch: HouseHarvest) => saveHouseHarvest(date, h, { ...pending(h), ...patch });
 
-  /** 終わった時刻を入れたら、その人の次のハウス（配置表の順）の「入った」が空なら同じ時刻を入れる */
+  /** 終わった時刻を入れたら、その人の次のハウス（配置表の矢印の順）の「入った」が空なら同じ時刻を入れる */
   async function setEnd(h: string, end: number | null) {
     await save(h, { end });
     if (end == null) return;
-    const i = houses.indexOf(h);
     const done = new Set<string>();
     for (const m of who(h)) {
-      const next = houses.find((x, j) => j > i && who(x).includes(m) && !NO_HARVEST.includes(usageOf(x)));
+      const route = plan.routes[m] ?? [];
+      const next = route.slice(route.indexOf(h) + 1).find((x) => route.includes(h) && !NO_HARVEST.includes(usageOf(x)));
       if (next && !done.has(next) && rec[next]?.start == null) {
         done.add(next);
         await save(next, { start: end });
@@ -148,7 +175,7 @@ function Sheet({
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
     const cur = who(to);
     const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
-    run(saveHouseHarvest(date, to, { members: cur.includes(id) ? cur : [...cur, id], ...startAt }));
+    run(save(to, { members: cur.includes(id) ? cur : [...cur, id], ...startAt }));
   }
   /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
   function onPick(id: string, from: string, e: React.PointerEvent) {
@@ -168,7 +195,7 @@ function Sheet({
       start.current = null;
       setDrag(null);
       if (!s) return;
-      if (!s.moved) return void run(saveHouseHarvest(date, s.from, { members: who(s.from).filter((x) => x !== s.id) }));
+      if (!s.moved) return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id) }));
       const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
       if (target?.dataset.drop) dropTo(s.id, s.from, target.dataset.drop);
     };
@@ -180,7 +207,8 @@ function Sheet({
     <>
       <p className="mt-2 text-sm text-gray-600">
         集荷のたびに「＋1」を押します（押すとすぐ保存）。名前を引っぱって次のハウスの行に落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。端数は確定数の欄に
-        5.3 のように打てます。時刻は「710」で 7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。
+        5.3 のように打てます。時刻は「710」で
+        7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
         {use.from !== date &&
           (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
       </p>
@@ -212,7 +240,7 @@ function Sheet({
               const r = rec[h] ?? {};
               const off = NO_HARVEST.includes(u.key);
               const ms = who(h);
-              const p = solePerCase({ ...r, members: ms });
+              const p = solePerCase({ ...r, start: startOf(h), members: ms });
               return (
                 <tr key={h} data-drop={h} className={`border-t ${off ? "bg-gray-50" : ""}`}>
                   <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">No.{h}</td>
@@ -242,14 +270,15 @@ function Sheet({
                           planned={!r.members && ms.length > 0}
                           names={names}
                           members={members}
-                          onChange={(next) => run(saveHouseHarvest(date, h, { members: next }))}
+                          onChange={(next) => run(save(h, { members: next }))}
                           onPick={(id, e) => onPick(id, h, e)}
                         />
                       </td>
                       <td className="px-2 py-1.5">
                         <TextCell
-                          key={`s${r.start}`}
-                          value={clock(r.start)}
+                          key={`s${startOf(h)}`}
+                          value={clock(startOf(h))}
+                          planned={r.start == null && startOf(h) != null}
                           placeholder="600"
                           parse={parseClock}
                           onCommit={(v) => run(save(h, { start: v }))}
@@ -271,7 +300,7 @@ function Sheet({
                       </td>
                       <td className="px-2 py-1.5 whitespace-nowrap">
                         <button
-                          onClick={() => run(addCases(date, h, -1, r.members ? undefined : ms))}
+                          onClick={() => run(addCases(date, h, -1, pending(h)))}
                           disabled={!r.cases || r.cases < 1}
                           className="mr-1 rounded-lg border px-3 py-2 text-gray-600 disabled:opacity-30"
                           aria-label={`No.${h} を1ケース減らす`}
@@ -279,7 +308,7 @@ function Sheet({
                           −1
                         </button>
                         <button
-                          onClick={() => run(addCases(date, h, 1, r.members ? undefined : ms))}
+                          onClick={() => run(addCases(date, h, 1, pending(h)))}
                           className="rounded-lg bg-berry px-5 py-2 text-lg font-bold text-white active:scale-95"
                           aria-label={`No.${h} に1ケース足す`}
                         >
@@ -364,6 +393,7 @@ function Members({
 function TextCell<T>({
   value,
   placeholder,
+  planned,
   decimal,
   big,
   parse,
@@ -371,6 +401,8 @@ function TextCell<T>({
 }: {
   value: string;
   placeholder: string;
+  /** 作業配置表から入れた値（まだ保存していない）。点線で出す */
+  planned?: boolean;
   decimal?: boolean;
   big?: boolean;
   parse: (s: string) => T | undefined;
@@ -395,7 +427,32 @@ function TextCell<T>({
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
-      className={`rounded-lg border px-2 py-2 text-center ${big ? "w-20 text-xl font-bold" : "w-20 text-base"} ${bad ? "border-red-500 bg-red-50" : ""}`}
+      className={`rounded-lg border px-2 py-2 text-center ${big ? "w-20 text-xl font-bold" : "w-20 text-base"} ${bad ? "border-red-500 bg-red-50" : planned ? "border-dashed border-sky-400 bg-sky-50 text-sky-900" : ""}`}
     />
+  );
+}
+
+/** 収穫の開始時刻（最初のハウスの「入った」に入る）。管理者は押して変えられる */
+function StartTime({ value, isAdmin }: { value: number; isAdmin: boolean }) {
+  const [error, setError] = useState("");
+  return (
+    <span className="flex items-center gap-1 text-sm text-gray-600">
+      収穫の開始
+      {isAdmin ? (
+        <TextCell
+          key={value}
+          value={clock(value)}
+          placeholder="600"
+          parse={parseClock}
+          onCommit={(v) => {
+            setError("");
+            if (v != null) saveHarvestStart(v).catch((e) => setError(errorText(e)));
+          }}
+        />
+      ) : (
+        <b>{clock(value)}</b>
+      )}
+      {error && <span className="text-red-600">{error}</span>}
+    </span>
   );
 }

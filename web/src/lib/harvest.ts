@@ -7,7 +7,7 @@
 import { collection, doc, documentId, increment, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
-import { sectionArrows, type HaichiDay, type HaichiTemplate } from "./haichi";
+import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from "./haichi";
 
 /** 1つのハウスのその日の記録。start・end は0時からの分、cases は確定数（0.1枚単位） */
 export type HouseHarvest = { members?: string[]; start?: number | null; end?: number | null; cases?: number };
@@ -40,11 +40,86 @@ export function harvestHouses(t: HaichiTemplate): string[] {
   return out;
 }
 
-/** その日の作業配置表で、ハウスに割り振られた人（収穫の枠） */
-export function haichiMembers(t: HaichiTemplate, day: HaichiDay): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const s of t.sections) if (sectionArrows(s)) for (const sl of s.slots) if (day.cells[sl.id]?.members.length) out[sl.label] = day.cells[sl.id].members;
-  return out;
+/** 作業配置表から読み取った、その日の収穫の予定 */
+export type HarvestPlan = {
+  /** ハウス → 収穫者（配置表で名前が入っているハウスと、矢印の先で名前のないハウス） */
+  members: Record<string, string[]>;
+  /** 人 → 回るハウスの順（矢印をたどった順。最初のハウスが先頭） */
+  routes: Record<string, string[]>;
+};
+
+/** 矢印の向き（横 dx：−1＝左・＋1＝右、縦 dy：−1＝上・＋1＝下） */
+const ARROW_DIR: Record<string, [number, number]> = {
+  "→": [1, 0],
+  "←": [-1, 0],
+  "↑": [0, -1],
+  "↓": [0, 1],
+  "↗": [1, -1],
+  "↘": [1, 1],
+  "↙": [-1, 1],
+  "↖": [-1, -1],
+};
+
+/**
+ * 作業配置表の矢印をたどって、だれがどのハウスをどの順に回るかを読む。
+ * 配置表は左右2列で、矢印は次に向かうハウスを指す（↓＝同じ列の1つ下、←＝左の列）。左右に動くときは、メモに「8番へ」とあればそのハウス、なければ同じ高さのハウス。
+ * 名前の入っていないハウスでも、矢印でつながっていれば同じ人が回る
+ */
+export function planHarvest(t: HaichiTemplate, day: HaichiDay): HarvestPlan {
+  const cols: Record<"left" | "right", { id: string; label: string }[]> = { left: [], right: [] };
+  for (const s of t.sections) if (sectionArrows(s)) cols[sectionSide(s)].push(...s.slots);
+  const where = new Map<string, { side: "left" | "right"; i: number; id: string }>();
+  for (const side of ["left", "right"] as const) cols[side].forEach((sl, i) => where.set(sl.label, { side, i, id: sl.id }));
+  const cellOf = (label: string) => day.cells[where.get(label)?.id ?? ""];
+  const listed = (label: string) => cellOf(label)?.members ?? [];
+  /** そのハウスの矢印の先のハウス（なければ null） */
+  const nextOf = (label: string): string | null => {
+    const c = cellOf(label);
+    const pos = where.get(label);
+    const dir = c?.arrow ? ARROW_DIR[c.arrow] : undefined;
+    if (!c || !pos || !dir) return null;
+    const [dx, dy] = dir;
+    let side = pos.side;
+    if (dx !== 0) {
+      const to = dx > 0 ? "right" : "left";
+      if (to === side) return null;
+      side = to;
+      const named = /(\d+)\s*番/.exec(c.memo ?? "")?.[1];
+      if (named && where.get(named)?.side === side) return named;
+    }
+    return cols[side][pos.i + dy]?.label ?? null;
+  };
+  /** label から矢印をたどる（名前の入っていないハウスか、同じ人の名前があるハウスだけ進む） */
+  const follow = (m: string, label: string) => {
+    const route = [label];
+    for (let cur = nextOf(label); cur && !route.includes(cur); cur = nextOf(cur)) {
+      const others = listed(cur);
+      if (others.length && !others.includes(m)) break;
+      route.push(cur);
+    }
+    return route;
+  };
+  const order = [...cols.left, ...cols.right].map((sl) => sl.label);
+  const people = [...new Set(order.flatMap(listed))];
+  const members: Record<string, string[]> = {};
+  const routes: Record<string, string[]> = {};
+  for (const m of people) {
+    const mine = order.filter((l) => listed(l).includes(m));
+    // ほかのハウスの矢印の先になっていないハウスが、回りはじめのハウス
+    const reached = new Set(mine.flatMap((l) => follow(m, l).slice(1)));
+    const starts = mine.filter((l) => !reached.has(l));
+    const chains = (starts.length ? starts : mine.slice(0, 1)).map((st) => follow(m, st));
+    // 名前は、配置表に名前があるハウスと、矢印でたどれるハウスに入れる（矢印のないハウスへは、あとで名前を引っぱって入れる）
+    for (const l of new Set(chains.flat())) members[l] = [...(members[l] ?? []), m];
+    // 回る順（開始時刻を入れる最初のハウスと、終わった時刻を次へ送る順）は、矢印でつながった1本だけ（矢印のある方を優先）
+    routes[m] = chains.find((c) => c.length > 1) ?? chains[0];
+  }
+  // 配置表の名前の順を保つ
+  for (const l of Object.keys(members)) {
+    const first = listed(l);
+    members[l].sort((a, b) => (first.includes(a) ? first.indexOf(a) : 99) - (first.includes(b) ? first.indexOf(b) : 99));
+  }
+  return { members, routes };
 }
 
 /** 時刻の入力を分にする。「710」「7:10」「7.10」→ 7:10、「6」→ 6:00。空なら null、読めなければ undefined */
@@ -122,11 +197,10 @@ export async function saveHouseHarvest(date: string, house: string, patch: House
 }
 
 /** 確定数を足す（＋1・−1）。ほかの端末で同時に押しても数えもれしない */
-export async function addCases(date: string, house: string, delta: number, members?: string[]) {
+export async function addCases(date: string, house: string, delta: number, extra: HouseHarvest = {}) {
   if (!DATE_RE.test(date)) throw new Error("日付が正しくありません");
   const { db } = await getFirebase();
-  const patch: Record<string, unknown> = { cases: increment(delta) };
-  if (members) patch.members = members;
+  const patch: Record<string, unknown> = { ...extra, cases: increment(delta) };
   await setDoc(doc(db, "harvest", date), { houses: { [house]: patch }, updatedAt: serverTimestamp() }, { merge: true });
 }
 
@@ -248,8 +322,16 @@ export function useHouseUseRange(from: string, to: string): { days: Record<strin
 }
 
 /** ハウスのまとまり（なければ、はじめの形） */
+/** 収穫の開始時刻（分）のはじめの値：6:00 */
+export const DEFAULT_START = 360;
+
 export function useHouseGroups(): HouseGroup[] | null {
-  const [v, setV] = useState<HouseGroup[] | null>(null);
+  return useHarvestConfig()?.groups ?? null;
+}
+
+/** 収穫の設定：ハウスのまとまりと、収穫の開始時刻（最初のハウスの「入った」に入れる） */
+export function useHarvestConfig(): { groups: HouseGroup[]; startTime: number } | null {
+  const [v, setV] = useState<{ groups: HouseGroup[]; startTime: number } | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -257,8 +339,12 @@ export function useHouseGroups(): HouseGroup[] | null {
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "config/harvest"),
-        (s) => setV(s.exists() && Array.isArray(s.get("groups")) ? (s.get("groups") as HouseGroup[]) : DEFAULT_GROUPS),
-        () => setV(DEFAULT_GROUPS),
+        (s) =>
+          setV({
+            groups: Array.isArray(s.get("groups")) ? (s.get("groups") as HouseGroup[]) : DEFAULT_GROUPS,
+            startTime: typeof s.get("startTime") === "number" ? (s.get("startTime") as number) : DEFAULT_START,
+          }),
+        () => setV({ groups: DEFAULT_GROUPS, startTime: DEFAULT_START }),
       );
     });
     return () => {
@@ -271,7 +357,12 @@ export function useHouseGroups(): HouseGroup[] | null {
 
 export async function saveHouseGroups(groups: HouseGroup[]) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "config/harvest"), { groups, updatedAt: serverTimestamp() });
+  await setDoc(doc(db, "config/harvest"), { groups, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function saveHarvestStart(startTime: number) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/harvest"), { startTime, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** ハウスがどのまとまりに入るか（入っていなければ「その他」） */
