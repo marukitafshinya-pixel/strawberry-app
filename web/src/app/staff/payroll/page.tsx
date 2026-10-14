@@ -159,7 +159,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const snap = await getDoc(doc(db, `payrolls/${prev}`));
       if (!snap.exists()) return setError("前の月の給与がまだ保存されていません");
       const p = snap.data() as Payroll;
-      update({ rows: p.rows ?? {}, employer: computeEmployer(p.rows ?? {}), payerAccount: data.payerAccount || p.payerAccount || "", author: data.author || p.author || "" });
+      update({
+        rows: p.rows ?? {},
+        employer: computeEmployer(p.rows ?? {}),
+        payerAccount: data.payerAccount || p.payerAccount || "",
+        author: data.author || p.author || "",
+      });
     } catch (e) {
       setError(errorText(e));
     }
@@ -180,7 +185,9 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const text = [
         // PDFに書いてある月度と、いま開いている月度が違うときは知らせる
         pdf?.month && pdf.month !== month ? `⚠ このPDFは ${label(pdf.month)} の給与集計表です（いま開いているのは ${label(month)}）。\n` : "",
-        pdf?.mismatches.length ? `⚠ 読み取った金額の合計が、PDFの合計と合わない人がいます。読み込んだあと、表を確かめてください。\n${pdf.mismatches.join("\n")}\n` : "",
+        pdf?.mismatches.length
+          ? `⚠ 読み取った金額の合計が、PDFの合計と合わない人がいます。読み込んだあと、表を確かめてください。\n${pdf.mismatches.join("\n")}\n`
+          : "",
         `${entries.length}人分の金額を ${label(month)} の表に入れます。`,
         "表に入っている同じ人の金額は上書きされます。",
         added.length > 0 ? `\n新しく従業員として登録する人：${added.length}人\n（${added.map((x) => x.name).join("、")}）` : "",
@@ -213,7 +220,19 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
   }
 
   function exportCsv() {
-    const header = ["社員番号", "氏名", ...PAY_ITEMS.map((i) => i.label), "支給合計", "社会保険料計", "差引支給額", "支払方法", "銀行名", "支店名", "種別", "口座番号"];
+    const header = [
+      "社員番号",
+      "氏名",
+      ...PAY_ITEMS.map((i) => i.label),
+      "支給合計",
+      "社会保険料計",
+      "差引支給額",
+      "支払方法",
+      "銀行名",
+      "支店名",
+      "種別",
+      "口座番号",
+    ];
     const body = people.map((e, i) => [
       e.code,
       e.name,
@@ -243,7 +262,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="block text-sm">
           <span className="text-gray-600">振込日（支給日）</span>
-          <input type="date" value={data.paymentDate} onChange={(e) => update({ paymentDate: e.target.value })} className="mt-1 block rounded-lg border px-3 py-2 text-base" />
+          <input
+            type="date"
+            value={data.paymentDate}
+            onChange={(e) => update({ paymentDate: e.target.value })}
+            className="mt-1 block rounded-lg border px-3 py-2 text-base"
+          />
         </label>
         <label className="block text-sm">
           <span className="text-gray-600">支払口座番号（会社）</span>
@@ -257,7 +281,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         </label>
         <label className="block text-sm">
           <span className="text-gray-600">作成者</span>
-          <input value={data.author} maxLength={30} onChange={(e) => update({ author: e.target.value })} className="mt-1 block w-32 rounded-lg border px-3 py-2 text-base" />
+          <input
+            value={data.author}
+            maxLength={30}
+            onChange={(e) => update({ author: e.target.value })}
+            className="mt-1 block w-32 rounded-lg border px-3 py-2 text-base"
+          />
         </label>
         <button onClick={copyPrev} className="rounded-lg border bg-white px-3 py-2 text-sm">
           前の月の金額を写す
@@ -286,7 +315,10 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       {people.length === 0 && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-amber-800">
           まだ従業員が登録されていません。「CSV・PDFから取り込む」でまとめて登録するか、
-          <Link href="/staff/payroll/employees/" className="underline">従業員の登録</Link> から1人ずつ追加してください。
+          <Link href="/staff/payroll/employees/" className="underline">
+            従業員の登録
+          </Link>{" "}
+          から1人ずつ追加してください。
         </p>
       )}
 
@@ -309,7 +341,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
               const s = sums[idx];
               const cell = (k: PayKey, signed?: boolean) => (
                 <td key={k} className="px-1 py-1">
-                  <NumCell value={r[k]} signed={signed} onChange={(v) => setCell(e.id, k, v)} label={`${e.name} ${PAY_ITEMS.find((i) => i.key === k)?.label}`} />
+                  <NumCell
+                    value={r[k]}
+                    signed={signed}
+                    onChange={(v) => setCell(e.id, k, v)}
+                    label={`${e.name} ${PAY_ITEMS.find((i) => i.key === k)?.label}`}
+                  />
                 </td>
               );
               return (
@@ -395,16 +432,23 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           </p>
           <p className="mt-2 text-xs leading-relaxed text-gray-500">
             上の表の金額を変えると自動で計算します（必要なら手で直せます。表を変えると計算し直します）。
-            健康保険・介護保険・厚生年金は本人負担と同じ額（労使折半）。雇用保険は、雇用保険料が引かれている人の給与（役員報酬を除く）×{(EMPLOYER_RATES.employment * 1000).toFixed(1)}/1000（農林水産の事業）。
-            児童手当拠出金（子ども・子育て拠出金）は、厚生年金に入っている人の標準報酬月額（本人の厚生年金保険料から求める）×{(EMPLOYER_RATES.childAllowance * 1000).toFixed(1)}/1000。
-            労災保険料は年に一度の申告で納めるので、ここには入りません。
+            健康保険・介護保険・厚生年金は本人負担と同じ額（労使折半）。雇用保険は、雇用保険料が引かれている人の給与（役員報酬を除く）×
+            {(EMPLOYER_RATES.employment * 1000).toFixed(1)}/1000（農林水産の事業）。
+            児童手当拠出金（子ども・子育て拠出金）は、厚生年金に入っている人の標準報酬月額（本人の厚生年金保険料から求める）×
+            {(EMPLOYER_RATES.childAllowance * 1000).toFixed(1)}/1000。 労災保険料は年に一度の申告で納めるので、ここには入りません。
           </p>
         </section>
       </div>
 
       <label className="mt-4 block text-sm">
         <span className="text-gray-600">メモ</span>
-        <textarea value={data.memo} maxLength={500} rows={2} onChange={(e) => update({ memo: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+        <textarea
+          value={data.memo}
+          maxLength={500}
+          rows={2}
+          onChange={(e) => update({ memo: e.target.value })}
+          className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+        />
       </label>
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

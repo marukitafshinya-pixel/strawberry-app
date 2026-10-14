@@ -71,7 +71,11 @@ function PrintView() {
         <span className="text-xs text-gray-500">用紙はA4横がおすすめです（印刷の画面で「横向き」を選んでください）</span>
       </div>
 
-      <div ref={sheet} style={{ "--sheet-h": `${sheetH}mm` } as CSSProperties} className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none">
+      <div
+        ref={sheet}
+        style={{ "--sheet-h": `${sheetH}mm` } as CSSProperties}
+        className="overflow-x-auto bg-white p-4 text-black shadow print:overflow-visible print:p-0 print:shadow-none"
+      >
         {/* 1枚目：給与集計表（印刷では用紙の上下まん中に置き、上にも余白を作る） */}
         <section className="print:flex print:min-h-[var(--sheet-h)] print:flex-col print:justify-center">
           <div className="flex items-end justify-between">
@@ -246,7 +250,11 @@ function Th({ children }: { children?: React.ReactNode }) {
 }
 
 function Td({ children, left, strong }: { children?: React.ReactNode; left?: boolean; strong?: boolean }) {
-  return <td className={`border border-black px-1 py-0.5 whitespace-nowrap tabular-nums ${left ? "text-left" : "text-right"} ${strong ? "font-bold" : ""}`}>{children}</td>;
+  return (
+    <td className={`border border-black px-1 py-0.5 whitespace-nowrap tabular-nums ${left ? "text-left" : "text-right"} ${strong ? "font-bold" : ""}`}>
+      {children}
+    </td>
+  );
 }
 
 type SheetRow = { e: Employee; r: PayRow; s: ReturnType<typeof computeRow> };

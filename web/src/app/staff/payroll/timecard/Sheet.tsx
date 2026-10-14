@@ -4,6 +4,7 @@
 // edit があれば、「出勤」「退勤」（打刻）と「休憩」のマスを押すと小さな入力欄が出て、テンキーで入れてエンターで直せる（すぐに計算し直す）
 import { useEffect, useRef, useState } from "react";
 import { weekday } from "@/lib/date";
+import type { TimecardPay } from "@/lib/payroll";
 import { hm, hours2, type DayResult, type PersonResult } from "@/lib/timecard";
 
 const md = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
@@ -15,7 +16,20 @@ export type SheetEdit = {
 };
 type Which = "i" | "o" | "b";
 
-export function TimecardSheet({ person, name, title, edit }: { person: PersonResult; name: string; title: string; edit?: SheetEdit }) {
+export function TimecardSheet({
+  person,
+  name,
+  title,
+  edit,
+  pay,
+}: {
+  person: PersonResult;
+  name: string;
+  title: string;
+  edit?: SheetEdit;
+  /** 時給・交通費から計算した金額（なければ出さない） */
+  pay?: TimecardPay | null;
+}) {
   const shown = person.days.filter((d) => d.raw || edit);
   const tap = edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>;
   return (
@@ -60,7 +74,64 @@ export function TimecardSheet({ person, name, title, edit }: { person: PersonRes
           </tr>
         </tfoot>
       </table>
+      {pay && <PayBox pay={pay} person={person} />}
     </section>
+  );
+}
+
+const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
+
+/** 集計表の下に出す金額：時給の計算（時間内・時間外）と交通費。弥生の金額と見比べられるように */
+function PayBox({ pay, person }: { pay: TimecardPay; person: PersonResult }) {
+  const over = pay.overtime ? person.over : 0;
+  return (
+    <table className="mt-3 ml-auto border-collapse text-sm tabular-nums [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
+      <tbody>
+        {pay.rate > 0 && (
+          <>
+            <tr>
+              <th>時給</th>
+              <td colSpan={2} className="text-right">
+                {yen(pay.rate)}
+              </td>
+            </tr>
+            <tr>
+              <th>時間内</th>
+              <td className="text-right">{hm(person.work - over)}</td>
+              <td className="text-right">{yen(pay.base)}</td>
+            </tr>
+            {pay.overtime && (
+              <tr>
+                <th>時間外（× 1.25）</th>
+                <td className="text-right">{over ? hm(over) : "0:00"}</td>
+                <td className="text-right">{yen(pay.overPay)}</td>
+              </tr>
+            )}
+            <tr className="font-bold">
+              <th>基本給（時給）</th>
+              <td />
+              <td className="text-right">{yen(pay.hourly)}</td>
+            </tr>
+          </>
+        )}
+        {pay.commutePerDay > 0 && (
+          <tr>
+            <th>交通費</th>
+            <td className="text-right">
+              {yen(pay.commutePerDay)} × {person.workDays}日
+            </td>
+            <td className="text-right">{yen(pay.commute)}</td>
+          </tr>
+        )}
+        {pay.rate > 0 && pay.commutePerDay > 0 && (
+          <tr className="font-bold">
+            <th>合計</th>
+            <td />
+            <td className="text-right">{yen(pay.hourly + pay.commute)}</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }
 

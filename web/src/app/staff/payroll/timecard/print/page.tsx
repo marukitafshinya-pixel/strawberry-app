@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
-import { reiwa, useEmployees } from "@/lib/payroll";
+import { reiwa, timecardPay, useEmployees } from "@/lib/payroll";
 import { cardsIn, computePerson, employeeForCard, periodMonths, useTimecardConfig, useTimecardMonths } from "@/lib/timecard";
 import { TimecardSheet } from "../Sheet";
 
@@ -45,14 +45,11 @@ function PrintView() {
         </button>
       </div>
       <div className="space-y-8 bg-white print:space-y-0">
-        {cards.map((c) => (
-          <TimecardSheet
-            key={c}
-            person={computePerson(c, month, data, cfg, { noOvertime: employeeForCard(c, cfg, employees)?.manager })}
-            name={employeeForCard(c, cfg, employees)?.name ?? `（カード${c}）`}
-            title={title}
-          />
-        ))}
+        {cards.map((c) => {
+          const e = employeeForCard(c, cfg, employees);
+          const person = computePerson(c, month, data, cfg, { noOvertime: e?.manager });
+          return <TimecardSheet key={c} person={person} name={e?.name ?? `（カード${c}）`} title={title} pay={e ? timecardPay(e, person) : null} />;
+        })}
       </div>
     </>
   );

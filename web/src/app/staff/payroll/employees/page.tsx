@@ -93,6 +93,9 @@ export default function EmployeesPage() {
                 <td className="px-3 py-2">
                   <KindBadge kind={e.kind} />
                   {e.manager && <span className="ml-1 rounded bg-gray-200 px-1.5 text-xs text-gray-700">管理職</span>}
+                  {e.commutePerDay ? (
+                    <span className="ml-1 text-xs text-gray-600 tabular-nums">交通費 {e.commutePerDay.toLocaleString("ja-JP")}円/日</span>
+                  ) : null}
                   {e.hourlyRate ? <span className="ml-1 text-xs text-gray-600 tabular-nums">時給 {e.hourlyRate.toLocaleString("ja-JP")}円</span> : null}
                 </td>
                 <td className="px-3 py-2">{e.payMethod === "cash" ? "現金" : "振込"}</td>
@@ -143,10 +146,11 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
     try {
       const { db } = await getFirebase();
       const { id, ...data } = e;
-      const { hourlyRate, ...rest } = data;
+      const { hourlyRate, commutePerDay, ...rest } = data;
       await setDoc(doc(db, `employees/${id}`), {
         ...rest,
         ...(hourlyRate ? { hourlyRate } : {}),
+        ...(commutePerDay ? { commutePerDay } : {}),
         code: rest.code.trim(),
         name: rest.name.trim(),
         bankName: rest.bankName.trim(),
@@ -226,19 +230,34 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
         <input type="checkbox" checked={!!e.manager} onChange={(x) => set({ manager: x.target.checked })} />
         管理職（残業がつかない。タイムカードの集計で残業を数えません）
       </label>
-      <label className="block text-sm sm:max-w-[12rem]">
-        <span className="text-gray-600">時給（円）</span>
-        <input
-          value={e.hourlyRate ?? ""}
-          inputMode="numeric"
-          placeholder="時給の人だけ"
-          onChange={(x) => {
-            const v = x.target.value.replace(/[^0-9]/g, "");
-            set({ hourlyRate: v ? Math.min(Number(v), 99999) : undefined });
-          }}
-          className={input}
-        />
-      </label>
+      <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
+        <label className="block text-sm">
+          <span className="text-gray-600">時給（円）</span>
+          <input
+            value={e.hourlyRate ?? ""}
+            inputMode="numeric"
+            placeholder="時給の人だけ"
+            onChange={(x) => {
+              const v = x.target.value.replace(/[^0-9]/g, "");
+              set({ hourlyRate: v ? Math.min(Number(v), 99999) : undefined });
+            }}
+            className={input}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-gray-600">交通費（1日・円）</span>
+          <input
+            value={e.commutePerDay ?? ""}
+            inputMode="numeric"
+            placeholder="日額の人だけ"
+            onChange={(x) => {
+              const v = x.target.value.replace(/[^0-9]/g, "");
+              set({ commutePerDay: v ? Math.min(Number(v), 99999) : undefined });
+            }}
+            className={input}
+          />
+        </label>
+      </div>
       <fieldset className="text-sm">
         <legend className="text-gray-600">支払方法</legend>
         <div className="mt-1 flex gap-4">
