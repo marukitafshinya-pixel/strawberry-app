@@ -34,12 +34,15 @@ export const BACKUP_COLLECTIONS = [
   "shiftDays",
   "shiftRequests",
   "haichi",
+  "harvest",
+  "houseUse",
 ] as const;
 /** 1つずつ保存する設定（config などは、まとめて読めないので名前で読む） */
 export const BACKUP_DOCS = [
   "settings/main",
   "config/invoice",
   "config/invoiceSeal",
+  "config/harvest",
   "config/menu",
   "config/cashbookItems",
   "config/register",

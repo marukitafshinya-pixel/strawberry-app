@@ -20,6 +20,7 @@ const MENU: MenuItem[] = [
   { label: "ダッシュボード", href: "/staff/dashboard/" },
   { label: "予約の集計", href: "/staff/report/reservations/" },
   { label: "勤務管理表", href: "/staff/shift/" },
+  { label: "収穫管理", href: "/staff/harvest/" },
   { label: "出荷実績", href: "/staff/shipping/" },
   { label: "店舗実績", href: "/staff/store/" },
   { label: "トータル実績", href: "/staff/total/", adminOnly: true },
