@@ -482,19 +482,19 @@ describe("顧客だけの商品の値段 (customers.products)", () => {
 
 describe("収穫管理 (harvest・houseUse・config/harvest)", () => {
   const today = new Date().toISOString().slice(0, 10);
-  const rows = [{ id: "r1", member: "m1", house: "17", start: 360, end: 430, cases: 5.3 }];
+  const rows = { "17": { members: ["m1"], start: 360, end: 430, cases: 5.3 } };
 
   it("スタッフは最近の日の収穫を読み書きでき、古い日は読めない。管理者はどの日も読める", async () => {
-    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { rows }));
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { houses: rows }));
     await assertSucceeds(getDoc(doc(staff(), `harvest/${today}`)));
-    await assertFails(setDoc(doc(staff(), "harvest/2020-01-01"), { rows }));
-    await assertSucceeds(setDoc(doc(admin(), "harvest/2020-01-01"), { rows }));
+    await assertFails(setDoc(doc(staff(), "harvest/2020-01-01"), { houses: rows }));
+    await assertSucceeds(setDoc(doc(admin(), "harvest/2020-01-01"), { houses: rows }));
     await assertFails(getDoc(doc(staff(), "harvest/2020-01-01")));
     await assertSucceeds(getDoc(doc(admin(), "harvest/2020-01-01")));
-    await assertFails(setDoc(doc(admin(), "harvest/2020-01-01"), { rows, memo: "x" }));
-    await assertFails(setDoc(doc(admin(), "harvest/abc"), { rows }));
+    await assertFails(setDoc(doc(admin(), "harvest/2020-01-01"), { houses: rows, memo: "x" }));
+    await assertFails(setDoc(doc(admin(), "harvest/abc"), { houses: rows }));
     await assertFails(getDoc(doc(guest(), `harvest/${today}`)));
-    await assertFails(setDoc(doc(disabled(), `harvest/${today}`), { rows }));
+    await assertFails(setDoc(doc(disabled(), `harvest/${today}`), { houses: rows }));
   });
 
   it("ハウスの使い方はスタッフが読み書きでき、まとまりは管理者だけが変えられる", async () => {

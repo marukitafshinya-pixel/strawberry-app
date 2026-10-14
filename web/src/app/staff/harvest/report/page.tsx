@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { addDays, formatJa, todayJST, weekday } from "@/lib/date";
 import { useHaichiTemplate } from "@/lib/haichi";
 import {
-  addRow,
+  addHouse,
   clock,
   emptyTally,
   fmtCases,
@@ -16,11 +16,12 @@ import {
   HOUSE_USES,
   houseUseOf,
   perCase,
+  perCaseText,
   saveHouseGroups,
   useHarvestRange,
   useHouseGroups,
   useHouseUseRange,
-  type HarvestRow,
+  type HarvestDoc,
   type HouseGroup,
   type HouseUseMap,
   type Tally,
@@ -111,31 +112,33 @@ export default function HarvestReportPage() {
   );
 }
 
-const rate = (t: Tally) => {
-  const p = perCase(t);
-  return p == null ? "" : `${p.toFixed(1)}分`;
-};
+const rate = (t: Tally) => perCaseText(perCase(t));
 const hours = (min: number) => (min ? clock(Math.round(min)) : "");
 
 /** 人別：合計と、ハウスのまとまりごとの1ケースあたりの分 */
-function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; names: Map<string, string>; groups: HouseGroup[] }) {
+function People({ data, names, groups }: { data: Record<string, HarvestDoc>; names: Map<string, string>; groups: HouseGroup[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const all = new Map<string, Tally>();
   const byGroup = new Map<string, Map<string, Tally>>();
   const byHouse = new Map<string, Map<string, Tally>>();
-  for (const [date, rows] of Object.entries(data))
-    for (const r of rows) {
-      if (!all.has(r.member)) all.set(r.member, emptyTally());
-      addRow(all.get(r.member)!, r, date);
-      const g = groupOf(groups, r.house);
-      const mg = byGroup.get(r.member) ?? new Map<string, Tally>();
-      byGroup.set(r.member, mg);
-      if (!mg.has(g)) mg.set(g, emptyTally());
-      addRow(mg.get(g)!, r, date);
-      const mh = byHouse.get(r.member) ?? new Map<string, Tally>();
-      byHouse.set(r.member, mh);
-      if (!mh.has(r.house)) mh.set(r.house, emptyTally());
-      addRow(mh.get(r.house)!, r, date);
+  const at = <K,>(m: Map<K, Tally>, k: K) => {
+    if (!m.has(k)) m.set(k, emptyTally());
+    return m.get(k)!;
+  };
+  for (const [date, day] of Object.entries(data))
+    for (const [house, h] of Object.entries(day)) {
+      const ms = h.members ?? [];
+      // ケースは1人だけで収穫したハウスの分だけ、その人に数える（共同のハウスは数だけ数える）
+      const cases = ms.length === 1 ? (h.cases ?? 0) : 0;
+      for (const m of ms) {
+        addHouse(at(all, m), h, date, cases);
+        const mg = byGroup.get(m) ?? new Map<string, Tally>();
+        byGroup.set(m, mg);
+        addHouse(at(mg, groupOf(groups, house)), h, date, cases);
+        const mh = byHouse.get(m) ?? new Map<string, Tally>();
+        byHouse.set(m, mh);
+        addHouse(at(mh, house), h, date, cases);
+      }
     }
   const groupNames = [...groups.map((g) => g.name), "その他"].filter((g) => [...byGroup.values()].some((m) => m.has(g)));
   const list = [...all].sort((a, b) => b[1].cases - a[1].cases);
@@ -143,7 +146,7 @@ function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; n
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
-        「1ケース」は、1ケース取るのにかかった分です（入った・終わった時刻とケースの両方がある記録だけで計算）。名前を押すと、ハウスごとに見られます。
+        「ケース」「時間」「1ケース」は、1人だけで収穫したハウスの分です（途中で応援が入ったハウスは「共同」の数だけ数えます）。名前を押すと、ハウスごとに見られます。
       </p>
       <div className="mt-2 overflow-x-auto rounded-xl border bg-white">
         <table className="w-full min-w-max text-sm tabular-nums">
@@ -154,6 +157,7 @@ function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; n
               <th className="px-3 py-2 text-right">ケース</th>
               <th className="px-3 py-2 text-right">時間</th>
               <th className="px-3 py-2 text-right">1ケース</th>
+              <th className="px-3 py-2 text-right">共同</th>
               {groupNames.map((g) => (
                 <th key={g} className="px-3 py-2 text-right">
                   {g}
@@ -173,6 +177,7 @@ function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; n
                   <td className="px-3 py-2 text-right font-bold">{fmtCases(t.cases)}</td>
                   <td className="px-3 py-2 text-right">{hours(t.minutes)}</td>
                   <td className="px-3 py-2 text-right font-bold text-sky-800">{rate(t)}</td>
+                  <td className="px-3 py-2 text-right text-gray-500">{t.shared ? `${t.shared}棟` : ""}</td>
                   {groupNames.map((g) => {
                     const x = byGroup.get(id)?.get(g);
                     return (
@@ -192,6 +197,7 @@ function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; n
                         <td className="px-3 py-1 text-right">{fmtCases(x.cases)}</td>
                         <td className="px-3 py-1 text-right">{hours(x.minutes)}</td>
                         <td className="px-3 py-1 text-right">{rate(x)}</td>
+                        <td className="px-3 py-1 text-right text-gray-500">{x.shared ? `${x.shared}棟` : ""}</td>
                         <td colSpan={groupNames.length} />
                       </tr>
                     ))}
@@ -205,12 +211,13 @@ function People({ data, names, groups }: { data: Record<string, HarvestRow[]>; n
 }
 
 /** ハウス別：まとまりごとの小計つき */
-function Houses({ data, groups, houses }: { data: Record<string, HarvestRow[]>; groups: HouseGroup[]; houses: string[] }) {
+function Houses({ data, groups, houses }: { data: Record<string, HarvestDoc>; groups: HouseGroup[]; houses: string[] }) {
   const byHouse = new Map<string, Tally>();
-  for (const [date, rows] of Object.entries(data))
-    for (const r of rows) {
-      if (!byHouse.has(r.house)) byHouse.set(r.house, emptyTally());
-      addRow(byHouse.get(r.house)!, r, date);
+  for (const [date, day] of Object.entries(data))
+    for (const [house, h] of Object.entries(day)) {
+      if (!h.cases) continue;
+      if (!byHouse.has(house)) byHouse.set(house, emptyTally());
+      addHouse(byHouse.get(house)!, h, date);
     }
   const all = [...new Set([...houses, ...byHouse.keys()])];
   const order = [...groups.map((g) => g.name), "その他"];
@@ -238,7 +245,7 @@ function Houses({ data, groups, houses }: { data: Record<string, HarvestRow[]>; 
             <th className="px-3 py-2">ハウス</th>
             <th className="px-3 py-2 text-right">収穫した日数</th>
             <th className="px-3 py-2 text-right">ケース</th>
-            <th className="px-3 py-2 text-right">のべ時間</th>
+            <th className="px-3 py-2 text-right">時間（1人で収穫した分）</th>
             <th className="px-3 py-2 text-right">1ケース</th>
           </tr>
         </thead>
@@ -280,7 +287,7 @@ function Calendar({
 }: {
   from: string;
   to: string;
-  data: Record<string, HarvestRow[]>;
+  data: Record<string, HarvestDoc>;
   use: { days: Record<string, HouseUseMap>; before: HouseUseMap };
   groups: HouseGroup[];
   houses: string[];
@@ -294,7 +301,7 @@ function Calendar({
     cur = use.days[d] ?? cur;
     state[d] = cur;
   }
-  const cases = (d: string, h: string) => (data[d] ?? []).filter((r) => r.house === h).reduce((n, r) => n + (r.cases ?? 0), 0);
+  const cases = (d: string, h: string) => data[d]?.[h]?.cases ?? 0;
   const order = [...groups.map((g) => g.name), "その他"];
   /** いちご狩り（半分も）に使った日数 */
   const pickingDays = (h: string) => dates.filter((d) => ["picking", "half"].includes(state[d][h] ?? "harvest")).length;

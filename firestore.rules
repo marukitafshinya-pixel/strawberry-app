@@ -323,8 +323,8 @@ service cloud.firestore {
       allow read: if isAdmin() || (isStaff() && recentDay(date));
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && (isAdmin() || (isStaff() && recentDay(date)))
-        && request.resource.data.keys().hasOnly(['rows', 'updatedAt'])
-        && request.resource.data.rows is list && request.resource.data.rows.size() <= 300;
+        && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
+        && request.resource.data.houses is map && request.resource.data.houses.size() <= 80;
     }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフが読み書きする
     match /houseUse/{date} {
