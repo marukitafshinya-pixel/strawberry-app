@@ -37,7 +37,6 @@ import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 const STAFF_DAYS = 7;
 /** 収穫しない使い方（この行は収穫の欄を使わない） */
 const NO_HARVEST: HouseUse[] = ["picking", "reserve", "off"];
-const byNumber = (a: string, b: string) => a.localeCompare(b, "ja", { numeric: true });
 
 export default function HarvestPage() {
   const { role } = useAuth();
@@ -138,7 +137,8 @@ function Sheet({
   }
   const setUse = (h: string, k: HouseUse) => saveHouseUse(date, Object.fromEntries(houses.map((x) => [x, x === h ? k : usageOf(x)])));
 
-  const rows = [...houses].sort(byNumber);
+  // 作業配置表の収穫の枠と同じ並び（1・6・8・4・5・9・10・17〜27）
+  const rows = houses;
   return (
     <>
       <p className="mt-2 text-sm text-gray-600">
