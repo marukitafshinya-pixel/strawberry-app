@@ -144,6 +144,36 @@ export default function TimecardPage() {
           </button>
         )}
         {people && people.length > 0 && (
+          // 弥生給与の「明細データのインポート」用：1人1行（従業員コード・氏名・出勤日数・実働時間・普通残業時間）。Shift_JIS
+          <button
+            onClick={() => {
+              const missing = people.filter((x) => !x.e).map((x) => `カード${x.p.card}`);
+              if (missing.length && !window.confirm(`従業員とひも付いていないカードは書き出しません：${missing.join("、")}\nこのまま書き出しますか？`)) return;
+              downloadCsv(
+                `yayoi_kintai_${month}.csv`,
+                [
+                  ["従業員コード", "氏名", "出勤日数", "実働時間", "普通残業時間"],
+                  ...people
+                    .filter((x) => x.e)
+                    .map(({ p, e }) => [
+                      e!.code,
+                      e!.name,
+                      p.workDays.toFixed(2),
+                      hm(p.work),
+                      // 残業代を払うのはアルバイト（区分を決めていない人も含む）だけ。社員・役員・管理職は空欄
+                      !e!.manager && (!e!.kind || e!.kind === "part") && p.over ? hm(p.over) : "",
+                    ]),
+                ],
+                { shiftJis: true },
+              );
+            }}
+            className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-sm text-emerald-800"
+            title="弥生給与の「明細データのインポート」で読み込むファイル（Shift_JIS）"
+          >
+            ⬇ 弥生に取り込むファイル
+          </button>
+        )}
+        {people && people.length > 0 && (
           <button onClick={() => setCard(cardList[0])} className="rounded-lg bg-berry px-4 py-2 text-sm font-bold text-white">
             📝 個人別タイムカード集計表（見る・直す）
           </button>

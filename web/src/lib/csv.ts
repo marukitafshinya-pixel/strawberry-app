@@ -83,3 +83,36 @@ export function guessColumns(header: string[]): { date: number; amount: number }
   if (amount === date) amount = -1;
   return { date: Math.max(0, date), amount: amount >= 0 ? amount : Math.min(1, header.length - 1) };
 }
+
+/** 文字 → Shift_JIS のバイト（はじめて使うときに、ブラウザの読み取り機能から逆引きの表を作る） */
+let sjisTable: Map<string, number[]> | null = null;
+function sjisMap(): Map<string, number[]> {
+  if (sjisTable) return sjisTable;
+  const dec = new TextDecoder("shift_jis");
+  const m = new Map<string, number[]>();
+  // 半角カナ
+  for (let b = 0xa1; b <= 0xdf; b++) m.set(dec.decode(new Uint8Array([b])), [b]);
+  // 2バイト文字
+  for (let hi = 0x81; hi <= 0xfc; hi++) {
+    if (hi > 0x9f && hi < 0xe0) continue;
+    for (let lo = 0x40; lo <= 0xfc; lo++) {
+      if (lo === 0x7f) continue;
+      const c = dec.decode(new Uint8Array([hi, lo]));
+      if (c.length === 1 && c !== "\ufffd" && !m.has(c)) m.set(c, [hi, lo]);
+    }
+  }
+  sjisTable = m;
+  return m;
+}
+
+/** 文字列を Shift_JIS にする（Windowsのソフト向け。Shift_JIS にない文字は「?」） */
+export function encodeShiftJis(text: string): Uint8Array {
+  const m = sjisMap();
+  const out: number[] = [];
+  for (const c of text) {
+    const code = c.charCodeAt(0);
+    if (code < 0x80) out.push(code);
+    else out.push(...(m.get(c) ?? [0x3f]));
+  }
+  return new Uint8Array(out);
+}

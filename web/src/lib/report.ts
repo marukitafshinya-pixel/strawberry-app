@@ -1,4 +1,5 @@
 // 売上・予約の集計（ダッシュボードと集計画面で共通）
+import { encodeShiftJis } from "./csv";
 import { NEUTRAL, SERIES_COLORS, type Series } from "@/components/charts";
 import type { Sale } from "./sales";
 import { DEFAULT_PLAN_CATEGORY, type Settings } from "./settings";
@@ -11,10 +12,7 @@ export const OTHER = "その他";
  * 設定画面の並び（プラン → 商品）で固定する。8つ目以降は「その他」にまとめる。
  */
 export function categoryOrder(settings: Settings, seen: string[]): string[] {
-  const fromSettings = [
-    ...settings.plans.map((p) => p.category ?? DEFAULT_PLAN_CATEGORY),
-    ...settings.products.map((p) => p.group || OTHER),
-  ];
+  const fromSettings = [...settings.plans.map((p) => p.category ?? DEFAULT_PLAN_CATEGORY), ...settings.products.map((p) => p.group || OTHER)];
   const all = [...new Set([...fromSettings, ...[...seen].sort()])].filter((c) => c !== OTHER);
   return [...all.slice(0, SERIES_COLORS.length - 1), OTHER];
 }
@@ -45,13 +43,15 @@ export function buildDailySales(settings: Settings, sales: Sale[], imported: { i
 export const sumValues = (v: Record<string, number>) => Object.values(v).reduce((n, x) => n + x, 0);
 
 /** CSVファイルとして保存する（Excelで文字化けしないよう先頭にBOMを付ける） */
-export function downloadCsv(fileName: string, rows: (string | number)[][]) {
+export function downloadCsv(fileName: string, rows: (string | number)[][], opts: { shiftJis?: boolean } = {}) {
   const esc = (v: string | number) => {
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const text = "﻿" + rows.map((r) => r.map(esc).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  const body = rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  // Shift_JIS のとき（弥生などWindowsのソフトに読ませるファイル）は、先頭の印（BOM）を付けない
+  const data = opts.shiftJis ? encodeShiftJis(body + "\r\n") : "\ufeff" + body;
+  const url = URL.createObjectURL(new Blob([data as BlobPart], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;
