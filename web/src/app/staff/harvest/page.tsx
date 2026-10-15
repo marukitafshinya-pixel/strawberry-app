@@ -456,10 +456,10 @@ function Sheet({
                   <span className="text-xs text-gray-500">終</span>
                   {endCell(h, true)}
                 </div>
-                <div className="mt-2 grid grid-cols-[1fr_1.3fr_2fr] gap-1.5">
+                <div className="mt-2 grid grid-cols-[1fr_2fr_1.3fr] gap-1.5">
                   {minus(h, "py-3")}
-                  {plusTenth(h, "py-3 text-lg")}
                   {plus(h, "py-3 text-xl")}
+                  {plusTenth(h, "py-3 text-lg")}
                 </div>
               </div>
             ),
@@ -505,8 +505,8 @@ function Sheet({
                     <td className="px-2 py-1.5">{casesCell(h)}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
                       {minus(h, "mr-1")}
-                      {plusTenth(h, "mr-1 px-3 py-2")}
-                      {plus(h, "px-5 py-2 text-lg")}
+                      {plus(h, "mr-1 px-5 py-2 text-lg")}
+                      {plusTenth(h, "px-3 py-2")}
                     </td>
                     {isAdmin && <td className="px-2 py-1.5 text-right text-sky-800">{rateOf(h)}</td>}
                   </>
