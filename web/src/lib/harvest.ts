@@ -26,7 +26,7 @@ export const HOUSE_USES: { key: HouseUse; label: string; short: string; cls: str
     short: "狩後",
     cls: "bg-gradient-to-r from-rose-100 to-emerald-100 text-gray-900 border-amber-300",
   },
-  { key: "reserve", label: "予備（収穫を止めている）", short: "予", cls: "bg-yellow-100 text-yellow-900 border-yellow-300" },
+  { key: "reserve", label: "いちご狩り予備（収穫を止めている）", short: "狩予", cls: "bg-emerald-100 text-emerald-900 border-emerald-300" },
   { key: "off", label: "休み", short: "－", cls: "bg-gray-100 text-gray-500 border-gray-300" },
 ];
 export const houseUseOf = (k: string | undefined) => HOUSE_USES.find((u) => u.key === k) ?? HOUSE_USES[0];

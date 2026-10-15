@@ -308,7 +308,7 @@ function Calendar({
   const cases = (d: string, h: string) => data[d]?.[h]?.cases ?? 0;
   const order = [...groups.map((g) => g.name), "その他"];
   /** いちご狩り（半分も）に使った日数 */
-  const pickingDays = (h: string) => dates.filter((d) => ["picking", "half", "halfBack"].includes(state[d][h] ?? "harvest")).length;
+  const pickingDays = (h: string) => dates.filter((d) => ["picking", "half", "halfBack", "reserve"].includes(state[d][h] ?? "harvest")).length;
   return (
     <>
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
