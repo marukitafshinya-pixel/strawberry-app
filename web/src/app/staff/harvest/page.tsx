@@ -418,11 +418,13 @@ function Sheet({
       onPick={(id, e) => onPick(id, h, e)}
     />
   );
+  /** 「入った」の欄に出す時刻：入れた時刻 → 開始時刻（最初のハウス） → 前のハウスの終わる予測（点線・保存しない） */
+  const startShown = (h: string) => startOf(h) ?? forecast?.houseStart[h] ?? null;
   const startCell = (h: string, small?: boolean) => (
     <TextCell
-      key={`s${startOf(h)}`}
-      value={clock(startOf(h))}
-      planned={rec[h]?.start == null && startOf(h) != null}
+      key={`s${startShown(h)}`}
+      value={clock(startShown(h))}
+      planned={rec[h]?.start == null && startShown(h) != null}
       placeholder="600"
       small={small}
       parse={parseClock}

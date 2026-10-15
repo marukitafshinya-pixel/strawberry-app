@@ -42,6 +42,8 @@ export type ForecastInput = {
 export type Forecast = {
   /** ハウス → 終わる予測（分）。終わったハウスは入らない */
   houseEnd: Record<string, number>;
+  /** ハウス → 入る予測（分）。「入った」がまだ入っていないハウスだけ（前のハウスの終わる予測から） */
+  houseStart: Record<string, number>;
   /** 収穫終了の予測（分）。予測できなければ null */
   end: number | null;
   /** 収穫者が決まっていない、まだ終わっていないハウス */
@@ -110,6 +112,7 @@ export function forecastHarvest(f: ForecastInput): Forecast {
   };
 
   const houseEnd: Record<string, number> = {};
+  const houseStart: Record<string, number> = {};
   const unknown = new Set<string>();
   const people = [...new Set(f.houses.flatMap((h) => (eff(h) > 0 ? f.who(h) : [])))];
   for (const m of people) {
@@ -134,6 +137,8 @@ export function forecastHarvest(f: ForecastInput): Forecast {
       // まだ終わっていないのに予測の時刻を過ぎていたら、今を終わる時刻とする（あとのハウスもそこから数える）
       if (f.now != null && fin < f.now) fin = f.now;
       houseEnd[h] = Math.max(houseEnd[h] ?? 0, Math.round(fin));
+      // 「入った」がまだなら、入る予測（前のハウスの終わる予測）を残す。何人かで入るときは、いちばん早い人の時刻
+      if (r.start == null) houseStart[h] = Math.min(houseStart[h] ?? Infinity, Math.round(start));
       cursor = fin;
     }
   }
@@ -142,7 +147,7 @@ export function forecastHarvest(f: ForecastInput): Forecast {
   const ends = [...Object.values(houseEnd), ...ended];
   const pending = f.houses.filter((h) => eff(h) > 0 && f.who(h).length > 0 && f.rec[h]?.end == null);
   const end = ends.length && (pending.length === 0 || Object.keys(houseEnd).length > 0) ? Math.max(...ends) : null;
-  return { houseEnd, end, unassigned, unknown: [...unknown] };
+  return { houseEnd, houseStart, end, unassigned, unknown: [...unknown] };
 }
 
 /** 人ごとの速さ（サーバーが計算したもの） */
