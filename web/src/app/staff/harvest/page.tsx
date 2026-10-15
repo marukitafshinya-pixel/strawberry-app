@@ -371,6 +371,16 @@ function Sheet({
       ＋1
     </button>
   );
+  /** 端数を足す（＋0.1） */
+  const plusTenth = (h: string, cls = "") => (
+    <button
+      onClick={() => run(addCases(date, h, 0.1, pending(h)))}
+      className={`rounded-lg border-2 border-berry bg-white font-bold text-berry active:scale-95 ${cls}`}
+      aria-label={`No.${h} に0.1ケース足す`}
+    >
+      ＋0.1
+    </button>
+  );
   const rateOf = (h: string) => {
     const ms = who(h);
     if (ms.length > 1) return <span className="text-xs text-gray-500">共同</span>;
@@ -389,8 +399,7 @@ function Sheet({
 
   const help = (
     <>
-      集荷のたびに「＋1」を押します（押すとすぐ保存）。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。端数は確定数の欄に
-      5.3 のように打てます。時刻は「710」で
+      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。時刻は「710」で
       7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
       {use.from !== date &&
         (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
@@ -437,7 +446,8 @@ function Sheet({
                   <span className="w-14 text-lg font-bold">No.{h}</span>
                   {usageSelect(h, "py-1 text-sm")}
                   {isAdmin && <span className="text-xs text-sky-800">{rateOf(h)}</span>}
-                  <span className="ml-auto text-3xl font-bold tabular-nums text-berry">{fmtCases(rec[h]?.cases ?? 0)}</span>
+                  {/* 確定数：押すと直接打てる（5.3 など） */}
+                  <span className="ml-auto">{casesCell(h)}</span>
                 </div>
                 <div className="mt-1.5">{membersOf(h)}</div>
                 <div className="mt-2 flex items-center gap-1.5">
@@ -445,13 +455,12 @@ function Sheet({
                   {startCell(h, true)}
                   <span className="text-xs text-gray-500">終</span>
                   {endCell(h, true)}
-                  {minus(h, "ml-auto px-2.5 py-3")}
-                  {plus(h, "w-20 py-3 text-xl")}
                 </div>
-                <details className="mt-1 text-xs text-gray-500">
-                  <summary className="cursor-pointer">確定数を打って直す</summary>
-                  <div className="mt-1">{casesCell(h)}</div>
-                </details>
+                <div className="mt-2 grid grid-cols-[1fr_1.3fr_2fr] gap-1.5">
+                  {minus(h, "py-3")}
+                  {plusTenth(h, "py-3 text-lg")}
+                  {plus(h, "py-3 text-xl")}
+                </div>
               </div>
             ),
           )}
@@ -496,6 +505,7 @@ function Sheet({
                     <td className="px-2 py-1.5">{casesCell(h)}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
                       {minus(h, "mr-1")}
+                      {plusTenth(h, "mr-1 px-3 py-2")}
                       {plus(h, "px-5 py-2 text-lg")}
                     </td>
                     {isAdmin && <td className="px-2 py-1.5 text-right text-sky-800">{rateOf(h)}</td>}
