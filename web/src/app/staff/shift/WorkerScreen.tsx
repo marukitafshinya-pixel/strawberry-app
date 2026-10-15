@@ -2,9 +2,11 @@
 
 // 従業員の画面の中身：自分の勤務・休みの希望・全員の勤務表（見るだけ）。
 // 従業員が自分の携帯で見る画面と、管理者の「携帯画面」タブ（確認用・送信はしない）の両方で使う
+import Link from "next/link";
 import { useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
+import { useHaichiDay } from "@/lib/haichi";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
 
@@ -36,7 +38,19 @@ const STATUS: Record<ShiftRequest["status"], { label: string; cls: string }> = {
 };
 
 /** preview＝管理者の「携帯画面」タブ（選んだ従業員の分として、希望を出す・取り消すが本当にできる） */
-export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: ShiftConfig; members: ShiftMember[]; me: ShiftMember; requests: ShiftRequest[] | null; preview?: boolean }) {
+export function WorkerScreen({
+  cfg,
+  members,
+  me,
+  requests,
+  preview,
+}: {
+  cfg: ShiftConfig;
+  members: ShiftMember[];
+  me: ShiftMember;
+  requests: ShiftRequest[] | null;
+  preview?: boolean;
+}) {
   const today = todayJST();
   const [from, setFrom] = useState(today);
   const [span, more] = useGrowingSpan(from);
@@ -45,9 +59,17 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
   const mine = useShiftDays(today, addDays(today, 13));
   const reserved = useReservedPeople(from, addDays(from, span - 1));
   const active = members.filter((m) => m.active);
+  const haichi = useHaichiDay(today);
+  // 今日の作業配置表で「集荷係」に入っているか、「収穫管理 毎日使える」の人なら、収穫管理（＋1で数える画面）を開けるボタンを出す
+  const harvest = me.harvestEntry === true || !!haichi?.cells.pickup?.members.includes(me.id);
 
   return (
     <div className="space-y-5">
+      {harvest && (
+        <Link href="/staff/harvest/" className="block rounded-2xl bg-berry p-4 text-center text-xl font-bold text-white shadow">
+          🍓 収穫管理（今日の集荷）を開く
+        </Link>
+      )}
       <h1 className="text-xl font-bold">{me.name} さんの勤務</h1>
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -61,7 +83,9 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
               return (
                 <li key={d} className="flex items-center gap-3 py-1.5">
                   <span className={`w-32 whitespace-nowrap ${d === today ? "font-bold" : ""}`}>{formatJa(d)}</span>
-                  <span className={`min-w-[4rem] rounded px-2 py-0.5 text-center font-bold ${code ? codeColor(cfg, code) || "bg-gray-50" : "text-gray-300"}`}>{code ?? "－"}</span>
+                  <span className={`min-w-[4rem] rounded px-2 py-0.5 text-center font-bold ${code ? codeColor(cfg, code) || "bg-gray-50" : "text-gray-300"}`}>
+                    {code ?? "－"}
+                  </span>
                   {mine[d]?.note && <span className="text-xs text-gray-600">{mine[d].note}</span>}
                 </li>
               );
@@ -70,7 +94,13 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
         )}
       </section>
 
-      <RequestForm key={cfg.cutoffDays} asMember={preview ? me.id : undefined} cutoffDays={cfg.cutoffDays} contact={cfg.contact || "管理者"} codes={requestCodes(cfg)} />
+      <RequestForm
+        key={cfg.cutoffDays}
+        asMember={preview ? me.id : undefined}
+        cutoffDays={cfg.cutoffDays}
+        contact={cfg.contact || "管理者"}
+        codes={requestCodes(cfg)}
+      />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">出した希望</h2>
@@ -101,7 +131,8 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
               setFrom(today);
               setReset(reset + 1);
             }}
-            className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+            className="rounded-lg border bg-white px-3 py-1.5 text-sm"
+          >
             今日
           </button>
           <button onClick={() => setFrom(addDays(from, 7))} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
@@ -109,12 +140,28 @@ export function WorkerScreen({ cfg, members, me, requests, preview }: { cfg: Shi
           </button>
         </div>
         <p className="text-xs text-gray-500">表は横に動かせます。緑の行があなたです。</p>
-        <div className="mt-2">{days ? <ShiftTable compact from={from} span={span} onMore={more} resetKey={reset} cfg={cfg} members={active} days={days} reserved={reserved} myMemberId={me.id} /> : <p className="text-gray-500">読み込み中…</p>}</div>
+        <div className="mt-2">
+          {days ? (
+            <ShiftTable
+              compact
+              from={from}
+              span={span}
+              onMore={more}
+              resetKey={reset}
+              cfg={cfg}
+              members={active}
+              days={days}
+              reserved={reserved}
+              myMemberId={me.id}
+            />
+          ) : (
+            <p className="text-gray-500">読み込み中…</p>
+          )}
+        </div>
       </section>
     </div>
   );
 }
-
 
 /** asMember＝管理者がその従業員の分として出すとき（携帯画面タブ） */
 function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: number; contact: string; codes: string[]; asMember?: string }) {
@@ -134,7 +181,10 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
       return setMsg(
         isWork
           ? { ok: false, text: `「${codeLabel(code)}」の希望は、明日（${formatJa(workFirst)}）から出せます` }
-          : { ok: false, text: `休みの希望は${cutoffDays}日前までです。${formatJa(restFirst)}から選べます。それより前の日は、${contact}に直接確認してください` },
+          : {
+              ok: false,
+              text: `休みの希望は${cutoffDays}日前までです。${formatJa(restFirst)}から選べます。それより前の日は、${contact}に直接確認してください`,
+            },
       );
     setBusy(true);
     try {
@@ -153,7 +203,9 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
       <div className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
         <p>
           休みの希望は、その日の<b>{cutoffDays === 14 ? "2週間前" : `${cutoffDays}日前`}まで</b>に出してください（{formatJa(restFirst)}から出せます）。
-          <span className="block">「希休」のほか（定時出勤・AM・PM・時間の希望）は、<b>明日から</b>出せます。</span>
+          <span className="block">
+            「希休」のほか（定時出勤・AM・PM・時間の希望）は、<b>明日から</b>出せます。
+          </span>
         </p>
         <p className="mt-0.5">
           明日から{cutoffDays}日以内の日の休みの希望・変更は、<b>{contact}に直接確認</b>してください。
@@ -163,9 +215,7 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
         </p>
         <p className="mt-0.5">
           希望日は、<b>用事がある日だけ</b>にしてください。
-          <span className="block text-xs text-amber-800">
-            ＊週2日の休みを全部希望日として出されると、ほかの人の休みが入れられなくなります。
-          </span>
+          <span className="block text-xs text-amber-800">＊週2日の休みを全部希望日として出されると、ほかの人の休みが入れられなくなります。</span>
         </p>
       </div>
       <p className="mt-1 text-xs text-gray-500">時間だけの希望（午前だけ・14時まで など）も選べます。</p>
@@ -178,7 +228,11 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
           <span className="text-sm text-gray-600">希望</span>
           <div className="mt-1 flex flex-wrap gap-2">
             {codes.map((c) => (
-              <button key={c} onClick={() => setCode(c)} className={`rounded-lg border px-3 py-2 font-bold ${code === c ? "border-berry bg-berry text-white" : "bg-white"}`}>
+              <button
+                key={c}
+                onClick={() => setCode(c)}
+                className={`rounded-lg border px-3 py-2 font-bold ${code === c ? "border-berry bg-berry text-white" : "bg-white"}`}
+              >
                 {codeLabel(c)}
               </button>
             ))}
@@ -186,7 +240,13 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
         </div>
         <label className="block">
           <span className="text-sm text-gray-600">ひとこと（任意）</span>
-          <input value={memo} maxLength={100} onChange={(e) => setMemo(e.target.value)} placeholder="例：通院のため" className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+          <input
+            value={memo}
+            maxLength={100}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="例：通院のため"
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-base"
+          />
         </label>
         <button disabled={busy || !code} onClick={send} className="w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
           {busy ? "送っています…" : "希望を出す"}
