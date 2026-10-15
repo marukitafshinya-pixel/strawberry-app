@@ -113,6 +113,15 @@ export default function HarvestPage() {
               合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
             </span>
           </div>
+          {isAdmin && (
+            // 管理者だけ：収穫の開始時刻の設定と、実績の画面へ
+            <div className="mt-1 flex items-center justify-between border-t pt-1">
+              {cfg && <StartTime value={cfg.startTime} isAdmin />}
+              <Link href="/staff/harvest/report/" className="rounded-lg border border-berry px-2 py-1 text-sm font-bold text-berry">
+                📊 実績
+              </Link>
+            </div>
+          )}
         </div>
         {content}
       </div>
