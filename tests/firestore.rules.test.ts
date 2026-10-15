@@ -492,6 +492,8 @@ describe("収穫管理 (harvest・houseUse・config/harvest)", () => {
     await assertFails(getDoc(doc(staff(), "harvest/2020-01-01")));
     await assertSucceeds(getDoc(doc(admin(), "harvest/2020-01-01")));
     await assertFails(setDoc(doc(admin(), "harvest/2020-01-01"), { houses: rows, memo: "x" }));
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { houses: rows, endTime: 585 }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}`), { houses: rows, endTime: "9:45" }));
     await assertFails(setDoc(doc(admin(), "harvest/abc"), { houses: rows }));
     await assertFails(getDoc(doc(guest(), `harvest/${today}`)));
     await assertFails(setDoc(doc(disabled(), `harvest/${today}`), { houses: rows }));

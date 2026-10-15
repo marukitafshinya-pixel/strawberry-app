@@ -175,8 +175,8 @@ function readDoc(v: unknown): HarvestDoc {
 }
 
 /** その日の収穫の記録（読み込み中は undefined、まだなければ空） */
-export function useHarvestDay(date: string): HarvestDoc | undefined {
-  const [state, setState] = useState<{ date: string; v: HarvestDoc } | null>(null);
+export function useHarvestDay(date: string): { houses: HarvestDoc; endTime: number | null } | undefined {
+  const [state, setState] = useState<{ date: string; v: { houses: HarvestDoc; endTime: number | null } } | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -184,8 +184,8 @@ export function useHarvestDay(date: string): HarvestDoc | undefined {
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "harvest", date),
-        (s) => setState({ date, v: readDoc(s.get("houses")) }),
-        () => setState({ date, v: {} }),
+        (s) => setState({ date, v: { houses: readDoc(s.get("houses")), endTime: typeof s.get("endTime") === "number" ? (s.get("endTime") as number) : null } }),
+        () => setState({ date, v: { houses: {}, endTime: null } }),
       );
     });
     return () => {
@@ -194,6 +194,13 @@ export function useHarvestDay(date: string): HarvestDoc | undefined {
     };
   }, [date]);
   return state && state.date === date ? state.v : undefined;
+}
+
+/** その日の収穫が終わった時刻（分。null＝消す） */
+export async function saveHarvestEnd(date: string, endTime: number | null) {
+  if (!DATE_RE.test(date)) throw new Error("日付が正しくありません");
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "harvest", date), { endTime, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** 1つのハウスの記録を直す（ほかのハウスはそのまま） */

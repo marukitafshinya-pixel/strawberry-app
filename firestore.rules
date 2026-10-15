@@ -336,8 +336,10 @@ service cloud.firestore {
       allow read: if isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
-        && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
-        && request.resource.data.houses is map && request.resource.data.houses.size() <= 80;
+        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'updatedAt'])
+        && (!('houses' in request.resource.data) || (request.resource.data.houses is map && request.resource.data.houses.size() <= 80))
+        && (!('endTime' in request.resource.data) || request.resource.data.endTime == null
+          || (request.resource.data.endTime is int && request.resource.data.endTime >= 0 && request.resource.data.endTime < 1440));
     }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {

@@ -28,6 +28,7 @@ import {
   solePerCase,
   useHarvestConfig,
   useHarvestDay,
+  saveHarvestEnd,
   useHouseUse,
   type HarvestDoc,
   type HarvestPlan,
@@ -49,7 +50,8 @@ export default function HarvestPage() {
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const haichi = useHaichiDay(date);
-  const rec = useHarvestDay(date);
+  const day = useHarvestDay(date);
+  const rec = day?.houses;
   const use = useHouseUse(date);
   const members = useShiftMembers();
   const cfg = useHarvestConfig();
@@ -80,6 +82,23 @@ export default function HarvestPage() {
   const isAdmin = role === "admin";
   const tooOld = !isAdmin && date < addDays(todayJST(), -STAFF_DAYS);
   const total = rec ? Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0) : 0;
+  // 収穫終了：入れていなければ、ハウスの「終わった」のいちばん遅い時刻（点線）
+  const lastEnd = rec ? Object.values(rec).reduce<number | null>((m, h) => (h.end != null && (m == null || h.end > m) ? h.end : m), null) : null;
+  const endShown = day?.endTime ?? lastEnd;
+  const endBox = day && (
+    <span className="flex items-center gap-1 text-sm text-gray-600">
+      収穫終了
+      <TextCell
+        key={`end${endShown}`}
+        value={clock(endShown)}
+        planned={day.endTime == null && lastEnd != null}
+        placeholder="930"
+        small
+        parse={parseClock}
+        onCommit={(v) => void saveHarvestEnd(date, v).catch(() => alert("保存できませんでした"))}
+      />
+    </span>
+  );
 
   const toggle = !narrow && (
     <button onClick={() => setPhoneView(!phone)} className="rounded-lg border bg-white px-3 py-2 text-sm">
@@ -127,25 +146,27 @@ export default function HarvestPage() {
               </button>
             )}
           </div>
+          {/* 合計ケースと、その横に収穫終了 */}
           <div className="mt-1 flex items-center justify-between">
-            <span className="text-sm text-gray-600">
-              <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="underline">
-                {isWorker ? "← 勤務の画面" : "← メニュー"}
-              </Link>
-            </span>
             <span className="tabular-nums">
               合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
             </span>
+            {endBox}
           </div>
-          {isAdmin && (
-            // 管理者だけ：収穫の開始時刻の設定と、実績の画面へ
-            <div className="mt-1 flex items-center justify-between border-t pt-1">
-              {cfg && <StartTime value={cfg.startTime} isAdmin />}
-              <Link href="/staff/harvest/report/" className="rounded-lg border border-berry px-2 py-1 text-sm font-bold text-berry">
-                📊 実績
-              </Link>
-            </div>
-          )}
+          <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
+            <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
+              {isWorker ? "← 勤務の画面" : "← メニュー"}
+            </Link>
+            {isAdmin && (
+              // 管理者だけ：収穫の開始時刻の設定と、実績の画面へ
+              <>
+                {cfg && <StartTime value={cfg.startTime} isAdmin />}
+                <Link href="/staff/harvest/report/" className="rounded-lg border border-berry px-2 py-1 text-sm font-bold text-berry">
+                  📊 実績
+                </Link>
+              </>
+            )}
+          </div>
         </div>
         {content}
       </div>
@@ -190,6 +211,7 @@ export default function HarvestPage() {
         <span className="ml-auto rounded-lg bg-rose-50 px-3 py-2 text-lg tabular-nums">
           合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
         </span>
+        {endBox}
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {toggle}
         {isAdmin && (
@@ -600,6 +622,8 @@ function TextCell<T>({
     const v = parse(text);
     if (v === undefined) return setBad(true);
     setBad(false);
+    // いったん今の値の形（9:30 など）に戻す。値が変われば、欄ごと作り直されて新しい値が出る
+    setText(value);
     onCommit(v);
   };
   return (
