@@ -41,7 +41,7 @@ import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 const PICKUP_SLOT = "pickup";
 /** スタッフが入力できるのは、この日数前まで（それより前は管理者だけ） */
 const STAFF_DAYS = 7;
-/** 収穫しない使い方（この行は収穫の欄を使わない） */
+/** 収穫しない使い方（この行は収穫の欄を使わない）。いちご狩り前・後ろは、残りの半分を収穫するので入力できる */
 const NO_HARVEST: HouseUse[] = ["picking", "reserve", "off"];
 
 export default function HarvestPage() {
@@ -311,7 +311,7 @@ function Sheet({
       <select value={u.key} onChange={(e) => run(setUse(h, e.target.value as HouseUse))} className={`rounded-lg border px-1 py-2 font-bold ${u.cls} ${cls}`}>
         {HOUSE_USES.map((x) => (
           <option key={x.key} value={x.key}>
-            {x.short} {x.label.replace(/（.*）/, "")}
+            {x.label.replace(/（.*）/, "")}
           </option>
         ))}
       </select>

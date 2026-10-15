@@ -14,11 +14,18 @@ export type HouseHarvest = { members?: string[]; start?: number | null; end?: nu
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;
 
-export type HouseUse = "harvest" | "picking" | "half" | "reserve" | "off";
+/** half＝いちご狩り前（前半分がいちご狩り・後ろ半分は収穫）、halfBack＝いちご狩り後ろ（後ろ半分がいちご狩り・前半分は収穫） */
+export type HouseUse = "harvest" | "picking" | "half" | "halfBack" | "reserve" | "off";
 export const HOUSE_USES: { key: HouseUse; label: string; short: string; cls: string }[] = [
   { key: "harvest", label: "収穫", short: "収", cls: "bg-rose-100 text-rose-900 border-rose-300" },
-  { key: "picking", label: "いちご狩り", short: "狩", cls: "bg-emerald-100 text-emerald-900 border-emerald-300" },
-  { key: "half", label: "半分（前いちご狩り・後ろ収穫）", short: "半", cls: "bg-gradient-to-r from-emerald-100 to-rose-100 text-gray-900 border-amber-300" },
+  { key: "picking", label: "いちご狩り全", short: "狩全", cls: "bg-emerald-100 text-emerald-900 border-emerald-300" },
+  { key: "half", label: "いちご狩り前（後ろ半分は収穫）", short: "狩前", cls: "bg-gradient-to-r from-emerald-100 to-rose-100 text-gray-900 border-amber-300" },
+  {
+    key: "halfBack",
+    label: "いちご狩り後ろ（前半分は収穫）",
+    short: "狩後",
+    cls: "bg-gradient-to-r from-rose-100 to-emerald-100 text-gray-900 border-amber-300",
+  },
   { key: "reserve", label: "予備（収穫を止めている）", short: "予", cls: "bg-yellow-100 text-yellow-900 border-yellow-300" },
   { key: "off", label: "休み", short: "－", cls: "bg-gray-100 text-gray-500 border-gray-300" },
 ];
