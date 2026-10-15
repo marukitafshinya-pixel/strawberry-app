@@ -116,6 +116,7 @@ export default function HarvestPage() {
       plan={planHarvest(template, haichi)}
       startTime={cfg.startTime}
       rec={rec}
+      endTime={day?.endTime ?? null}
       use={use}
       members={members}
       isAdmin={isAdmin}
@@ -231,6 +232,7 @@ function Sheet({
   plan,
   startTime,
   rec,
+  endTime,
   use,
   members,
   isAdmin,
@@ -246,6 +248,8 @@ function Sheet({
   /** 収穫の開始時刻（分） */
   startTime: number;
   rec: HarvestDoc;
+  /** 保存した収穫終了（まだなら null） */
+  endTime: number | null;
   use: { houses: HouseUseMap; from: string | null };
   members: ShiftMember[];
   isAdmin: boolean;
@@ -418,6 +422,15 @@ function Sheet({
     );
   };
   const isOff = (h: string) => NO_HARVEST.includes(usageOf(h));
+
+  // その日に収穫するハウス（収穫者がいるか、ケースが入っている。いちご狩り全・予備・休みは除く）が全部「終わった」になったら、
+  // いちばん遅い時刻を収穫終了として保存する（確定）。あとから手で直せる
+  const targets = rows.filter((h) => !isOff(h) && (who(h).length > 0 || (rec[h]?.cases ?? 0) > 0));
+  const allDone = targets.length > 0 && targets.every((h) => rec[h]?.end != null);
+  const latest = allDone ? Math.max(...targets.map((h) => rec[h].end!)) : null;
+  useEffect(() => {
+    if (endTime == null && latest != null) saveHarvestEnd(date, latest).catch(() => {});
+  }, [endTime, latest, date]);
 
   const help = (
     <>
