@@ -9,7 +9,8 @@ setGlobalOptions({ region: "asia-northeast1", maxInstances: 5 });
 
 export const db = getFirestore();
 
-export type Role = "admin" | "staff";
+/** admin=管理者、staff=スタッフ、accounting=経理（現金出納帳を見るだけ） */
+export type Role = "admin" | "staff" | "accounting";
 
 // ---------- 入力チェックの小道具 ----------
 
@@ -34,7 +35,7 @@ export function requirePassword(v: unknown): string {
 }
 
 export function requireRole(v: unknown): Role {
-  if (v !== "admin" && v !== "staff") throw new HttpsError("invalid-argument", "権限を選んでください");
+  if (v !== "admin" && v !== "staff" && v !== "accounting") throw new HttpsError("invalid-argument", "権限を選んでください");
   return v;
 }
 

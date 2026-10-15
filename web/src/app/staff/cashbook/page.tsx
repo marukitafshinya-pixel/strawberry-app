@@ -30,6 +30,7 @@ import { shiftMonth, todayJST } from "@/lib/date";
 import { reiwa } from "@/lib/payroll";
 import { useSettings } from "@/lib/reservations";
 import { openWorkbook } from "@/lib/xlsx";
+import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
 
 const yen = (n: number) => n.toLocaleString("ja-JP");
 /** 最後の行に何か入れたら、次の空の行を足す（空の行は保存しない） */
@@ -57,14 +58,18 @@ function CashbookView() {
   /** 取り込んだら、表を読み込み直す */
   const [version, setVersion] = useState(0);
 
-  if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
+  // 経理担当（accounting）は見るだけ：エクセルに書き出す・印刷はできるが、入力・修正・取り込みはできない
+  const readOnly = role === "accounting";
+  if (role !== "admin" && !readOnly) return <p>この画面は管理者だけが使えます。</p>;
   return (
     <div className="pb-24">
-      <p className="text-sm print:hidden">
-        <Link href="/staff/" className="text-gray-500 underline">
-          ← メニュー
-        </Link>
-      </p>
+      {!readOnly && (
+        <p className="text-sm print:hidden">
+          <Link href="/staff/" className="text-gray-500 underline">
+            ← メニュー
+          </Link>
+        </p>
+      )}
       <h1 className="mt-2 text-xl font-bold print:hidden">現金出納帳</h1>
       <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
@@ -76,11 +81,16 @@ function CashbookView() {
         <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-lg border bg-white px-3 py-2">
           翌月 ›
         </button>
-        <input type="month" value={month} onChange={(e) => /^\d{4}-\d{2}$/.test(e.target.value) && setMonth(e.target.value)} className="rounded-lg border px-2 py-1.5" />
+        <input
+          type="month"
+          value={month}
+          onChange={(e) => /^\d{4}-\d{2}$/.test(e.target.value) && setMonth(e.target.value)}
+          className="rounded-lg border px-2 py-1.5"
+        />
         <span className="flex-1" />
-        {all && <ExcelImport all={all} onImported={() => setVersion(version + 1)} />}
-        <button onClick={() => window.print()} className="text-sm text-gray-600 underline">
-          印刷
+        {all && !readOnly && <ExcelImport all={all} onImported={() => setVersion(version + 1)} />}
+        <button onClick={() => window.print()} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          🖨 印刷
         </button>
       </div>
       {error ? (
@@ -88,13 +98,13 @@ function CashbookView() {
       ) : !all || !settings ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Editor key={`${month}-${version}`} month={month} all={all} storeName={settings.storeName} />
+        <Editor key={`${month}-${version}`} month={month} all={all} storeName={settings.storeName} readOnly={readOnly} />
       )}
     </div>
   );
 }
 
-function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; storeName: string }) {
+function Editor({ month, all, storeName, readOnly }: { month: string; all: CashMonth[]; storeName: string; readOnly: boolean }) {
   const saved = all.find((x) => x.month === month);
   const isFirst = !all.some((x) => x.month < month);
   const [entries, setEntries] = useState<CashEntry[]>(() => withBlankRow(saved?.entries ?? []));
@@ -181,140 +191,278 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
     }
   }
 
+  /** エクセルに書き出す（印刷と同じ形） */
+  function exportExcel() {
+    const B = (v: string | number | null, o: { num?: boolean; bold?: boolean; left?: boolean } = {}): XCell => ({ v, border: true, ...o });
+    const rows: XCell[][] = [
+      [{ v: `${storeName ? `${storeName}　` : ""}現金出納帳`, bold: true }, null, `${reiwa(y)}`, `${m}月度`],
+      [],
+      ["", "日付", "項目", "収入", "支出", "現金残高", "備考"].map((h) => B(h)),
+      [B(null), B(null), B("繰越金", { left: true }), B(carry, { num: true }), B(null), B(carry, { num: true }), B(null)],
+      ...entries.flatMap((e, i) =>
+        isBlank(e)
+          ? []
+          : [
+              [
+                B(i + 1),
+                B(md(e.date)),
+                B(e.item, { left: true }),
+                B(e.income, { num: true }),
+                B(e.expense, { num: true }),
+                B(balances[i], { num: true }),
+                B(e.memo, { left: true }),
+              ],
+            ],
+      ),
+      [
+        B(null),
+        B(null),
+        B("合計", { left: true, bold: true }),
+        B(carry + sums.income, { num: true, bold: true }),
+        B(sums.expense, { num: true, bold: true }),
+        B(closing, { num: true, bold: true }),
+        B(null),
+      ],
+    ];
+    downloadXlsx(`cashbook_${month}.xlsx`, `${m}月度`, rows, [5, 8, 30, 12, 12, 12, 32]);
+  }
+
   return (
     <>
-      {/* 画面で入力する表 */}
-      <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm print:hidden">
-        <table className="w-full min-w-[56rem] text-sm">
-          <thead className="bg-gray-50 text-xs text-gray-600">
-            <tr>
-              <th className="w-10 px-2 py-2 text-right">No</th>
-              <th className="w-36 px-2 py-2 text-left">日付</th>
-              <th className="px-2 py-2 text-left">項目</th>
-              <th className="w-28 px-2 py-2 text-right">収入</th>
-              <th className="w-28 px-2 py-2 text-right">支出</th>
-              <th className="w-28 px-2 py-2 text-right">現金残高</th>
-              <th className="px-2 py-2 text-left">備考</th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-t bg-amber-50/60">
-              <td />
-              <td />
-              <td className="px-2 py-1.5 font-semibold">繰越金</td>
-              <td className="px-1 py-1 text-right">
-                {isFirst ? (
-                  <Num
-                    value={opening ?? null}
-                    label="繰越金"
-                    onChange={(v) => {
-                      setOpening(v ?? undefined);
-                      setDirty(true);
-                      setMsg("");
-                    }}
-                  />
-                ) : (
-                  <span className="px-1 tabular-nums">{yen(carry)}</span>
-                )}
-              </td>
-              <td />
-              <td className="px-2 text-right font-semibold tabular-nums">{yen(carry)}</td>
-              <td className="px-2 text-xs text-gray-500">{isFirst ? "最初の月なので、手で入れてください" : "前の月の残高から自動で計算"}</td>
-              <td />
-            </tr>
-            {entries.map((e, i) => (
-              <tr key={i} className="border-t">
-                <td className="px-2 text-right text-xs text-gray-500">{i + 1}</td>
-                <td className="px-1 py-1">
-                  <input type="date" value={e.date} aria-label={`${i + 1}行目の日付`} onChange={(x) => set(i, { date: x.target.value })} className="w-full rounded border px-1 py-1" />
-                </td>
-                <td className="px-1 py-1">
-                  <div className="flex items-center gap-1">
-                    <input value={e.item} maxLength={80} list="cash-items" aria-label={`${i + 1}行目の項目`} onChange={(x) => set(i, { item: x.target.value })} className="min-w-0 flex-1 rounded border px-2 py-1" />
-                    {e.cert && (
-                      <button onClick={() => setCertRow(i)} className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800" aria-label={`${i + 1}行目の支払証明書`}>
-                        証明書
-                      </button>
-                    )}
-                  </div>
-                </td>
-                <td className="px-1 py-1">
-                  <Num value={e.income} label={`${i + 1}行目の収入`} onChange={(v) => set(i, { income: v })} />
-                </td>
-                <td className="px-1 py-1">
-                  <Num value={e.expense} label={`${i + 1}行目の支出`} onChange={(v) => set(i, { expense: v })} />
-                </td>
-                <td className={`px-2 text-right tabular-nums ${balances[i] < 0 ? "text-red-600" : ""}`}>{yen(balances[i])}</td>
-                <td className="px-1 py-1">
-                  <input value={e.memo} maxLength={80} aria-label={`${i + 1}行目の備考`} onChange={(x) => set(i, { memo: x.target.value })} className="w-full rounded border px-2 py-1" />
-                </td>
-                <td className="px-1 text-center">
-                  <button onClick={() => change(entries.filter((_, j) => j !== i))} className="px-1 text-gray-400 hover:text-red-600" aria-label={`${i + 1}行目を消す`}>
-                    🗑
-                  </button>
-                </td>
+      <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
+        <button onClick={exportExcel} className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-sm text-emerald-800">
+          ⬇ エクセルで書き出す
+        </button>
+        {readOnly && <span className="text-sm text-gray-500">見るだけの画面です（入力・修正はできません）</span>}
+      </div>
+      {readOnly && (
+        // 経理担当：見るだけの表
+        <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm print:hidden">
+          <table className="w-full min-w-[48rem] text-sm tabular-nums">
+            <thead className="bg-gray-50 text-xs text-gray-600">
+              <tr>
+                <th className="w-10 px-2 py-2 text-right">No</th>
+                <th className="w-20 px-2 py-2 text-left">日付</th>
+                <th className="px-2 py-2 text-left">項目</th>
+                <th className="w-28 px-2 py-2 text-right">収入</th>
+                <th className="w-28 px-2 py-2 text-right">支出</th>
+                <th className="w-28 px-2 py-2 text-right">現金残高</th>
+                <th className="px-2 py-2 text-left">備考</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot className="border-t-2 bg-gray-50 font-bold">
-            <tr>
-              <td />
-              <td colSpan={2} className="px-2 py-2">
-                合計（繰越金を除く）
-              </td>
-              <td className="px-2 text-right tabular-nums">{yen(sums.income)}</td>
-              <td className="px-2 text-right tabular-nums">{yen(sums.expense)}</td>
-              <td className={`px-2 text-right tabular-nums ${closing < 0 ? "text-red-600" : ""}`}>{yen(closing)}</td>
-              <td className="px-2 text-xs font-normal text-gray-500">月末の残高（翌月へ繰り越し）</td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
-        <datalist id="cash-items">
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2 print:hidden">
-        <button onClick={() => change([...entries, emptyEntry(defaultDate)])} className="rounded-lg border bg-white px-4 py-2 text-sm">
-          ＋ 行を追加
-        </button>
-        <button
-          onClick={() => change([...entries].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")))}
-          className="rounded-lg border bg-white px-4 py-2 text-sm"
-        >
-          日付順に並べる
-        </button>
-        <button onClick={() => setEditingItems(true)} className="rounded-lg border bg-white px-4 py-2 text-sm">
-          項目の候補を編集
-        </button>
-        <button onClick={() => setCertRow(null)} className="rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800">
-          ＋ 支払証明書を作る
-        </button>
-      </div>
-      {certRow !== undefined && (
-        <CertEditor
-          key={certRow ?? "new"}
-          date={(certRow !== null && entries[certRow]?.date) || defaultDate}
-          initial={certRow !== null ? entries[certRow]?.cert : undefined}
-          onClose={() => setCertRow(undefined)}
-          onSave={(date, cert, print) => applyCert(certRow, date, cert, print)}
-          onRemove={
-            certRow !== null && entries[certRow]?.cert
-              ? () => {
-                  const { cert: _drop, ...rest } = entries[certRow];
-                  void _drop;
-                  change(entries.map((e, j) => (j === certRow ? rest : e)));
-                  setCertRow(undefined);
-                }
-              : null
-          }
-        />
+            </thead>
+            <tbody>
+              <tr className="border-t bg-amber-50/60">
+                <td />
+                <td />
+                <td className="px-2 py-1.5 font-semibold">繰越金</td>
+                <td className="px-2 text-right">{yen(carry)}</td>
+                <td />
+                <td className="px-2 text-right font-semibold">{yen(carry)}</td>
+                <td />
+              </tr>
+              {entries.map((e, i) =>
+                isBlank(e) ? null : (
+                  <tr key={i} className="border-t">
+                    <td className="px-2 text-right text-xs text-gray-500">{i + 1}</td>
+                    <td className="px-2 py-1.5">{md(e.date)}</td>
+                    <td className="px-2 py-1.5">
+                      {e.item}
+                      {e.cert && (
+                        <button
+                          onClick={() => setPrintCert({ date: e.date, cert: e.cert! })}
+                          className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800"
+                          aria-label={`${i + 1}行目の支払証明書を印刷`}
+                        >
+                          🖨 証明書
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-2 text-right">{e.income === null ? "" : yen(e.income)}</td>
+                    <td className="px-2 text-right">{e.expense === null ? "" : yen(e.expense)}</td>
+                    <td className={`px-2 text-right ${balances[i] < 0 ? "text-red-600" : ""}`}>{yen(balances[i])}</td>
+                    <td className="px-2 py-1.5">{e.memo}</td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+            <tfoot className="border-t-2 bg-gray-50 font-bold">
+              <tr>
+                <td />
+                <td colSpan={2} className="px-2 py-2">
+                  合計（繰越金を除く）
+                </td>
+                <td className="px-2 text-right">{yen(sums.income)}</td>
+                <td className="px-2 text-right">{yen(sums.expense)}</td>
+                <td className={`px-2 text-right ${closing < 0 ? "text-red-600" : ""}`}>{yen(closing)}</td>
+                <td className="px-2 text-xs font-normal text-gray-500">月末の残高（翌月へ繰り越し）</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {!readOnly && (
+        <>
+          {/* 画面で入力する表 */}
+          <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm print:hidden">
+            <table className="w-full min-w-[56rem] text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-600">
+                <tr>
+                  <th className="w-10 px-2 py-2 text-right">No</th>
+                  <th className="w-36 px-2 py-2 text-left">日付</th>
+                  <th className="px-2 py-2 text-left">項目</th>
+                  <th className="w-28 px-2 py-2 text-right">収入</th>
+                  <th className="w-28 px-2 py-2 text-right">支出</th>
+                  <th className="w-28 px-2 py-2 text-right">現金残高</th>
+                  <th className="px-2 py-2 text-left">備考</th>
+                  <th className="w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t bg-amber-50/60">
+                  <td />
+                  <td />
+                  <td className="px-2 py-1.5 font-semibold">繰越金</td>
+                  <td className="px-1 py-1 text-right">
+                    {isFirst ? (
+                      <Num
+                        value={opening ?? null}
+                        label="繰越金"
+                        onChange={(v) => {
+                          setOpening(v ?? undefined);
+                          setDirty(true);
+                          setMsg("");
+                        }}
+                      />
+                    ) : (
+                      <span className="px-1 tabular-nums">{yen(carry)}</span>
+                    )}
+                  </td>
+                  <td />
+                  <td className="px-2 text-right font-semibold tabular-nums">{yen(carry)}</td>
+                  <td className="px-2 text-xs text-gray-500">{isFirst ? "最初の月なので、手で入れてください" : "前の月の残高から自動で計算"}</td>
+                  <td />
+                </tr>
+                {entries.map((e, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-2 text-right text-xs text-gray-500">{i + 1}</td>
+                    <td className="px-1 py-1">
+                      <input
+                        type="date"
+                        value={e.date}
+                        aria-label={`${i + 1}行目の日付`}
+                        onChange={(x) => set(i, { date: x.target.value })}
+                        className="w-full rounded border px-1 py-1"
+                      />
+                    </td>
+                    <td className="px-1 py-1">
+                      <div className="flex items-center gap-1">
+                        <input
+                          value={e.item}
+                          maxLength={80}
+                          list="cash-items"
+                          aria-label={`${i + 1}行目の項目`}
+                          onChange={(x) => set(i, { item: x.target.value })}
+                          className="min-w-0 flex-1 rounded border px-2 py-1"
+                        />
+                        {e.cert && (
+                          <button
+                            onClick={() => setCertRow(i)}
+                            className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800"
+                            aria-label={`${i + 1}行目の支払証明書`}
+                          >
+                            証明書
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-1 py-1">
+                      <Num value={e.income} label={`${i + 1}行目の収入`} onChange={(v) => set(i, { income: v })} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <Num value={e.expense} label={`${i + 1}行目の支出`} onChange={(v) => set(i, { expense: v })} />
+                    </td>
+                    <td className={`px-2 text-right tabular-nums ${balances[i] < 0 ? "text-red-600" : ""}`}>{yen(balances[i])}</td>
+                    <td className="px-1 py-1">
+                      <input
+                        value={e.memo}
+                        maxLength={80}
+                        aria-label={`${i + 1}行目の備考`}
+                        onChange={(x) => set(i, { memo: x.target.value })}
+                        className="w-full rounded border px-2 py-1"
+                      />
+                    </td>
+                    <td className="px-1 text-center">
+                      <button
+                        onClick={() => change(entries.filter((_, j) => j !== i))}
+                        className="px-1 text-gray-400 hover:text-red-600"
+                        aria-label={`${i + 1}行目を消す`}
+                      >
+                        🗑
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t-2 bg-gray-50 font-bold">
+                <tr>
+                  <td />
+                  <td colSpan={2} className="px-2 py-2">
+                    合計（繰越金を除く）
+                  </td>
+                  <td className="px-2 text-right tabular-nums">{yen(sums.income)}</td>
+                  <td className="px-2 text-right tabular-nums">{yen(sums.expense)}</td>
+                  <td className={`px-2 text-right tabular-nums ${closing < 0 ? "text-red-600" : ""}`}>{yen(closing)}</td>
+                  <td className="px-2 text-xs font-normal text-gray-500">月末の残高（翌月へ繰り越し）</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+            <datalist id="cash-items">
+              {suggestions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 print:hidden">
+            <button onClick={() => change([...entries, emptyEntry(defaultDate)])} className="rounded-lg border bg-white px-4 py-2 text-sm">
+              ＋ 行を追加
+            </button>
+            <button
+              onClick={() => change([...entries].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")))}
+              className="rounded-lg border bg-white px-4 py-2 text-sm"
+            >
+              日付順に並べる
+            </button>
+            <button onClick={() => setEditingItems(true)} className="rounded-lg border bg-white px-4 py-2 text-sm">
+              項目の候補を編集
+            </button>
+            <button onClick={() => setCertRow(null)} className="rounded-lg border border-sky-600 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800">
+              ＋ 支払証明書を作る
+            </button>
+          </div>
+          {certRow !== undefined && (
+            <CertEditor
+              key={certRow ?? "new"}
+              date={(certRow !== null && entries[certRow]?.date) || defaultDate}
+              initial={certRow !== null ? entries[certRow]?.cert : undefined}
+              onClose={() => setCertRow(undefined)}
+              onSave={(date, cert, print) => applyCert(certRow, date, cert, print)}
+              onRemove={
+                certRow !== null && entries[certRow]?.cert
+                  ? () => {
+                      const { cert: _drop, ...rest } = entries[certRow];
+                      void _drop;
+                      change(entries.map((e, j) => (j === certRow ? rest : e)));
+                      setCertRow(undefined);
+                    }
+                  : null
+              }
+            />
+          )}
+          {editingItems && <ItemsEditor items={suggestions} onClose={() => setEditingItems(false)} />}
+        </>
       )}
       {printCert && <CertPrint date={printCert.date} cert={printCert.cert} />}
-      {editingItems && <ItemsEditor items={suggestions} onClose={() => setEditingItems(false)} />}
 
       {/* 印刷用（いままでの Excel と同じ形） */}
       <div className={`hidden text-black ${printCert ? "" : "print:block"}`}>
@@ -343,17 +491,19 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
               <P>{yen(carry)}</P>
               <P />
             </tr>
-            {entries.map((e, i) => isBlank(e) ? null : (
-              <tr key={i}>
-                <P>{i + 1}</P>
-                <P>{md(e.date)}</P>
-                <P left>{e.item}</P>
-                <P>{e.income === null ? "" : yen(e.income)}</P>
-                <P>{e.expense === null ? "" : yen(e.expense)}</P>
-                <P>{yen(balances[i])}</P>
-                <P left>{e.memo}</P>
-              </tr>
-            ))}
+            {entries.map((e, i) =>
+              isBlank(e) ? null : (
+                <tr key={i}>
+                  <P>{i + 1}</P>
+                  <P>{md(e.date)}</P>
+                  <P left>{e.item}</P>
+                  <P>{e.income === null ? "" : yen(e.income)}</P>
+                  <P>{e.expense === null ? "" : yen(e.expense)}</P>
+                  <P>{yen(balances[i])}</P>
+                  <P left>{e.memo}</P>
+                </tr>
+              ),
+            )}
             <tr className="font-bold">
               <P />
               <P />
@@ -370,9 +520,11 @@ function Editor({ month, all, storeName }: { month: string; all: CashMonth[]; st
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <button onClick={() => save()} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-2.5 font-bold text-white disabled:opacity-40">
-            {saving ? "保存中…" : "保存する"}
-          </button>
+          {!readOnly && (
+            <button onClick={() => save()} disabled={saving || !dirty} className="rounded-lg bg-berry px-6 py-2.5 font-bold text-white disabled:opacity-40">
+              {saving ? "保存中…" : "保存する"}
+            </button>
+          )}
           {dirty && <span className="text-sm text-amber-700">まだ保存していません</span>}
           {msg && <span className="text-sm text-gray-600">{msg}</span>}
           {err && <span className="text-sm text-red-600">{err}</span>}
@@ -412,7 +564,9 @@ function ItemsEditor({ items, onClose }: { items: string[]; onClose: () => void 
             ×
           </button>
         </div>
-        <p className="mt-1 text-xs text-gray-500">× を押すと候補から消えます（これまでの出納帳の記録は変わりません）。出納帳に新しい項目を入れて保存すると、自動で候補に足されます。</p>
+        <p className="mt-1 text-xs text-gray-500">
+          × を押すと候補から消えます（これまでの出納帳の記録は変わりません）。出納帳に新しい項目を入れて保存すると、自動で候補に足されます。
+        </p>
         <form
           className="mt-3 flex gap-2"
           onSubmit={(e) => {
@@ -423,7 +577,14 @@ function ItemsEditor({ items, onClose }: { items: string[]; onClose: () => void 
             if (!list.includes(v)) void save([v, ...list]);
           }}
         >
-          <input value={text} maxLength={80} onChange={(e) => setText(e.target.value)} placeholder="新しい項目" aria-label="新しい項目" className="flex-1 rounded-lg border px-3 py-2" />
+          <input
+            value={text}
+            maxLength={80}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="新しい項目"
+            aria-label="新しい項目"
+            className="flex-1 rounded-lg border px-3 py-2"
+          />
           <button disabled={busy || !text.trim()} className="rounded-lg bg-berry px-4 font-bold text-white disabled:opacity-40">
             追加
           </button>
@@ -434,7 +595,12 @@ function ItemsEditor({ items, onClose }: { items: string[]; onClose: () => void 
           {list.map((it) => (
             <li key={it} className="flex items-center gap-2 px-3 py-1.5">
               <span className="flex-1 break-all">{it}</span>
-              <button onClick={() => save(list.filter((x) => x !== it))} disabled={busy} className="rounded px-2 text-lg text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label={`${it}を候補から消す`}>
+              <button
+                onClick={() => save(list.filter((x) => x !== it))}
+                disabled={busy}
+                className="rounded px-2 text-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
+                aria-label={`${it}を候補から消す`}
+              >
                 ×
               </button>
             </li>
@@ -522,12 +688,25 @@ function CertEditor({
           </label>
           <label className="block text-sm">
             <span className="text-gray-600">請求者</span>
-            <input value={requester} maxLength={30} onChange={(e) => setRequester(e.target.value)} aria-label="請求者" className="mt-1 w-full rounded-lg border px-3 py-2" />
+            <input
+              value={requester}
+              maxLength={30}
+              onChange={(e) => setRequester(e.target.value)}
+              aria-label="請求者"
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
           </label>
         </div>
         <label className="mt-3 block text-sm">
           <span className="text-gray-600">支払先</span>
-          <input value={payee} maxLength={80} onChange={(e) => setPayee(e.target.value)} aria-label="支払先" placeholder="例：北欧パン等　7月分" className="mt-1 w-full rounded-lg border px-3 py-2" />
+          <input
+            value={payee}
+            maxLength={80}
+            onChange={(e) => setPayee(e.target.value)}
+            aria-label="支払先"
+            placeholder="例：北欧パン等　7月分"
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+          />
         </label>
         <p className="mt-3 text-sm text-gray-600">支払内容（1行入れると、次の行が増えます）</p>
         <table className="mt-1 w-full text-sm">
@@ -544,7 +723,13 @@ function CertEditor({
             {lines.map((l, i) => (
               <tr key={i}>
                 <td className="py-0.5 pr-1">
-                  <input value={l.name} maxLength={60} onChange={(e) => setLine(i, { name: e.target.value })} aria-label={`支払内容${i + 1}の内容`} className="w-full rounded border px-2 py-1" />
+                  <input
+                    value={l.name}
+                    maxLength={60}
+                    onChange={(e) => setLine(i, { name: e.target.value })}
+                    aria-label={`支払内容${i + 1}の内容`}
+                    className="w-full rounded border px-2 py-1"
+                  />
                 </td>
                 <td className="py-0.5 pr-1">
                   <Num value={l.price} label={`支払内容${i + 1}の単価`} onChange={(v) => setLine(i, { price: v })} />
@@ -555,7 +740,11 @@ function CertEditor({
                 <td className="py-0.5 text-right tabular-nums">{isBlankCertLine(l) ? "" : yen(certLineAmount(l))}</td>
                 <td className="text-center">
                   {!isBlankCertLine(l) && (
-                    <button onClick={() => setLines(withBlankLine(lines.filter((_, j) => j !== i)))} className="px-1 text-gray-400 hover:text-red-600" aria-label={`支払内容${i + 1}を消す`}>
+                    <button
+                      onClick={() => setLines(withBlankLine(lines.filter((_, j) => j !== i)))}
+                      className="px-1 text-gray-400 hover:text-red-600"
+                      aria-label={`支払内容${i + 1}を消す`}
+                    >
                       ×
                     </button>
                   )}

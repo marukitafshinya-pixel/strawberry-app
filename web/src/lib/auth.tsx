@@ -4,8 +4,8 @@ import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getFirebase } from "./firebase";
 
-/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、null=権限なし */
-export type Role = "admin" | "staff" | "worker" | null;
+/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、accounting=経理（現金出納帳を見るだけ）、null=権限なし */
+export type Role = "admin" | "staff" | "worker" | "accounting" | null;
 
 /** ログインIDだけでログインする従業員のメールアドレスの形（サーバー側と同じ） */
 export const WORKER_EMAIL_DOMAIN = "ichigo-staff.invalid";
@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // 権限はサーバー側でログイン情報に付けた印（カスタムクレーム）から読む
           const token = await u.getIdTokenResult();
           const r = token.claims.role;
-          setRole(r === "admin" || r === "staff" || r === "worker" ? r : null);
+          setRole(r === "admin" || r === "staff" || r === "worker" || r === "accounting" ? r : null);
         } else {
           setRole(null);
         }
@@ -63,9 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await auth.currentUser?.getIdToken(true);
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ loading, user, role, login, logout, refreshRole }}>{children}</AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ loading, user, role, login, logout, refreshRole }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

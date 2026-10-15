@@ -7,10 +7,10 @@ import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
 
-type StaffRole = "admin" | "staff";
+type StaffRole = "admin" | "staff" | "accounting";
 type Member = { uid: string; email: string; displayName: string; role: StaffRole; active: boolean };
 
-const ROLE_LABEL: Record<StaffRole, string> = { admin: "管理者", staff: "スタッフ" };
+const ROLE_LABEL: Record<StaffRole, string> = { admin: "管理者", staff: "スタッフ", accounting: "経理" };
 
 const input = "mt-1 w-full rounded-lg border px-3 py-2 text-base";
 const button = "rounded-lg px-4 py-2 font-bold disabled:opacity-50";
@@ -139,14 +139,16 @@ function RoleSelect({ value, onChange }: { value: StaffRole; onChange: (r: Staff
     <fieldset>
       <legend className="text-sm text-gray-600">権限</legend>
       <div className="mt-1 flex gap-4">
-        {(["staff", "admin"] as const).map((r) => (
+        {(["staff", "admin", "accounting"] as const).map((r) => (
           <label key={r} className="flex items-center gap-1">
             <input type="radio" checked={value === r} onChange={() => onChange(r)} />
             {ROLE_LABEL[r]}
           </label>
         ))}
       </div>
-      <p className="mt-1 text-xs text-gray-500">管理者は、設定の変更とスタッフの追加ができます。</p>
+      <p className="mt-1 text-xs text-gray-500">
+        管理者は、設定の変更とスタッフの追加ができます。経理は、現金出納帳を見る（エクセルに書き出す・印刷する）だけです。
+      </p>
     </fieldset>
   );
 }
@@ -199,11 +201,7 @@ function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
         <div>
           <span className="font-semibold">{member.displayName}</span>
           {isMe && <span className="ml-1 text-xs text-gray-500">（自分）</span>}
-          <span
-            className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-              member.role === "admin" ? "bg-berry/10 text-berry-dark" : "bg-gray-100 text-gray-700"
-            }`}
-          >
+          <span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${member.role === "admin" ? "bg-berry/10 text-berry-dark" : "bg-gray-100 text-gray-700"}`}>
             {ROLE_LABEL[member.role]}
           </span>
           {!member.active && <span className="ml-2 rounded-full bg-gray-200 px-2 py-0.5 text-xs">無効</span>}
@@ -232,14 +230,7 @@ function MemberRow({ member, isMe }: { member: Member; isMe: boolean }) {
           {!isMe && <RoleSelect value={role} onChange={setRole} />}
           <label className="block">
             <span className="text-sm text-gray-600">新しいパスワード（変えるときだけ入力・8文字以上）</span>
-            <input
-              type="text"
-              minLength={8}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={input}
-            />
+            <input type="text" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
           </label>
           <div className="flex gap-2">
             <button type="submit" disabled={sending} className={`${button} bg-berry text-white`}>

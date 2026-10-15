@@ -574,3 +574,20 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
     await assertFails(getDoc(doc(guest(), "stats/harvestSpeed")));
   });
 });
+
+describe("経理担当（現金出納帳を見るだけ）", () => {
+  const acc = () => env.authenticatedContext("a1", { role: "accounting" }).firestore();
+  const accOff = () => env.authenticatedContext("a2", { role: "accounting" }).firestore();
+  it("現金出納帳は読めるが書けない。ほかは読めない", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "staff/a1"), { role: "accounting", active: true });
+      await setDoc(doc(db, "staff/a2"), { role: "accounting", active: false });
+      await setDoc(doc(db, "cashbook/2026-10"), { entries: [] });
+    });
+    await assertSucceeds(getDoc(doc(acc(), "cashbook/2026-10")));
+    await assertFails(setDoc(doc(acc(), "cashbook/2026-10"), { entries: [] }));
+    await assertFails(getDoc(doc(accOff(), "cashbook/2026-10")));
+    for (const p of ["payrolls/2026-10", "employees/e1", "reservations/r1", "sales/s1", "harvest/2026-10-15", "staff/u1"]) await assertFails(getDoc(doc(acc(), p)));
+  });
+});

@@ -77,6 +77,8 @@ function useNewVersion(): boolean {
 }
 
 const WORKER_PATH = "/staff/shift/me/";
+/** 経理担当が使う画面（現金出納帳） */
+const CASHBOOK_PATH = "/staff/cashbook/";
 /** 収穫管理の入力（集荷係の従業員も使う） */
 const HARVEST_PATH = "/staff/harvest/";
 
@@ -97,6 +99,11 @@ function Guard({ children }: { children: ReactNode }) {
   // 従業員は勤務の画面だけ。ただし収穫管理の入力（その日の集荷係のとき使える）は開ける
   const workerPage = !!pathname?.startsWith(WORKER_PATH) || pathname === HARVEST_PATH || pathname === "/staff/harvest";
   const workerAway = role === "worker" && !isLoginPage && !workerPage;
+  // 経理担当は、現金出納帳だけ
+  const accountingAway = role === "accounting" && !isLoginPage && !pathname?.startsWith(CASHBOOK_PATH);
+  useEffect(() => {
+    if (accountingAway) router.replace(CASHBOOK_PATH);
+  }, [accountingAway, router]);
   useEffect(() => {
     if (workerAway) router.replace(WORKER_PATH);
   }, [workerAway, router]);
@@ -107,18 +114,20 @@ function Guard({ children }: { children: ReactNode }) {
   if (!role) return <NoRole />;
   // 従業員は、勤務管理表（自分の画面）だけ
   if (role === "worker" && !workerPage) return <p className="p-6 text-gray-500">読み込み中…</p>;
+  if (accountingAway) return <p className="p-6 text-gray-500">読み込み中…</p>;
   // 投影用の画面（勤務管理表をプロジェクターに映す）は、上の帯も余白も付けず、画面いっぱいに出す
   if (pathname?.startsWith(DISPLAY_PATH)) return <>{children}</>;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between bg-berry px-4 py-3 text-white print:hidden">
-        <Link href={role === "worker" ? WORKER_PATH : "/staff/"} className="font-bold">
+        <Link href={role === "worker" ? WORKER_PATH : role === "accounting" ? CASHBOOK_PATH : "/staff/"} className="font-bold">
           🍓 スタッフ
         </Link>
         <div className="flex items-center gap-3 text-sm">
           <span className="hidden sm:inline">
-            {role === "worker" ? (user.displayName ?? "") : user.email}（{role === "admin" ? "管理者" : role === "worker" ? "従業員" : "スタッフ"}）
+            {role === "worker" ? (user.displayName ?? "") : user.email}（
+            {role === "admin" ? "管理者" : role === "worker" ? "従業員" : role === "accounting" ? "経理" : "スタッフ"}）
           </span>
           <button onClick={logout} className="rounded-md bg-white/20 px-3 py-1">
             ログアウト
