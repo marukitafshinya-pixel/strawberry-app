@@ -139,7 +139,13 @@ function mergeNumbers(ws: W[]): W[] {
   const out: W[] = [];
   for (const w of ws) {
     const prev = out[out.length - 1];
-    if (prev && /^[\d,]+$/.test(prev.t) && /^[\d,]+$/.test(w.t) && (prev.t.endsWith(",") || w.t.startsWith(",")) && w.x0 - prev.x1 < Math.max(prev.h, w.h) * 0.6) {
+    if (
+      prev &&
+      /^[\d,]+$/.test(prev.t) &&
+      /^[\d,]+$/.test(w.t) &&
+      (prev.t.endsWith(",") || w.t.startsWith(",")) &&
+      w.x0 - prev.x1 < Math.max(prev.h, w.h) * 0.6
+    ) {
       out[out.length - 1] = { ...prev, t: prev.t + w.t, x1: w.x1, x: (prev.x0 + w.x1) / 2 };
     } else out.push(w);
   }
@@ -289,7 +295,9 @@ export function parseOcrPage(page: OcrPage, fallbackYear: number): { sheet: Shik
       const q = pr.q ?? { ...empty, y: pr.p!.y - hs * 1.3 };
       const p = pr.p ?? { ...empty, y: q.y + hs * 1.3 };
       const mid = (q.y + p.y) / 2;
-      const size = sizes.filter((s) => s.y > q.y - hs * 1.2 && s.y < p.y + hs * 1.2).sort((s1, s2) => Math.abs(s1.y - mid) - Math.abs(s2.y - mid))[0]?.text ?? `${idx}行目`;
+      const size =
+        sizes.filter((s) => s.y > q.y - hs * 1.2 && s.y < p.y + hs * 1.2).sort((s1, s2) => Math.abs(s1.y - mid) - Math.abs(s2.y - mid))[0]?.text ??
+        `${idx}行目`;
       const entries = [];
       const missing: number[] = [];
       for (let d = 1; d <= 31; d++) {

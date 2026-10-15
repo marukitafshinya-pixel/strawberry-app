@@ -63,9 +63,14 @@ export async function sealFromPhoto(file: File): Promise<string> {
   const d = ctx.getImageData(0, 0, w, h);
   const px = d.data;
   // 朱色の濃さ：赤が強く、緑・青が弱いほど濃い。紙（白〜灰色）は 0 になる
-  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  let x0 = w,
+    y0 = h,
+    x1 = -1,
+    y1 = -1;
   for (let i = 0; i < px.length; i += 4) {
-    const r = px[i], g = px[i + 1], b = px[i + 2];
+    const r = px[i],
+      g = px[i + 1],
+      b = px[i + 2];
     const ink = Math.max(0, Math.min(1, (r - (g + b) / 2 - 20) / 60));
     px[i] = 205;
     px[i + 1] = 35;
@@ -73,7 +78,8 @@ export async function sealFromPhoto(file: File): Promise<string> {
     px[i + 3] = Math.round(ink * 255);
     if (ink > 0.5) {
       const p = i / 4;
-      const x = p % w, y = (p - x) / w;
+      const x = p % w,
+        y = (p - x) / w;
       if (x < x0) x0 = x;
       if (x > x1) x1 = x;
       if (y < y0) y0 = y;
@@ -82,7 +88,8 @@ export async function sealFromPhoto(file: File): Promise<string> {
   }
   if (x1 < 0) throw new Error("赤い印影が見つかりませんでした。白い紙に押した印鑑を、明るいところで撮ってください");
   ctx.putImageData(d, 0, 0);
-  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const cw = x1 - x0 + 1,
+    ch = y1 - y0 + 1;
   const k = Math.min(1, SIZE / Math.max(cw, ch));
   const out = document.createElement("canvas");
   out.width = Math.round(cw * k);

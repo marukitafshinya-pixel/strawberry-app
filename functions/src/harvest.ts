@@ -69,11 +69,16 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
     // その日のハウスの使い方（記録がない日は前の日のまま）
     for (const [date, u] of useByDate) if (date <= d.id) cur = u;
     const houses = (d.get("houses") as Record<string, House>) ?? {};
+    const brk = d.get("break") as { start?: number; minutes?: number } | undefined;
     for (const [h, r] of Object.entries(houses)) {
       if (r.members?.length !== 1 || r.start == null || r.end == null || r.end <= r.start) continue;
       const use = cur[h] ?? "harvest";
       const p = (plants[h] ?? 0) * (use === "harvest" ? 1 : use === "half" || use === "halfBack" ? 0.5 : 0);
-      if (p > 0) records.push({ date: d.id, member: r.members[0], minutes: r.end - r.start, plants: p });
+      // 休憩の時間は抜く（その日の休憩。なければふだんの 9:00〜15分）
+      const bs = typeof brk?.start === "number" ? brk.start : 540;
+      const be = bs + (typeof brk?.minutes === "number" ? brk.minutes : 15);
+      const minutes = r.end - r.start - Math.max(0, Math.min(r.end, be) - Math.max(r.start, bs));
+      if (p > 0 && minutes > 0) records.push({ date: d.id, member: r.members[0], minutes, plants: p });
     }
   }
   const { speeds, counts, avg } = speedsFrom(records);

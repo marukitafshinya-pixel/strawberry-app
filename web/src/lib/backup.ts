@@ -147,7 +147,10 @@ async function kvSet(key: string, v: unknown): Promise<void> {
 }
 
 export async function pickFolder(): Promise<DirHandle> {
-  const h = (await (window as unknown as { showDirectoryPicker: (o: object) => Promise<DirHandle> }).showDirectoryPicker({ id: "ichigo-backup", mode: "readwrite" })) as DirHandle;
+  const h = (await (window as unknown as { showDirectoryPicker: (o: object) => Promise<DirHandle> }).showDirectoryPicker({
+    id: "ichigo-backup",
+    mode: "readwrite",
+  })) as DirHandle;
   await kvSet("dir", h);
   return h;
 }

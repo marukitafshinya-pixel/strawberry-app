@@ -167,10 +167,8 @@ export function validateSettings(s: Settings): string[] {
   if (!MONTH_DAY_RE.test(s.seasonStart) || !MONTH_DAY_RE.test(s.seasonEnd)) errors.push("営業期間の日付が正しくありません");
   if (!TIME_RE.test(s.openTime) || !TIME_RE.test(s.closeTime)) errors.push("営業時間が正しくありません");
   if (s.openTime >= s.closeTime) errors.push("営業時間の終わりは始まりより後にしてください");
-  if (!Number.isInteger(s.bookingDaysAhead) || s.bookingDaysAhead < 1 || s.bookingDaysAhead > 365)
-    errors.push("予約の受付期間は1〜365日にしてください");
-  if (!Number.isInteger(s.bookingCutoffDays) || s.bookingCutoffDays < 0 || s.bookingCutoffDays > 30)
-    errors.push("予約の締切は0〜30日前にしてください");
+  if (!Number.isInteger(s.bookingDaysAhead) || s.bookingDaysAhead < 1 || s.bookingDaysAhead > 365) errors.push("予約の受付期間は1〜365日にしてください");
+  if (!Number.isInteger(s.bookingCutoffDays) || s.bookingCutoffDays < 0 || s.bookingCutoffDays > 30) errors.push("予約の締切は0〜30日前にしてください");
 
   if (s.timeSlots.length === 0) errors.push("時間枠を1つ以上作ってください");
   const times = new Set<string>();
@@ -178,8 +176,7 @@ export function validateSettings(s: Settings): string[] {
     if (!TIME_RE.test(t.time)) errors.push(`時間枠「${t.time || "（空）"}」の時刻が正しくありません`);
     if (times.has(t.time)) errors.push(`時間枠「${t.time}」が重複しています`);
     times.add(t.time);
-    if (!Number.isInteger(t.capacity) || t.capacity < 1 || t.capacity > 1000)
-      errors.push(`時間枠「${t.time}」の定員は1〜1000人にしてください`);
+    if (!Number.isInteger(t.capacity) || t.capacity < 1 || t.capacity > 1000) errors.push(`時間枠「${t.time}」の定員は1〜1000人にしてください`);
   }
 
   if (s.priceCategories.length === 0) errors.push("料金区分を1つ以上作ってください");

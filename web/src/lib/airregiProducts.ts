@@ -31,7 +31,9 @@ export function parseAirregiProducts(rows: string[][]): { items: AirregiProduct[
   const seen = new Set<string>();
   for (const r of rows.slice(h + 1)) {
     const get = (i: number) => (i >= 0 ? (r[i] ?? "").trim() : "");
-    let name = get(nameCol).replace(/[\s　]+$/g, "").replace(/^[\s　]+/g, "");
+    let name = get(nameCol)
+      .replace(/[\s　]+$/g, "")
+      .replace(/^[\s　]+/g, "");
     if (!name) continue;
     if (get(delCol)) continue; // 削除の印がある行は飛ばす
     const price = Number(get(priceCol).replace(/[^0-9]/g, "")) || 0;

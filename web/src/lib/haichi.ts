@@ -24,7 +24,12 @@ export const DEFAULT_HAICHI: HaichiTemplate = {
     { id: "harvest2", name: "ハウス17〜27", side: "right", arrows: true, slots: Array.from({ length: 11 }, (_, i) => sl(`h${17 + i}`, String(17 + i))) },
     { id: "pickup", name: "集荷", side: "left", slots: [sl("pickup", "集荷係")] },
     { id: "shop", name: "売り場", side: "left", slots: ["案内係", "受付・レジ", "選別", "製品チェック", "選別機"].map((l, i) => sl(`shop${i + 1}`, l)) },
-    { id: "work", name: "作業", side: "right", slots: ["四季彩の丘", "11-16ベンチ", "いちご手入れ", "NO20", "いちご防除"].map((l, i) => sl(`work${i + 1}`, l)) },
+    {
+      id: "work",
+      name: "作業",
+      side: "right",
+      slots: ["四季彩の丘", "11-16ベンチ", "いちご手入れ", "NO20", "いちご防除"].map((l, i) => sl(`work${i + 1}`, l)),
+    },
   ],
 };
 

@@ -29,6 +29,9 @@ import {
   useHarvestConfig,
   useHarvestDay,
   saveHarvestEnd,
+  saveHarvestBreak,
+  DEFAULT_BREAK,
+  type HarvestBreak,
   useHouseUse,
   type HarvestDoc,
   type HarvestPlan,
@@ -64,6 +67,8 @@ export default function HarvestPage() {
   const haichi = useHaichiDay(date);
   const day = useHarvestDay(date);
   const rec = day?.houses;
+  /** その日の休憩（保存していなければ、ふだんの 9:00〜15分） */
+  const brk = day?.brk ?? DEFAULT_BREAK;
   const use = useHouseUse(date);
   const members = useShiftMembers();
   const cfg = useHarvestConfig();
@@ -97,6 +102,7 @@ export default function HarvestPage() {
             speed: speeds,
             startOf: h.startOf,
             now: date === todayJST() ? jst.getUTCHours() * 60 + jst.getUTCMinutes() : null,
+            brk,
           });
         })()
       : null;
@@ -135,6 +141,33 @@ export default function HarvestPage() {
   // 収穫終了：入れていなければ、ハウスの「終わった」のいちばん遅い時刻（点線）
   const lastEnd = rec ? Object.values(rec).reduce<number | null>((m, h) => (h.end != null && (m == null || h.end > m) ? h.end : m), null) : null;
   const endShown = day?.endTime ?? lastEnd;
+  /** 休憩：押すと、その日の休憩の始まり・長さを変えられる */
+  const breakBox = day && (
+    <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
+      休憩
+      <TextCell
+        key={`brk${brk.start}`}
+        value={clock(brk.start)}
+        placeholder="900"
+        small
+        parse={parseClock}
+        onCommit={(v) => v != null && void saveHarvestBreak(date, { ...brk, start: v }).catch(() => alert("保存できませんでした"))}
+      />
+      から
+      <select
+        value={brk.minutes}
+        onChange={(e) => void saveHarvestBreak(date, { ...brk, minutes: Number(e.target.value) }).catch(() => alert("保存できませんでした"))}
+        className="rounded-lg border bg-white px-1 py-2 text-base"
+        aria-label="休憩の長さ"
+      >
+        {[0, 5, 10, 15, 20, 30, 45, 60].map((n) => (
+          <option key={n} value={n}>
+            {n ? `${n}分` : "なし"}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
   const endBox = day && (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       収穫終了
@@ -181,6 +214,7 @@ export default function HarvestPage() {
       houses={harvestHouses(template)}
       plan={plan!}
       forecast={fc}
+      brk={brk}
       startTime={cfg.startTime}
       rec={rec}
       endTime={day?.endTime ?? null}
@@ -222,6 +256,7 @@ export default function HarvestPage() {
             {endBox}
           </div>
           {unassignedNote}
+          <div className="mt-1 flex justify-end">{breakBox}</div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
               {isWorker ? "← 勤務の画面" : "← メニュー"}
@@ -282,6 +317,7 @@ export default function HarvestPage() {
         </span>
         {endBox}
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
+        {breakBox}
         {toggle}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">
@@ -300,6 +336,7 @@ function Sheet({
   houses,
   plan,
   forecast,
+  brk,
   startTime,
   rec,
   endTime,
@@ -317,6 +354,8 @@ function Sheet({
   plan: HarvestPlan;
   /** 収穫終了の予測（ハウスごとの終わる予測） */
   forecast: Forecast | null;
+  /** その日の休憩（収穫の時間から抜く） */
+  brk: HarvestBreak;
   /** 収穫の開始時刻（分） */
   startTime: number;
   rec: HarvestDoc;
@@ -491,7 +530,7 @@ function Sheet({
   const rateOf = (h: string) => {
     const ms = who(h);
     if (ms.length > 1) return <span className="text-xs text-gray-500">共同</span>;
-    return perCaseText(solePerCase({ ...rec[h], start: startOf(h), members: ms }));
+    return perCaseText(solePerCase({ ...rec[h], start: startOf(h), members: ms }, brk));
   };
   const offNote = (h: string) => {
     const u = houseUseOf(usageOf(h));

@@ -29,7 +29,16 @@ export type PrinterConfig = {
 };
 
 const KEY = "ichigo.printer";
-export const DEFAULT_PRINTER: PrinterConfig = { method: "browser", paper: 80, autoPrint: false, keepConnect: true, shiftMm: 0, fontSize: "normal", drawerOnSettle: true, drawerOnCashConfirm: true };
+export const DEFAULT_PRINTER: PrinterConfig = {
+  method: "browser",
+  paper: 80,
+  autoPrint: false,
+  keepConnect: true,
+  shiftMm: 0,
+  fontSize: "normal",
+  drawerOnSettle: true,
+  drawerOnCashConfirm: true,
+};
 const FONT_SCALE = { small: 0.9, normal: 1.1, large: 1.3 } as const;
 /** RP-F10 の印字幅（ドット）。80mm用の72mm＝576ドット。58mmの紙は、この真ん中に入る */
 const HEAD_DOTS = 576;
@@ -405,7 +414,10 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement | HTMLCanvasElement[
     const hPt = (wPt * c.height) / c.width;
     const n = pageNo(k);
     const content = `q ${wPt.toFixed(2)} 0 0 ${hPt.toFixed(2)} 0 0 cm /Im0 Do Q`;
-    obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(2)} ${hPt.toFixed(2)}] /Resources << /XObject << /Im0 ${n + 1} 0 R >> >> /Contents ${n + 2} 0 R >>`);
+    obj(
+      n,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(2)} ${hPt.toFixed(2)}] /Resources << /XObject << /Im0 ${n + 1} 0 R >> >> /Contents ${n + 2} 0 R >>`,
+    );
     obj(n + 1, [
       `<< /Type /XObject /Subtype /Image /Width ${c.width} /Height ${c.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
       jpeg,
@@ -415,7 +427,9 @@ export function canvasToPdfBase64(canvas: HTMLCanvasElement | HTMLCanvasElement[
   });
   const count = 3 + pages.length * 3;
   const xref = length;
-  push(`xref\n0 ${count}\n0000000000 65535 f \n${Array.from({ length: count - 1 }, (_, i) => `${String(offsets[i + 1]).padStart(10, "0")} 00000 n \n`).join("")}`);
+  push(
+    `xref\n0 ${count}\n0000000000 65535 f \n${Array.from({ length: count - 1 }, (_, i) => `${String(offsets[i + 1]).padStart(10, "0")} 00000 n \n`).join("")}`,
+  );
   push(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   const all = new Uint8Array(length);
   let p = 0;
@@ -493,7 +507,9 @@ export function printInBrowser(lines: RLine[] | RLine[][], paper: 80 | 58, fontS
   const box = document.createElement("div");
   box.id = "receipt-print-box";
   // 2枚以上のときは、1枚ずつ別のページにする
-  box.innerHTML = imgs.map((img, k) => `<img src="${img}" style="display:block;width:${paper === 80 ? 72 : 48}mm${k > 0 ? ";break-before:page" : ""}" alt="">`).join("");
+  box.innerHTML = imgs
+    .map((img, k) => `<img src="${img}" style="display:block;width:${paper === 80 ? 72 : 48}mm${k > 0 ? ";break-before:page" : ""}" alt="">`)
+    .join("");
   const style = document.createElement("style");
   style.textContent = `#receipt-print-box{display:none}@media print{body>*:not(#receipt-print-box){display:none!important}#receipt-print-box{display:block}@page{margin:3mm}}`;
   document.body.append(box, style);
@@ -517,7 +533,13 @@ export type InvoiceOpts = { addressee: string; note: string; issueDate: string; 
  * 横長の領収書を描く（一般的なお店の領収証と同じ並び）。
  * 横向きに描いてから90度回して、紙の幅に合わせた縦長の画像にする。
  */
-export function renderInvoiceLandscape(s: Settings, sale: Sale, o: InvoiceOpts, paper: 80 | 58, fontSize: PrinterConfig["fontSize"] = "normal"): HTMLCanvasElement {
+export function renderInvoiceLandscape(
+  s: Settings,
+  sale: Sale,
+  o: InvoiceOpts,
+  paper: 80 | 58,
+  fontSize: PrinterConfig["fontSize"] = "normal",
+): HTMLCanvasElement {
   const H = paper === 80 ? 576 : 384; // 紙の幅（ドット）＝横向きにしたときの高さ
   const k = (H / 384) * (FONT_SCALE[fontSize] / FONT_SCALE.normal); // 大きさの倍率
   const L = Math.round(H * 2.9); // 紙の長さ（ドット）＝横向きにしたときの幅

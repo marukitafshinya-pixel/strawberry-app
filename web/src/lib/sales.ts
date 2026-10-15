@@ -147,7 +147,6 @@ export function byCategory(sales: Sale[]): { category: string; amount: number }[
   return [...m.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
 }
 
-
 /** 取扱者ごとの集計（取消は除く）。取扱者が空の会計は「（未選択）」にまとめる */
 export const NO_HANDLER = "（未選択）";
 export function byHandler(sales: Sale[]): { handler: string; count: number; cash: number; cashCount: number; credit: number; total: number }[] {

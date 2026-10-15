@@ -188,10 +188,18 @@ export const round1 = (n: number) => Math.round(n * 10) / 10;
 export const fmtCases = (n: number) => round1(n).toLocaleString("ja-JP", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 /** その行の時間（分）。入った・終わったの両方があるときだけ */
-export const houseMinutes = (h: HouseHarvest) => (h.start != null && h.end != null && h.end > h.start ? h.end - h.start : null);
+/** その日の休憩（start＝始まる時刻の分、minutes＝長さ）。収穫の時間から抜く */
+export type HarvestBreak = { start: number; minutes: number };
+/** ふだんの休憩：9:00から15分 */
+export const DEFAULT_BREAK: HarvestBreak = { start: 540, minutes: 15 };
+/** 時間 a〜b と休憩の重なり（分） */
+export const breakOverlap = (a: number, b: number, brk: HarvestBreak) => Math.max(0, Math.min(b, brk.start + brk.minutes) - Math.max(a, brk.start));
+/** そのハウスの収穫の時間（分）。入った・終わったの両方があるときだけ。休憩の時間は抜く */
+export const houseMinutes = (h: HouseHarvest, brk: HarvestBreak = DEFAULT_BREAK) =>
+  h.start != null && h.end != null && h.end > h.start ? h.end - h.start - breakOverlap(h.start, h.end, brk) : null;
 /** 1人だけで収穫したハウスの、1ケースあたりの分（計算できなければ null） */
-export const solePerCase = (h: HouseHarvest) => {
-  const m = houseMinutes(h);
+export const solePerCase = (h: HouseHarvest, brk: HarvestBreak = DEFAULT_BREAK) => {
+  const m = houseMinutes(h, brk);
   return (h.members?.length ?? 0) === 1 && m != null && h.cases ? m / h.cases : null;
 };
 
@@ -202,7 +210,15 @@ function readDoc(v: unknown): HarvestDoc {
 }
 
 /** その日の収穫の記録（読み込み中は undefined、まだなければ空） */
-export type HarvestDay = { houses: HarvestDoc; endTime: number | null; forecast: number | null };
+export type HarvestDay = {
+  houses: HarvestDoc;
+  endTime: number | null;
+  forecast: number | null;
+  /** 保存した休憩（なければ null＝ふだんの休憩） */ brk: HarvestBreak | null;
+};
+/** 保存してある休憩を読む */
+export const readBreak = (v: unknown): HarvestBreak | null =>
+  v && typeof v === "object" && typeof (v as HarvestBreak).start === "number" && typeof (v as HarvestBreak).minutes === "number" ? (v as HarvestBreak) : null;
 export function useHarvestDay(date: string): HarvestDay | undefined {
   const [state, setState] = useState<{ date: string; v: HarvestDay } | null>(null);
   useEffect(() => {
@@ -219,9 +235,10 @@ export function useHarvestDay(date: string): HarvestDay | undefined {
               houses: readDoc(s.get("houses")),
               endTime: typeof s.get("endTime") === "number" ? (s.get("endTime") as number) : null,
               forecast: typeof s.get("forecast") === "number" ? (s.get("forecast") as number) : null,
+              brk: readBreak(s.get("break")),
             },
           }),
-        () => setState({ date, v: { houses: {}, endTime: null, forecast: null } }),
+        () => setState({ date, v: { houses: {}, endTime: null, forecast: null, brk: null } }),
       );
     });
     return () => {
@@ -237,6 +254,13 @@ export async function saveHarvestEnd(date: string, endTime: number | null) {
   if (!DATE_RE.test(date)) throw new Error("日付が正しくありません");
   const { db } = await getFirebase();
   await setDoc(doc(db, "harvest", date), { endTime, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** その日の休憩を保存する */
+export async function saveHarvestBreak(date: string, brk: HarvestBreak) {
+  if (!DATE_RE.test(date)) throw new Error("日付が正しくありません");
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "harvest", date), { break: brk, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** 1つのハウスの記録を直す（ほかのハウスはそのまま） */
@@ -433,11 +457,11 @@ export const groupOf = (groups: HouseGroup[], house: string) => groups.find((g) 
 export type Tally = { cases: number; minutes: number; timedCases: number; days: Set<string>; shared: number };
 export const emptyTally = (): Tally => ({ cases: 0, minutes: 0, timedCases: 0, days: new Set(), shared: 0 });
 /** 記録を足す。cases は足すケース数（人別で共同のハウスを数えないときは 0 を渡す） */
-export function addHouse(t: Tally, h: HouseHarvest, date: string, cases = h.cases ?? 0) {
+export function addHouse(t: Tally, h: HouseHarvest, date: string, cases = h.cases ?? 0, brk: HarvestBreak = DEFAULT_BREAK) {
   t.cases += cases;
   t.days.add(date);
   if ((h.members?.length ?? 0) > 1) t.shared += 1;
-  const m = houseMinutes(h);
+  const m = houseMinutes(h, brk);
   if ((h.members?.length ?? 0) === 1 && m != null && h.cases) {
     t.minutes += m;
     t.timedCases += h.cases;

@@ -7,7 +7,14 @@ import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
 
-export type ForecastSlot = { time: string; weatherCode: string | null; weather: string | null; temp: number | null; windDir: string | null; windSpeed: number | null };
+export type ForecastSlot = {
+  time: string;
+  weatherCode: string | null;
+  weather: string | null;
+  temp: number | null;
+  windDir: string | null;
+  windSpeed: number | null;
+};
 export type ForecastPop = { time: string; pop: number | null };
 export type ForecastDay = { date: string; weatherCode: string | null; weather: string | null; wind: string | null };
 export type Forecast = {
@@ -51,7 +58,9 @@ export function useForecast(): { data: Forecast | null; error: string } {
 
 /** 天気の絵（気象庁の天気コードの頭の数字：1 晴れ・2 くもり・3 雨・4 雪） */
 export function weatherIcon(code: string | null, text: string | null): string {
-  const c = code?.[0] ?? (text?.includes("雪") ? "4" : text?.includes("雨") ? "3" : text?.includes("くもり") || text?.includes("曇") ? "2" : text?.includes("晴") ? "1" : "");
+  const c =
+    code?.[0] ??
+    (text?.includes("雪") ? "4" : text?.includes("雨") ? "3" : text?.includes("くもり") || text?.includes("曇") ? "2" : text?.includes("晴") ? "1" : "");
   return c === "1" ? "☀️" : c === "2" ? "☁️" : c === "3" ? "☔" : c === "4" ? "⛄" : "";
 }
 

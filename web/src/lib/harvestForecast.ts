@@ -8,7 +8,7 @@ import { collection, doc, documentId, onSnapshot, query, serverTimestamp, setDoc
 import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
-import { groupOf, type HarvestDoc, type HouseGroup, type HouseUse } from "./harvest";
+import { groupOf, houseMinutes, readBreak, type HarvestBreak, type HarvestDoc, type HouseGroup, type HouseUse } from "./harvest";
 
 /** 収穫する株数（いちご狩り前・後ろは半分。収穫しない使い方は 0） */
 export function harvestPlants(plants: Record<string, number>, house: string, use: HouseUse): number {
@@ -37,6 +37,8 @@ export type ForecastInput = {
   startOf: (h: string) => number | null;
   /** 今の時刻（分）。今日でなければ null */
   now: number | null;
+  /** その日の休憩（この時間は収穫しない） */
+  brk: HarvestBreak;
 };
 
 export type Forecast = {
@@ -69,7 +71,7 @@ export function forecastHarvest(f: ForecastInput): Forecast {
   const all: Acc = { personMin: 0, plants: 0 };
   for (const h of done) {
     const r = f.rec[h];
-    const personMin = (r.end! - r.start!) * f.who(h).length;
+    const personMin = houseMinutes(r, f.brk)! * f.who(h).length;
     const g = groupOf(f.groups, h);
     const a = byGroup.get(g) ?? { personMin: 0, plants: 0 };
     a.personMin += personMin;
@@ -126,14 +128,19 @@ export function forecastHarvest(f: ForecastInput): Forecast {
         cursor = Math.max(cursor ?? 0, r.end);
         continue;
       }
-      const start: number | null = r.start ?? cursor ?? f.startOf(h);
+      let start: number | null = r.start ?? cursor ?? f.startOf(h);
       const d = duration(h);
       if (start == null || d == null) {
         unknown.add(h);
         cursor = null;
         continue;
       }
+      // 休憩の中に入るときは、休憩が終わってから。休憩をはさむときは、休憩の分だけおそく終わる
+      const bEnd = f.brk.start + f.brk.minutes;
+      if (r.start == null && start >= f.brk.start && start < bEnd) start = bEnd;
       let fin: number = start + d;
+      if (start < f.brk.start && fin > f.brk.start) fin += f.brk.minutes;
+      else if (r.start != null && start >= f.brk.start && start < bEnd) fin += bEnd - start;
       // まだ終わっていないのに予測の時刻を過ぎていたら、今を終わる時刻とする（あとのハウスもそこから数える）
       if (f.now != null && fin < f.now) fin = f.now;
       houseEnd[h] = Math.max(houseEnd[h] ?? 0, Math.round(fin));
@@ -186,9 +193,10 @@ export async function saveHarvestForecast(date: string, forecast: number) {
 }
 
 /** 期間の、日ごとの朝の予測と実際の収穫終了（管理者だけ）。日付 → { forecast, endTime } */
-export function useHarvestEnds(from: string, to: string): Record<string, { forecast: number | null; endTime: number | null }> | null {
+export type HarvestDayMeta = { forecast: number | null; endTime: number | null; brk: HarvestBreak | null };
+export function useHarvestEnds(from: string, to: string): Record<string, HarvestDayMeta> | null {
   const key = `${from}_${to}`;
-  const [state, setState] = useState<{ key: string; v: Record<string, { forecast: number | null; endTime: number | null }> } | null>(null);
+  const [state, setState] = useState<{ key: string; v: Record<string, HarvestDayMeta> } | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -205,6 +213,7 @@ export function useHarvestEnds(from: string, to: string): Record<string, { forec
                 {
                   forecast: typeof d.get("forecast") === "number" ? (d.get("forecast") as number) : null,
                   endTime: typeof d.get("endTime") === "number" ? (d.get("endTime") as number) : null,
+                  brk: readBreak(d.get("break")),
                 },
               ]),
             ),

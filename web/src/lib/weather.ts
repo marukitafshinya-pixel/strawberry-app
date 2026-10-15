@@ -74,7 +74,11 @@ export function weatherOfSpan(months: WeatherMonth[], from: string, to: string):
       if (date >= from && date <= to) list.push(v);
     }
   }
-  const pick = (k: WeatherKey, agg: "sum" | "avg") => aggregate(list.map((v) => v[k]), agg);
+  const pick = (k: WeatherKey, agg: "sum" | "avg") =>
+    aggregate(
+      list.map((v) => v[k]),
+      agg,
+    );
   return { tAvg: pick("tAvg", "avg"), tMax: pick("tMax", "avg"), tMin: pick("tMin", "avg"), precip: pick("precip", "sum"), sun: pick("sun", "sum") };
 }
 

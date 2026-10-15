@@ -82,7 +82,10 @@ function readOne(ws: W[], fallbackYear: number): PriceNotice {
     if (i >= 0 && p) raw.push({ size: nums[i].n, price: p.n, y: l[0].y });
   }
   // 区分は、入数が小さくなったところで次の区分に変わる（秀 8→35、A 16→30）
-  const order = labels.sort((a, b) => a.y - b.y).map((x) => x.name).filter((n, i, a) => a.indexOf(n) === i);
+  const order = labels
+    .sort((a, b) => a.y - b.y)
+    .map((x) => x.name)
+    .filter((n, i, a) => a.indexOf(n) === i);
   const names = order.length ? order : ["秀", "A"];
   const rows: NoticeRow[] = [];
   let block = 0;

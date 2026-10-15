@@ -79,7 +79,11 @@ const cleanCert = (c: CashCert): CashCert => ({
   lines: c.lines
     .filter((l) => !isBlankCertLine(l))
     .slice(0, 30)
-    .map((l) => ({ name: l.name.trim().slice(0, 60), price: l.price === null ? null : Math.round(l.price), qty: l.qty === null ? null : Math.round(l.qty * 100) / 100 })),
+    .map((l) => ({
+      name: l.name.trim().slice(0, 60),
+      price: l.price === null ? null : Math.round(l.price),
+      qty: l.qty === null ? null : Math.round(l.qty * 100) / 100,
+    })),
 });
 const clean = (e: CashEntry): CashEntry => ({
   ...(e.cert ? { cert: cleanCert(e.cert) } : {}),
@@ -126,7 +130,10 @@ export function useCashItems() {
 export function itemsFromHistory(all: CashMonth[]): string[] {
   const count = new Map<string, number>();
   for (const x of all) for (const e of x.entries) if (e.item.trim()) count.set(e.item.trim(), (count.get(e.item.trim()) ?? 0) + 1);
-  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 300).map(([k]) => k);
+  return [...count.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 300)
+    .map(([k]) => k);
 }
 
 export async function saveCashItems(items: string[]) {

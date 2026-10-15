@@ -79,67 +79,82 @@ export function useSettings() {
 }
 
 export function useReservations(date: string) {
-  return useLive<Reservation[]>(async (set, fail) => {
-    const { db } = await getFirebase();
-    return onSnapshot(
-      query(collection(db, "reservations"), where("date", "==", date)),
-      (snap) => set(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))),
-      fail,
-    );
-  }, [date]);
+  return useLive<Reservation[]>(
+    async (set, fail) => {
+      const { db } = await getFirebase();
+      return onSnapshot(
+        query(collection(db, "reservations"), where("date", "==", date)),
+        (snap) => set(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))),
+        fail,
+      );
+    },
+    [date],
+  );
 }
 
 /** 期間内の予約（集計用） */
 export function useReservationsRange(from: string, to: string) {
-  return useLive<Reservation[]>(async (set, fail) => {
-    const { db } = await getFirebase();
-    return onSnapshot(
-      query(collection(db, "reservations"), where("date", ">=", from), where("date", "<=", to)),
-      (snap) => set(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))),
-      fail,
-    );
-  }, [from, to]);
+  return useLive<Reservation[]>(
+    async (set, fail) => {
+      const { db } = await getFirebase();
+      return onSnapshot(
+        query(collection(db, "reservations"), where("date", ">=", from), where("date", "<=", to)),
+        (snap) => set(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))),
+        fail,
+      );
+    },
+    [from, to],
+  );
 }
 
 /** 期間内の予約の連絡先（予約ID → 連絡先） */
 export function useContactsRange(from: string, to: string) {
-  return useLive<Record<string, Contact>>(async (set, fail) => {
-    const { db } = await getFirebase();
-    return onSnapshot(
-      query(collection(db, "reservationContacts"), where("date", ">=", from), where("date", "<=", to)),
-      (snap) => set(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as Contact]))),
-      fail,
-    );
-  }, [from, to]);
+  return useLive<Record<string, Contact>>(
+    async (set, fail) => {
+      const { db } = await getFirebase();
+      return onSnapshot(
+        query(collection(db, "reservationContacts"), where("date", ">=", from), where("date", "<=", to)),
+        (snap) => set(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as Contact]))),
+        fail,
+      );
+    },
+    [from, to],
+  );
 }
 
 export function useContacts(date: string) {
-  return useLive<Record<string, Contact>>(async (set, fail) => {
-    const { db } = await getFirebase();
-    return onSnapshot(
-      query(collection(db, "reservationContacts"), where("date", "==", date)),
-      (snap) => set(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as Contact]))),
-      fail,
-    );
-  }, [date]);
+  return useLive<Record<string, Contact>>(
+    async (set, fail) => {
+      const { db } = await getFirebase();
+      return onSnapshot(
+        query(collection(db, "reservationContacts"), where("date", "==", date)),
+        (snap) => set(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as Contact]))),
+        fail,
+      );
+    },
+    [date],
+  );
 }
 
 /** 承認待ちのリクエスト（今日以降） */
 export function usePendingRequests(fromDate: string) {
-  return useLive<Reservation[]>(async (set, fail) => {
-    const { db } = await getFirebase();
-    return onSnapshot(
-      query(collection(db, "reservations"), where("status", "==", "request")),
-      (snap) =>
-        set(
-          snap.docs
-            .map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))
-            .filter((r) => r.date >= fromDate)
-            .sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)),
-        ),
-      fail,
-    );
-  }, [fromDate]);
+  return useLive<Reservation[]>(
+    async (set, fail) => {
+      const { db } = await getFirebase();
+      return onSnapshot(
+        query(collection(db, "reservations"), where("status", "==", "request")),
+        (snap) =>
+          set(
+            snap.docs
+              .map((d) => ({ id: d.id, ...(d.data() as Omit<Reservation, "id">) }))
+              .filter((r) => r.date >= fromDate)
+              .sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)),
+          ),
+        fail,
+      );
+    },
+    [fromDate],
+  );
 }
 
 /** お店がまだ確認していない新しい予約（Web予約）。受け付けた順 */

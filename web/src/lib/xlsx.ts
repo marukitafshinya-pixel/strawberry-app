@@ -138,7 +138,10 @@ function readXmlSheet(xml: string, shared: string[]): string[][] {
       const type = c.getAttribute("t");
       let val = c.getElementsByTagName("v")[0]?.textContent ?? "";
       if (type === "s") val = shared[Number(val)] ?? "";
-      else if (type === "inlineStr") val = Array.from(c.getElementsByTagName("t")).map((t) => t.textContent ?? "").join("");
+      else if (type === "inlineStr")
+        val = Array.from(c.getElementsByTagName("t"))
+          .map((t) => t.textContent ?? "")
+          .join("");
       cells[colIndex(c.getAttribute("r") ?? "")] = val;
     }
     rows[r] = Array.from(cells, (x) => x ?? "");

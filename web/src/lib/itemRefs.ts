@@ -31,7 +31,8 @@ export function parseItemCsv(rows: string[][]): { items: ItemRef[]; error?: stri
   const catCol = find("カテゴリー", "カテゴリ");
   const amountCol = find("販売総売上", "売上", "売上合計");
   const qtyCol = find("販売商品数", "数量", "販売数");
-  if (nameCol < 0 || amountCol < 0 || qtyCol < 0) return { items: [], error: "「商品名」「販売総売上」「販売商品数」の列が見つかりません。Airレジの「商品別」のCSVを選んでください" };
+  if (nameCol < 0 || amountCol < 0 || qtyCol < 0)
+    return { items: [], error: "「商品名」「販売総売上」「販売商品数」の列が見つかりません。Airレジの「商品別」のCSVを選んでください" };
   const items: ItemRef[] = [];
   for (const r of rows.slice(1)) {
     const name = (r[nameCol] ?? "").trim().replace(/[\s　]+$/, "");
@@ -74,12 +75,7 @@ export function useItemRefs() {
       if (cancelled) return;
       unsubscribe = onSnapshot(
         collection(db, "itemReferences"),
-        (snap) =>
-          setList(
-            snap.docs
-              .map((d) => ({ id: d.id, ...(d.data() as Omit<ItemRefDoc, "id">) }))
-              .sort((a, b) => b.to.localeCompare(a.to)),
-          ),
+        (snap) => setList(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ItemRefDoc, "id">) })).sort((a, b) => b.to.localeCompare(a.to))),
         setError,
       );
     });

@@ -38,7 +38,10 @@ export function useStoreDays(from: string, to: string) {
         setState({
           key,
           data: Object.fromEntries(
-            snap.docs.map((d) => [d.id, Object.fromEntries(STORE_KEYS.filter((k) => typeof d.get(k) === "number").map((k) => [k, d.get(k) as number])) as StoreDay]),
+            snap.docs.map((d) => [
+              d.id,
+              Object.fromEntries(STORE_KEYS.filter((k) => typeof d.get(k) === "number").map((k) => [k, d.get(k) as number])) as StoreDay,
+            ]),
           ),
         }),
       );
@@ -186,7 +189,17 @@ export function storeDaysFromSales(sales: Sale[]): Record<string, StoreDay> {
   const out: Record<string, StoreDay> = {};
   for (const s of sales) {
     if (s.status !== "completed") continue;
-    const d = (out[s.date] ??= { total: 0, totalCustomers: 0, discount: 0, direct: 0, directCustomers: 0, cafe: 0, cafeCustomers: 0, ichigo: 0, ichigoCustomers: 0 });
+    const d = (out[s.date] ??= {
+      total: 0,
+      totalCustomers: 0,
+      discount: 0,
+      direct: 0,
+      directCustomers: 0,
+      cafe: 0,
+      cafeCustomers: 0,
+      ichigo: 0,
+      ichigoCustomers: 0,
+    });
     d.total! += s.total;
     d.totalCustomers! += 1;
     d.discount! += Math.max(0, s.discountTotal);

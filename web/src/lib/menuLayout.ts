@@ -30,7 +30,10 @@ export function useMenuLayout(): MenuLayout | null | undefined {
           const slots = s.get("slots");
           setV({
             cols: MENU_COLS.includes(cols) ? cols : 3,
-            slots: slots && typeof slots === "object" ? (Object.fromEntries(Object.entries(slots).filter(([, n]) => Number.isInteger(n))) as Record<string, number>) : {},
+            slots:
+              slots && typeof slots === "object"
+                ? (Object.fromEntries(Object.entries(slots).filter(([, n]) => Number.isInteger(n))) as Record<string, number>)
+                : {},
           });
         },
         () => setV(null),

@@ -23,6 +23,8 @@ import {
   saveHarvestPlants,
   useHouseUseRange,
   type HarvestDoc,
+  type HarvestBreak,
+  DEFAULT_BREAK,
   type HouseGroup,
   type HouseUseMap,
   type Tally,
@@ -42,6 +44,9 @@ export default function HarvestReportPage() {
   const [to, setTo] = useState(today);
   const [tab, setTab] = useState<Tab>("people");
   const data = useHarvestRange(from, to);
+  // 日ごとの休憩（収穫の時間から抜く）
+  const meta = useHarvestEnds(from, to);
+  const breaks = Object.fromEntries(Object.entries(meta ?? {}).map(([d, v]) => [d, v.brk ?? DEFAULT_BREAK]));
   const use = useHouseUseRange(from, to);
   const members = useShiftMembers();
   const cfg = useHarvestConfig();
@@ -55,7 +60,7 @@ export default function HarvestReportPage() {
     ["先月", monthStart(lastMonth), monthEnd(lastMonth)],
     ["今年", `${today.slice(0, 4)}-01-01`, today],
   ];
-  const ready = data && use && members && groups && template;
+  const ready = data && meta && use && members && groups && template;
 
   return (
     <>
@@ -109,11 +114,11 @@ export default function HarvestReportPage() {
       ) : !ready ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : tab === "people" ? (
-        <People data={data} names={new Map(members.map((m) => [m.id, m.name]))} groups={groups} />
+        <People data={data} breaks={breaks} names={new Map(members.map((m) => [m.id, m.name]))} groups={groups} />
       ) : tab === "forecast" ? (
         <ForecastTab from={from} to={to} names={new Map(members.map((m) => [m.id, m.name]))} />
       ) : tab === "houses" ? (
-        <Houses data={data} groups={groups} houses={harvestHouses(template)} />
+        <Houses data={data} breaks={breaks} groups={groups} houses={harvestHouses(template)} />
       ) : (
         <Calendar from={from} to={to} data={data} use={use} groups={groups} houses={harvestHouses(template)} />
       )}
@@ -127,7 +132,17 @@ const rate = (t: Tally) => perCaseText(perCase(t));
 const hours = (min: number) => (min ? clock(Math.round(min)) : "");
 
 /** 人別：合計と、ハウスのまとまりごとの1ケースあたりの分 */
-function People({ data, names, groups }: { data: Record<string, HarvestDoc>; names: Map<string, string>; groups: HouseGroup[] }) {
+function People({
+  data,
+  breaks,
+  names,
+  groups,
+}: {
+  data: Record<string, HarvestDoc>;
+  breaks: Record<string, HarvestBreak>;
+  names: Map<string, string>;
+  groups: HouseGroup[];
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const all = new Map<string, Tally>();
   const byGroup = new Map<string, Map<string, Tally>>();
@@ -142,13 +157,13 @@ function People({ data, names, groups }: { data: Record<string, HarvestDoc>; nam
       // ケースは1人だけで収穫したハウスの分だけ、その人に数える（共同のハウスは数だけ数える）
       const cases = ms.length === 1 ? (h.cases ?? 0) : 0;
       for (const m of ms) {
-        addHouse(at(all, m), h, date, cases);
+        addHouse(at(all, m), h, date, cases, breaks[date]);
         const mg = byGroup.get(m) ?? new Map<string, Tally>();
         byGroup.set(m, mg);
-        addHouse(at(mg, groupOf(groups, house)), h, date, cases);
+        addHouse(at(mg, groupOf(groups, house)), h, date, cases, breaks[date]);
         const mh = byHouse.get(m) ?? new Map<string, Tally>();
         byHouse.set(m, mh);
-        addHouse(at(mh, house), h, date, cases);
+        addHouse(at(mh, house), h, date, cases, breaks[date]);
       }
     }
   const groupNames = [...groups.map((g) => g.name), "その他"].filter((g) => [...byGroup.values()].some((m) => m.has(g)));
@@ -222,13 +237,23 @@ function People({ data, names, groups }: { data: Record<string, HarvestDoc>; nam
 }
 
 /** ハウス別：まとまりごとの小計つき */
-function Houses({ data, groups, houses }: { data: Record<string, HarvestDoc>; groups: HouseGroup[]; houses: string[] }) {
+function Houses({
+  data,
+  breaks,
+  groups,
+  houses,
+}: {
+  data: Record<string, HarvestDoc>;
+  breaks: Record<string, HarvestBreak>;
+  groups: HouseGroup[];
+  houses: string[];
+}) {
   const byHouse = new Map<string, Tally>();
   for (const [date, day] of Object.entries(data))
     for (const [house, h] of Object.entries(day)) {
       if (!h.cases) continue;
       if (!byHouse.has(house)) byHouse.set(house, emptyTally());
-      addHouse(byHouse.get(house)!, h, date);
+      addHouse(byHouse.get(house)!, h, date, undefined, breaks[date]);
     }
   const all = [...new Set([...houses, ...byHouse.keys()])];
   const order = [...groups.map((g) => g.name), "その他"];
