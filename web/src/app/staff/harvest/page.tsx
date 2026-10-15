@@ -136,7 +136,7 @@ export default function HarvestPage() {
   const lastEnd = rec ? Object.values(rec).reduce<number | null>((m, h) => (h.end != null && (m == null || h.end > m) ? h.end : m), null) : null;
   const endShown = day?.endTime ?? lastEnd;
   const endBox = day && (
-    <span className="flex items-center gap-1 text-sm text-gray-600">
+    <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       収穫終了
       <TextCell
         key={`end${endShown}`}
@@ -157,10 +157,13 @@ export default function HarvestPage() {
           ) : speeds && speeds.avg == null ? (
             "予測は記録がたまると出ます"
           ) : null}
-          {fc.unassigned.length > 0 && <span className="block text-amber-700">収穫者なし No.{fc.unassigned.join("・")}</span>}
         </span>
       )}
     </span>
+  );
+  /** 収穫者が決まっていないハウス（予測に入らない）。合計の行の下に出す */
+  const unassignedNote = day?.endTime == null && fc && fc.unassigned.length > 0 && (
+    <p className="mt-1 text-xs text-amber-700">収穫者なし（予測に入りません）：No.{fc.unassigned.join("・")}</p>
   );
 
   const toggle = !narrow && (
@@ -218,6 +221,7 @@ export default function HarvestPage() {
             </span>
             {endBox}
           </div>
+          {unassignedNote}
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
               {isWorker ? "← 勤務の画面" : "← メニュー"}
@@ -285,6 +289,7 @@ export default function HarvestPage() {
           </Link>
         )}
       </div>
+      {unassignedNote}
       {content}
     </>
   );
@@ -418,18 +423,22 @@ function Sheet({
       onPick={(id, e) => onPick(id, h, e)}
     />
   );
-  /** 「入った」の欄に出す時刻：入れた時刻 → 開始時刻（最初のハウス） → 前のハウスの終わる予測（点線・保存しない） */
-  const startShown = (h: string) => startOf(h) ?? forecast?.houseStart[h] ?? null;
+  /** 「入った」の欄：入れた時刻か開始時刻（最初のハウス）。まだなければ、前のハウスの終わる予測を欄の下に小さく出す（保存しない） */
   const startCell = (h: string, small?: boolean) => (
-    <TextCell
-      key={`s${startShown(h)}`}
-      value={clock(startShown(h))}
-      planned={rec[h]?.start == null && startShown(h) != null}
-      placeholder="600"
-      small={small}
-      parse={parseClock}
-      onCommit={(v) => run(save(h, { start: v }))}
-    />
+    <span className="inline-flex flex-col items-center">
+      <TextCell
+        key={`s${startOf(h)}`}
+        value={clock(startOf(h))}
+        planned={rec[h]?.start == null && startOf(h) != null}
+        placeholder="600"
+        small={small}
+        parse={parseClock}
+        onCommit={(v) => run(save(h, { start: v }))}
+      />
+      {startOf(h) == null && forecast?.houseStart[h] != null && (
+        <span className="text-[11px] leading-tight text-sky-700">予測 {clock(forecast.houseStart[h])}</span>
+      )}
+    </span>
   );
   const endCell = (h: string, small?: boolean) => (
     <span className="inline-flex flex-col items-center">
