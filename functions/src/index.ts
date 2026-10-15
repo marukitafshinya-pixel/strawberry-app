@@ -12,6 +12,7 @@ export { cancelShiftRequest, createWorkerLogin, deleteShiftMember, submitShiftRe
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
 export { importWeatherMonth } from "./weather.js";
 export { refreshForecast } from "./forecast.js";
+export { refreshHarvestSpeeds } from "./harvest.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

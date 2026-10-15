@@ -4,7 +4,7 @@
 // ケースは集荷のたびに「＋1」を押して数え、押すたびにすぐ保存する（どの端末でも同じ数になる）。
 // その日のハウスの使い方（収穫・いちご狩り・半分・予備・休み）は houseUse/{YYYY-MM-DD}。記録がない日は前の日の状態を引きつぐ。
 // 1ケースあたりの時間は、1人だけで収穫したハウスで計算する（途中で応援が入ったハウスは、ケース数だけ数える）。実績は管理者だけが見られる。
-import { collection, doc, documentId, increment, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, documentId, increment, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from "./haichi";
@@ -35,10 +35,37 @@ export const houseUseOf = (k: string | undefined) => HOUSE_USES.find((u) => u.ke
 export type HouseGroup = { name: string; houses: string[] };
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
 export const DEFAULT_GROUPS: HouseGroup[] = [
-  { name: "1・6・8", houses: ["1", "6", "8"] },
-  { name: "17〜20", houses: range(17, 20) },
-  { name: "21〜27", houses: range(21, 27) },
+  { name: "①", houses: ["21", "22"] },
+  { name: "②", houses: ["23", "24"] },
+  { name: "③", houses: ["25", "26"] },
+  { name: "④", houses: ["27"] },
+  { name: "⑤", houses: ["1", "6", "8"] },
+  { name: "⑥", houses: ["4", "5", "9", "10"] },
+  { name: "⑦", houses: ["17", "18"] },
+  { name: "⑧", houses: range(19, 20) },
 ];
+
+/** ハウスの株数（ハウスの大きさとして、収穫時間の予測に使う）。管理者が画面で直せる */
+export const DEFAULT_PLANTS: Record<string, number> = {
+  "21": 3448,
+  "22": 3424,
+  "23": 3424,
+  "24": 3424,
+  "25": 3424,
+  "26": 3424,
+  "27": 3424,
+  "1": 2048,
+  "6": 2048,
+  "8": 2048,
+  "4": 1296,
+  "5": 1296,
+  "9": 1296,
+  "10": 1296,
+  "17": 2352,
+  "18": 2544,
+  "19": 2544,
+  "20": 1344,
+};
 
 /** 作業配置表の収穫の枠から、ハウスの名前を並べる */
 export function harvestHouses(t: HaichiTemplate): string[] {
@@ -175,8 +202,9 @@ function readDoc(v: unknown): HarvestDoc {
 }
 
 /** その日の収穫の記録（読み込み中は undefined、まだなければ空） */
-export function useHarvestDay(date: string): { houses: HarvestDoc; endTime: number | null } | undefined {
-  const [state, setState] = useState<{ date: string; v: { houses: HarvestDoc; endTime: number | null } } | null>(null);
+export type HarvestDay = { houses: HarvestDoc; endTime: number | null; forecast: number | null };
+export function useHarvestDay(date: string): HarvestDay | undefined {
+  const [state, setState] = useState<{ date: string; v: HarvestDay } | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -184,8 +212,16 @@ export function useHarvestDay(date: string): { houses: HarvestDoc; endTime: numb
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "harvest", date),
-        (s) => setState({ date, v: { houses: readDoc(s.get("houses")), endTime: typeof s.get("endTime") === "number" ? (s.get("endTime") as number) : null } }),
-        () => setState({ date, v: { houses: {}, endTime: null } }),
+        (s) =>
+          setState({
+            date,
+            v: {
+              houses: readDoc(s.get("houses")),
+              endTime: typeof s.get("endTime") === "number" ? (s.get("endTime") as number) : null,
+              forecast: typeof s.get("forecast") === "number" ? (s.get("forecast") as number) : null,
+            },
+          }),
+        () => setState({ date, v: { houses: {}, endTime: null, forecast: null } }),
       );
     });
     return () => {
@@ -241,6 +277,9 @@ export function useHarvestRange(from: string, to: string): Record<string, Harves
   return state && state.key === key ? state.v : null;
 }
 
+/** 90日前の日付（前の日の状態をさがす範囲） */
+const back90 = (ymd: string) => new Date(Date.parse(`${ymd}T00:00:00Z`) - 90 * 86400e3).toISOString().slice(0, 10);
+
 /** ハウスの使い方：ハウスの名前 → 使い方 */
 export type HouseUseMap = Record<string, HouseUse>;
 
@@ -273,9 +312,10 @@ export function useHouseUse(date: string): { houses: HouseUseMap; from: string |
           },
         ),
         onSnapshot(
-          query(collection(db, "houseUse"), where(documentId(), "<", date), orderBy(documentId(), "desc"), limit(1)),
+          // 前の日のいちばん近い記録（さかのぼって90日まで。日付の新しい順に読む方法は使えないので、まとめて読んで最後を使う）
+          query(collection(db, "houseUse"), where(documentId(), ">=", back90(date)), where(documentId(), "<", date)),
           (snap) => {
-            const d = snap.docs[0];
+            const d = snap.docs[snap.docs.length - 1];
             prev = d ? { date: d.id, houses: (d.get("houses") as HouseUseMap) ?? {} } : null;
             emit();
           },
@@ -321,8 +361,8 @@ export function useHouseUseRange(from: string, to: string): { days: Record<strin
           () => setState((s) => ({ ...(s?.key === key ? s : {}), key, days: {} })),
         ),
         onSnapshot(
-          query(collection(db, "houseUse"), where(documentId(), "<", from), orderBy(documentId(), "desc"), limit(1)),
-          (snap) => setState((s) => ({ ...(s?.key === key ? s : {}), key, before: (snap.docs[0]?.get("houses") as HouseUseMap) ?? {} })),
+          query(collection(db, "houseUse"), where(documentId(), ">=", back90(from)), where(documentId(), "<", from)),
+          (snap) => setState((s) => ({ ...(s?.key === key ? s : {}), key, before: (snap.docs[snap.docs.length - 1]?.get("houses") as HouseUseMap) ?? {} })),
           () => setState((s) => ({ ...(s?.key === key ? s : {}), key, before: {} })),
         ),
       );
@@ -344,8 +384,9 @@ export function useHouseGroups(): HouseGroup[] | null {
 }
 
 /** 収穫の設定：ハウスのまとまりと、収穫の開始時刻（最初のハウスの「入った」に入れる） */
-export function useHarvestConfig(): { groups: HouseGroup[]; startTime: number } | null {
-  const [v, setV] = useState<{ groups: HouseGroup[]; startTime: number } | null>(null);
+export type HarvestConfig = { groups: HouseGroup[]; startTime: number; plants: Record<string, number> };
+export function useHarvestConfig(): HarvestConfig | null {
+  const [v, setV] = useState<HarvestConfig | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -357,8 +398,9 @@ export function useHarvestConfig(): { groups: HouseGroup[]; startTime: number } 
           setV({
             groups: Array.isArray(s.get("groups")) ? (s.get("groups") as HouseGroup[]) : DEFAULT_GROUPS,
             startTime: typeof s.get("startTime") === "number" ? (s.get("startTime") as number) : DEFAULT_START,
+            plants: s.get("plants") && typeof s.get("plants") === "object" ? (s.get("plants") as Record<string, number>) : DEFAULT_PLANTS,
           }),
-        () => setV({ groups: DEFAULT_GROUPS, startTime: DEFAULT_START }),
+        () => setV({ groups: DEFAULT_GROUPS, startTime: DEFAULT_START, plants: DEFAULT_PLANTS }),
       );
     });
     return () => {
@@ -372,6 +414,11 @@ export function useHarvestConfig(): { groups: HouseGroup[]; startTime: number } 
 export async function saveHouseGroups(groups: HouseGroup[]) {
   const { db } = await getFirebase();
   await setDoc(doc(db, "config/harvest"), { groups, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function saveHarvestPlants(plants: Record<string, number>) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/harvest"), { plants, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function saveHarvestStart(startTime: number) {

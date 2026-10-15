@@ -561,3 +561,16 @@ describe("収穫管理：毎日使える従業員（社員など）", () => {
     await assertFails(setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }));
   });
 });
+
+describe("収穫終了の予測（forecast・株数・速さ）", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  it("朝の予測と株数を保存でき、速さはサーバーだけが書ける", async () => {
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { forecast: 565 }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}`), { forecast: "9:25" }));
+    await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { plants: { "21": 3448 } }));
+    await assertFails(setDoc(doc(staff(), "config/harvest"), { plants: { "21": 1 } }));
+    await assertSucceeds(getDoc(doc(staff(), "stats/harvestSpeed")));
+    await assertFails(setDoc(doc(admin(), "stats/harvestSpeed"), { speeds: {} }));
+    await assertFails(getDoc(doc(guest(), "stats/harvestSpeed")));
+  });
+});

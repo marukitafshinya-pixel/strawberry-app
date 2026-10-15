@@ -19,16 +19,18 @@ import {
   perCaseText,
   saveHouseGroups,
   useHarvestRange,
-  useHouseGroups,
+  useHarvestConfig,
+  saveHarvestPlants,
   useHouseUseRange,
   type HarvestDoc,
   type HouseGroup,
   type HouseUseMap,
   type Tally,
 } from "@/lib/harvest";
+import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harvestForecast";
 import { useShiftMembers } from "@/lib/shift";
 
-type Tab = "people" | "houses" | "calendar";
+type Tab = "people" | "houses" | "calendar" | "forecast";
 
 const monthStart = (d: string) => `${d.slice(0, 7)}-01`;
 const monthEnd = (d: string) => addDays(`${addDays(`${d.slice(0, 7)}-28`, 4).slice(0, 7)}-01`, -1);
@@ -42,7 +44,8 @@ export default function HarvestReportPage() {
   const data = useHarvestRange(from, to);
   const use = useHouseUseRange(from, to);
   const members = useShiftMembers();
-  const groups = useHouseGroups();
+  const cfg = useHarvestConfig();
+  const groups = cfg?.groups ?? null;
   const template = useHaichiTemplate();
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
@@ -89,6 +92,7 @@ export default function HarvestReportPage() {
             ["people", "人別"],
             ["houses", "ハウス別"],
             ["calendar", "ハウスの使い方カレンダー"],
+            ["forecast", "予測と実際"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -106,12 +110,15 @@ export default function HarvestReportPage() {
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : tab === "people" ? (
         <People data={data} names={new Map(members.map((m) => [m.id, m.name]))} groups={groups} />
+      ) : tab === "forecast" ? (
+        <ForecastTab from={from} to={to} names={new Map(members.map((m) => [m.id, m.name]))} />
       ) : tab === "houses" ? (
         <Houses data={data} groups={groups} houses={harvestHouses(template)} />
       ) : (
         <Calendar from={from} to={to} data={data} use={use} groups={groups} houses={harvestHouses(template)} />
       )}
       {ready && <GroupSetting groups={groups} houses={harvestHouses(template)} />}
+      {ready && cfg && <PlantsSetting plants={cfg.plants} houses={harvestHouses(template)} />}
     </>
   );
 }
@@ -422,6 +429,139 @@ function GroupSetting({ groups, houses }: { groups: HouseGroup[]; houses: string
             1行に1つ、「名前：ハウスの番号をカンマで区切る」の形で書きます。ハウスは作業配置表の収穫の枠と同じ番号です（今の枠：{houses.join(",")}）。
           </p>
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="mt-2 w-full rounded-lg border p-2 font-mono" />
+          <button onClick={() => void save()} className="mt-2 rounded-lg bg-berry px-4 py-2 font-bold text-white">
+            保存する
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 予測と実際：日ごとの朝の予測と実際の収穫終了、その差。人ごとの速さ（1,000株あたりの分） */
+function ForecastTab({ from, to, names }: { from: string; to: string; names: Map<string, string> }) {
+  const ends = useHarvestEnds(from, to);
+  const speeds = useHarvestSpeeds();
+  if (!ends || !speeds) return <p className="mt-4 text-gray-500">読み込み中…</p>;
+  const days = Object.entries(ends)
+    .filter(([, v]) => v.forecast != null || v.endTime != null)
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  const diffs = days.filter(([, v]) => v.forecast != null && v.endTime != null).map(([, v]) => v.endTime! - v.forecast!);
+  const avgAbs = diffs.length ? diffs.reduce((n, d) => n + Math.abs(d), 0) / diffs.length : null;
+  const sign = (d: number) => (d === 0 ? "ぴったり" : d > 0 ? `${d}分おそい` : `${-d}分はやい`);
+  return (
+    <>
+      <p className="mt-3 text-sm text-gray-600">
+        「朝の予測」は、その日にどのハウスもまだ終わっていなかったときの収穫終了の予測です。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
+      </p>
+      <div className="mt-2 flex flex-wrap gap-3">
+        <div className="rounded-xl border bg-white p-3">
+          <p className="text-xs text-gray-500">予測と実際の差（平均）</p>
+          <p className="text-2xl font-bold text-sky-800">{avgAbs == null ? "－" : `${Math.round(avgAbs)}分`}</p>
+          <p className="text-xs text-gray-500">{diffs.length}日分</p>
+        </div>
+      </div>
+      <div className="mt-3 overflow-x-auto rounded-xl border bg-white">
+        <table className="w-full min-w-max text-sm tabular-nums">
+          <thead className="bg-gray-50 text-left text-xs text-gray-600">
+            <tr>
+              <th className="px-3 py-2">日付</th>
+              <th className="px-3 py-2 text-right">朝の予測</th>
+              <th className="px-3 py-2 text-right">実際の収穫終了</th>
+              <th className="px-3 py-2 text-right">差</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map(([d, v]) => (
+              <tr key={d} className="border-t">
+                <td className="px-3 py-2">{formatJa(d)}</td>
+                <td className="px-3 py-2 text-right">{clock(v.forecast)}</td>
+                <td className="px-3 py-2 text-right font-bold">{clock(v.endTime)}</td>
+                <td className="px-3 py-2 text-right">{v.forecast != null && v.endTime != null ? sign(v.endTime - v.forecast) : ""}</td>
+              </tr>
+            ))}
+            {!days.length && (
+              <tr>
+                <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
+                  この期間の予測の記録はまだありません
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <SpeedTable speeds={speeds} names={names} />
+    </>
+  );
+}
+
+/** 人ごとの速さ（最近の記録から） */
+function SpeedTable({ speeds, names }: { speeds: HarvestSpeeds; names: Map<string, string> }) {
+  const list = Object.entries(speeds.speeds).sort((a, b) => a[1] - b[1]);
+  return (
+    <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
+      <h3 className="font-bold">人ごとの速さ（1,000株あたりの分・最近の記録から）</h3>
+      <p className="text-xs text-gray-500">全員の平均：{speeds.avg == null ? "まだ記録がありません" : `${speeds.avg}分`}。数字が小さいほど速い人です。</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {list.map(([id, v]) => (
+          <span key={id} className="rounded-lg border px-2 py-1 tabular-nums">
+            {names.get(id) ?? "（いない人）"} <b>{v}分</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** ハウスの株数（ハウスの大きさ。予測に使う） */
+function PlantsSetting({ plants, houses }: { plants: Record<string, number>; houses: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState("");
+  const total = houses.reduce((n, h) => n + (plants[h] ?? 0), 0);
+  async function save() {
+    const next: Record<string, number> = {};
+    for (const h of houses) {
+      const v = Number((edit[h] ?? String(plants[h] ?? "")).replace(/[^0-9]/g, ""));
+      if (v > 0) next[h] = v;
+    }
+    try {
+      await saveHarvestPlants(next);
+      setMsg("保存しました");
+      setOpen(false);
+    } catch {
+      setMsg("保存できませんでした");
+    }
+  }
+  return (
+    <div className="mt-3 rounded-xl border bg-white p-3 text-sm">
+      <button
+        onClick={() => {
+          setEdit({});
+          setOpen(!open);
+          setMsg("");
+        }}
+        className="font-bold text-gray-700"
+      >
+        {open ? "▼" : "▶"} ハウスの株数（合計 {total.toLocaleString("ja-JP")}株）
+      </button>
+      {msg && <span className="ml-3">{msg}</span>}
+      {open && (
+        <div className="mt-2">
+          <p className="text-gray-600">収穫終了の予測で、ハウスの大きさとして使います。いちご狩り前・後ろの日は、半分の株数で計算します。</p>
+          <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {houses.map((h) => (
+              <label key={h} className="flex items-center gap-1">
+                <span className="w-12 font-bold">No.{h}</span>
+                <input
+                  value={edit[h] ?? String(plants[h] ?? "")}
+                  inputMode="numeric"
+                  onChange={(e) => setEdit({ ...edit, [h]: e.target.value })}
+                  className="w-20 rounded border px-2 py-1 text-right tabular-nums"
+                />
+              </label>
+            ))}
+          </div>
           <button onClick={() => void save()} className="mt-2 rounded-lg bg-berry px-4 py-2 font-bold text-white">
             保存する
           </button>

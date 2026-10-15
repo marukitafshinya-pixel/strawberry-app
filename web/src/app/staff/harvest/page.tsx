@@ -36,7 +36,19 @@ import {
   type HouseUse,
   type HouseUseMap,
 } from "@/lib/harvest";
+import { forecastHarvest, refreshHarvestSpeeds, saveHarvestForecast, useHarvestSpeeds, type Forecast } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
+
+/** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
+function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
+  /** そのハウスの収穫者（保存していなければ作業配置表の人） */
+  const who = (h: string) => rec[h]?.members ?? plan.members[h] ?? [];
+  /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
+  const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
+  /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
+  const startOf = (h: string) => rec[h]?.start ?? plannedStart(h);
+  return { who, plannedStart, startOf };
+}
 
 /** 作業配置表の「集荷係」の枠のID */
 const PICKUP_SLOT = "pickup";
@@ -55,7 +67,45 @@ export default function HarvestPage() {
   const use = useHouseUse(date);
   const members = useShiftMembers();
   const cfg = useHarvestConfig();
+  const speeds = useHarvestSpeeds();
   const narrow = useNarrow();
+  // 予測のために、今の時刻を1分ごとに進める
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  // 開いたときに、人ごとの速さを最近の記録から計算し直してもらう
+  useEffect(() => {
+    void refreshHarvestSpeeds();
+  }, []);
+  const plan = template && haichi ? planHarvest(template, haichi) : null;
+  const houses = template ? harvestHouses(template) : [];
+  const fc =
+    plan && rec && use && cfg && speeds
+      ? (() => {
+          const h = helpersFor(rec, plan, cfg.startTime);
+          const jst = new Date(tick + 9 * 3600e3);
+          return forecastHarvest({
+            houses,
+            routes: plan.routes,
+            who: h.who,
+            rec,
+            usage: (x) => use.houses[x] ?? "harvest",
+            plants: cfg.plants,
+            groups: cfg.groups,
+            speed: speeds,
+            startOf: h.startOf,
+            now: date === todayJST() ? jst.getUTCHours() * 60 + jst.getUTCMinutes() : null,
+          });
+        })()
+      : null;
+  // 朝の予測を残す：今日、まだどのハウスも終わっていないあいだの予測（実際の収穫終了と比べて、誤差を見るため）
+  const fcEnd = fc?.end ?? null;
+  const anyEnded = !!rec && Object.values(rec).some((x) => x.end != null);
+  useEffect(() => {
+    if (date === todayJST() && fcEnd != null && day && !anyEnded && day.forecast !== fcEnd) saveHarvestForecast(date, fcEnd).catch(() => {});
+  }, [date, fcEnd, anyEnded, day]);
   /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
   const [phoneView, setPhoneView] = useState<boolean | null>(null);
   const isWorker = role === "worker";
@@ -97,6 +147,19 @@ export default function HarvestPage() {
         parse={parseClock}
         onCommit={(v) => void saveHarvestEnd(date, v).catch(() => alert("保存できませんでした"))}
       />
+      {day.endTime == null && fc && (
+        <span className="text-xs leading-tight text-sky-800">
+          {fc.end != null ? (
+            <>
+              予測
+              <b className="block text-base">{clock(fc.end)}</b>
+            </>
+          ) : speeds && speeds.avg == null ? (
+            "予測は記録がたまると出ます"
+          ) : null}
+          {fc.unassigned.length > 0 && <span className="block text-amber-700">収穫者なし No.{fc.unassigned.join("・")}</span>}
+        </span>
+      )}
     </span>
   );
 
@@ -113,7 +176,8 @@ export default function HarvestPage() {
     <Sheet
       date={date}
       houses={harvestHouses(template)}
-      plan={planHarvest(template, haichi)}
+      plan={plan!}
+      forecast={fc}
       startTime={cfg.startTime}
       rec={rec}
       endTime={day?.endTime ?? null}
@@ -230,6 +294,7 @@ function Sheet({
   date,
   houses,
   plan,
+  forecast,
   startTime,
   rec,
   endTime,
@@ -245,6 +310,8 @@ function Sheet({
   houses: string[];
   /** 作業配置表から読んだ、収穫者と回る順 */
   plan: HarvestPlan;
+  /** 収穫終了の予測（ハウスごとの終わる予測） */
+  forecast: Forecast | null;
   /** 収穫の開始時刻（分） */
   startTime: number;
   rec: HarvestDoc;
@@ -261,11 +328,7 @@ function Sheet({
   const names = new Map(members.map((m) => [m.id, m.name]));
   const usageOf = (h: string) => use.houses[h] ?? "harvest";
   /** そのハウスの収穫者（保存していなければ作業配置表の人） */
-  const who = (h: string) => rec[h]?.members ?? plan.members[h] ?? [];
-  /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
-  const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
-  /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
-  const startOf = (h: string) => rec[h]?.start ?? plannedStart(h);
+  const { who, plannedStart, startOf } = helpersFor(rec, plan, startTime);
   /** まだ保存していない予定（収穫者・開始時刻）。そのハウスを初めて保存するときに一緒に保存する */
   const pending = (h: string): HouseHarvest => ({
     ...(rec[h]?.members ? {} : { members: who(h) }),
@@ -281,6 +344,8 @@ function Sheet({
   /** 終わった時刻を入れたら、その人の次のハウス（配置表の矢印の順）の「入った」が空なら同じ時刻を入れる */
   async function setEnd(h: string, end: number | null) {
     await save(h, { end });
+    // 終わったハウスが増えたので、人ごとの速さを計算し直してもらう
+    void refreshHarvestSpeeds();
     if (end == null) return;
     const done = new Set<string>();
     for (const m of who(h)) {
@@ -365,7 +430,12 @@ function Sheet({
     />
   );
   const endCell = (h: string, small?: boolean) => (
-    <TextCell key={`e${rec[h]?.end}`} value={clock(rec[h]?.end)} placeholder="710" small={small} parse={parseClock} onCommit={(v) => run(setEnd(h, v))} />
+    <span className="inline-flex flex-col items-center">
+      <TextCell key={`e${rec[h]?.end}`} value={clock(rec[h]?.end)} placeholder="710" small={small} parse={parseClock} onCommit={(v) => run(setEnd(h, v))} />
+      {rec[h]?.end == null && forecast?.houseEnd[h] != null && (
+        <span className="text-[11px] leading-tight text-sky-700">予測 {clock(forecast.houseEnd[h])}</span>
+      )}
+    </span>
   );
   const casesCell = (h: string) => (
     <TextCell
