@@ -510,3 +510,52 @@ describe("収穫管理 (harvest・houseUse・config/harvest)", () => {
     await assertFails(setDoc(doc(staff(), "config/harvest"), { startTime: 330 }));
   });
 });
+
+describe("収穫管理：集荷係の従業員", () => {
+  const worker = () => env.authenticatedContext("w1", { role: "worker" }).firestore();
+  const houses = { "17": { members: ["m3"], cases: 2 } };
+  const seed = () =>
+    env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w1"), { memberId: "m1", loginId: "tanaka", active: true });
+      await setDoc(doc(db, "haichi/2026-10-15"), { cells: { pickup: { members: ["m1"], memo: "" } }, note: "", done: false });
+      await setDoc(doc(db, "haichi/2026-10-16"), { cells: { pickup: { members: ["m2"], memo: "" } }, note: "", done: false });
+    });
+
+  it("集荷係の日だけ、収穫とハウスの使い方を読み書きできる", async () => {
+    await seed();
+    await assertSucceeds(setDoc(doc(worker(), "harvest/2026-10-15"), { houses }));
+    await assertSucceeds(getDoc(doc(worker(), "harvest/2026-10-15")));
+    await assertSucceeds(setDoc(doc(worker(), "houseUse/2026-10-15"), { houses: { "21": "picking" } }));
+    await assertSucceeds(getDoc(doc(worker(), "config/harvest")));
+    // 集荷係でない日・配置表がない日はできない
+    await assertFails(setDoc(doc(worker(), "harvest/2026-10-16"), { houses }));
+    await assertFails(getDoc(doc(worker(), "harvest/2026-10-16")));
+    await assertFails(setDoc(doc(worker(), "harvest/2026-10-17"), { houses }));
+    await assertFails(setDoc(doc(worker(), "houseUse/2026-10-16"), { houses: {} }));
+    // 実績（期間の記録）や給与などは見られない
+    await assertFails(getDoc(doc(worker(), "payrolls/2026-10")));
+  });
+});
+
+describe("収穫管理：毎日使える従業員（社員など）", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const worker = (uid: string) => env.authenticatedContext(uid, { role: "worker" }).firestore();
+  it("「毎日使える」にした人だけ、集荷係でない日も最近の日を読み書きできる", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w5"), { memberId: "m5", loginId: "asano", active: true });
+      await setDoc(doc(db, "shiftMembers/m5"), { name: "浅野", group: "社員", floor: false, harvestEntry: true, order: 0, active: true, uid: "w5" });
+      await setDoc(doc(db, "workers/w6"), { memberId: "m6", loginId: "suzuki", active: true });
+      await setDoc(doc(db, "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, order: 1, active: true, uid: "w6" });
+    });
+    const houses = { "17": { members: ["m5"], cases: 1 } };
+    await assertSucceeds(setDoc(doc(worker("w5"), `harvest/${today}`), { houses }));
+    await assertSucceeds(getDoc(doc(worker("w5"), `harvest/${today}`)));
+    await assertSucceeds(setDoc(doc(worker("w5"), `houseUse/${today}`), { houses: {} }));
+    await assertFails(getDoc(doc(worker("w5"), "harvest/2020-01-01")));
+    await assertFails(setDoc(doc(worker("w6"), `harvest/${today}`), { houses }));
+    // 管理者でなければ「毎日使える」は付けられない
+    await assertFails(setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }));
+  });
+});

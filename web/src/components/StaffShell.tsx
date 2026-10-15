@@ -32,11 +32,7 @@ function NoRole() {
       <p>このアカウントには、スタッフ画面を使う権限がありません。管理者に確認してください。</p>
       <div className="mt-6 rounded-xl border bg-white p-4 text-sm">
         <p className="text-gray-600">はじめて使うときだけ：まだ管理者が1人もいなければ、このアカウントを管理者にできます。</p>
-        <button
-          onClick={claim}
-          disabled={sending}
-          className="mt-3 rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-50"
-        >
+        <button onClick={claim} disabled={sending} className="mt-3 rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-50">
           {sending ? "登録中…" : "最初の管理者として登録する"}
         </button>
         {error && <p className="mt-2 text-red-600">{error}</p>}
@@ -81,6 +77,8 @@ function useNewVersion(): boolean {
 }
 
 const WORKER_PATH = "/staff/shift/me/";
+/** 収穫管理の入力（集荷係の従業員も使う） */
+const HARVEST_PATH = "/staff/harvest/";
 
 /** スタッフ画面の共通部分。ログインしていなければログイン画面へ移動する */
 /** 勤務管理表の投影用の画面 */
@@ -96,7 +94,9 @@ function Guard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!loading && !user && !isLoginPage) router.replace(LOGIN_PATH);
   }, [loading, user, isLoginPage, router]);
-  const workerAway = role === "worker" && !isLoginPage && !pathname?.startsWith(WORKER_PATH);
+  // 従業員は勤務の画面だけ。ただし収穫管理の入力（その日の集荷係のとき使える）は開ける
+  const workerPage = !!pathname?.startsWith(WORKER_PATH) || pathname === HARVEST_PATH || pathname === "/staff/harvest";
+  const workerAway = role === "worker" && !isLoginPage && !workerPage;
   useEffect(() => {
     if (workerAway) router.replace(WORKER_PATH);
   }, [workerAway, router]);
@@ -106,7 +106,7 @@ function Guard({ children }: { children: ReactNode }) {
 
   if (!role) return <NoRole />;
   // 従業員は、勤務管理表（自分の画面）だけ
-  if (role === "worker" && !pathname?.startsWith(WORKER_PATH)) return <p className="p-6 text-gray-500">読み込み中…</p>;
+  if (role === "worker" && !workerPage) return <p className="p-6 text-gray-500">読み込み中…</p>;
   // 投影用の画面（勤務管理表をプロジェクターに映す）は、上の帯も余白も付けず、画面いっぱいに出す
   if (pathname?.startsWith(DISPLAY_PATH)) return <>{children}</>;
 
@@ -118,7 +118,7 @@ function Guard({ children }: { children: ReactNode }) {
         </Link>
         <div className="flex items-center gap-3 text-sm">
           <span className="hidden sm:inline">
-            {role === "worker" ? user.displayName ?? "" : user.email}（{role === "admin" ? "管理者" : role === "worker" ? "従業員" : "スタッフ"}）
+            {role === "worker" ? (user.displayName ?? "") : user.email}（{role === "admin" ? "管理者" : role === "worker" ? "従業員" : "スタッフ"}）
           </span>
           <button onClick={logout} className="rounded-md bg-white/20 px-3 py-1">
             ログアウト
@@ -135,7 +135,11 @@ function Guard({ children }: { children: ReactNode }) {
         </div>
       )}
       {/* 会計はレジとして使うので、画面の幅いっぱいに広げる */}
-      <main className={`mx-auto w-full flex-1 px-4 py-6 print:max-w-none print:p-0 ${pathname?.startsWith("/staff/checkout") ? "max-w-screen-2xl py-3" : pathname?.startsWith("/staff/shift") || pathname?.startsWith("/staff/total") || pathname?.startsWith("/staff/goals") || pathname?.startsWith("/staff/harvest/report") ? "max-w-screen-2xl" : "max-w-5xl"}`}>{children}</main>
+      <main
+        className={`mx-auto w-full flex-1 px-4 py-6 print:max-w-none print:p-0 ${pathname?.startsWith("/staff/checkout") ? "max-w-screen-2xl py-3" : pathname?.startsWith("/staff/shift") || pathname?.startsWith("/staff/total") || pathname?.startsWith("/staff/goals") || pathname?.startsWith("/staff/harvest/report") ? "max-w-screen-2xl" : "max-w-5xl"}`}
+      >
+        {children}
+      </main>
     </div>
   );
 }

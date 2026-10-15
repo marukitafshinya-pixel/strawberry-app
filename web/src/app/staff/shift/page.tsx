@@ -435,7 +435,10 @@ function ShiftView() {
             />
           )}
           {deciding && (
-            <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center print:hidden" onClick={() => !decidingBusy && setDeciding(null)}>
+            <div
+              className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center print:hidden"
+              onClick={() => !decidingBusy && setDeciding(null)}
+            >
               <div onClick={(e) => e.stopPropagation()} className="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl">
                 <p className="text-sm text-gray-500">休みの希望</p>
                 <p className="mt-1 text-lg font-bold">
@@ -453,10 +456,18 @@ function ShiftView() {
                   </p>
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button onClick={() => decideHere(true)} disabled={decidingBusy} className="rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-50">
+                  <button
+                    onClick={() => decideHere(true)}
+                    disabled={decidingBusy}
+                    className="rounded-lg bg-emerald-700 py-3 font-bold text-white disabled:opacity-50"
+                  >
                     承認
                   </button>
-                  <button onClick={() => decideHere(false)} disabled={decidingBusy} className="rounded-lg border border-red-300 py-3 font-bold text-red-700 disabled:opacity-50">
+                  <button
+                    onClick={() => decideHere(false)}
+                    disabled={decidingBusy}
+                    className="rounded-lg border border-red-300 py-3 font-bold text-red-700 disabled:opacity-50"
+                  >
                     却下
                   </button>
                 </div>
@@ -548,18 +559,26 @@ function Requests({ cfg, members, requests, by }: { cfg: ShiftConfig; members: S
   if (requests.length === 0) return <p className="mt-4 rounded-xl bg-white p-4 text-gray-600">まだ決まっていない休みの希望はありません。</p>;
   return (
     <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
-      <p className="text-sm text-gray-600">「承認」を押すと、勤務表のその日のマスに希望の記号が入ります。「却下」はマスを変えません（本人の画面に「却下」と出ます）。</p>
+      <p className="text-sm text-gray-600">
+        「承認」を押すと、勤務表のその日のマスに希望の記号が入ります。「却下」はマスを変えません（本人の画面に「却下」と出ます）。
+      </p>
       <ul className="mt-2 divide-y">
         {requests.map((r) => (
           <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
             <span className="font-semibold">{name(r.memberId)}</span>
             <span>{formatJa(r.date)}</span>
-            <span className={`rounded px-2 py-0.5 text-sm font-bold ${cfg.codes.find((c) => c.code === r.code)?.off ? "bg-pink-100 text-pink-900" : "bg-sky-100 text-sky-900"}`}>
+            <span
+              className={`rounded px-2 py-0.5 text-sm font-bold ${cfg.codes.find((c) => c.code === r.code)?.off ? "bg-pink-100 text-pink-900" : "bg-sky-100 text-sky-900"}`}
+            >
               {r.code}
             </span>
             {r.memo && <span className="text-sm text-gray-600">「{r.memo}」</span>}
             <span className="ml-auto flex gap-2">
-              <button disabled={!!busy} onClick={() => decide(r, true)} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50">
+              <button
+                disabled={!!busy}
+                onClick={() => decide(r, true)}
+                className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+              >
                 承認
               </button>
               <button disabled={!!busy} onClick={() => decide(r, false)} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50">
@@ -574,7 +593,7 @@ function Requests({ cfg, members, requests, by }: { cfg: ShiftConfig; members: S
   );
 }
 
-/** 従業員リスト（まとまり・売り場対応可・収穫可・並び順・ログイン） */
+/** 従業員リスト（まとまり・売り場対応可・収穫可・収穫管理を毎日使える・並び順・ログイン） */
 function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] }) {
   const sorted = sortMembers(members, cfg);
   const [name, setName] = useState("");
@@ -672,6 +691,10 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
               <th className="py-1">まとまり</th>
               <th className="py-1">売り場対応可</th>
               <th className="py-1">収穫可</th>
+              <th className="py-1" title="チェックした人は、集荷係でない日も収穫管理を使えます（8日前〜明日の分）">
+                収穫管理
+                <span className="block text-[10px] font-normal">毎日使える</span>
+              </th>
               <th className="py-1">表に出す</th>
               <th className="py-1">ログイン（スマホで見る）</th>
               <th className="py-1" />
@@ -704,10 +727,31 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
                   </select>
                 </td>
                 <td className="py-1 text-center">
-                  <input type="checkbox" checked={m.floor} aria-label="売り場対応可" onChange={(e) => patch(m, { floor: e.target.checked })} className="h-5 w-5" />
+                  <input
+                    type="checkbox"
+                    checked={m.floor}
+                    aria-label="売り場対応可"
+                    onChange={(e) => patch(m, { floor: e.target.checked })}
+                    className="h-5 w-5"
+                  />
                 </td>
                 <td className="py-1 text-center">
-                  <input type="checkbox" checked={m.harvest === true} aria-label="収穫可" onChange={(e) => patch(m, { harvest: e.target.checked })} className="h-5 w-5" />
+                  <input
+                    type="checkbox"
+                    checked={m.harvest === true}
+                    aria-label="収穫可"
+                    onChange={(e) => patch(m, { harvest: e.target.checked })}
+                    className="h-5 w-5"
+                  />
+                </td>
+                <td className="py-1 text-center">
+                  <input
+                    type="checkbox"
+                    checked={m.harvestEntry === true}
+                    aria-label="収穫管理を毎日使える"
+                    onChange={(e) => patch(m, { harvestEntry: e.target.checked })}
+                    className="h-5 w-5"
+                  />
                 </td>
                 <td className="py-1 text-center">
                   <input type="checkbox" checked={m.active} onChange={(e) => patch(m, { active: e.target.checked })} className="h-5 w-5" />
@@ -716,7 +760,11 @@ function Members({ cfg, members }: { cfg: ShiftConfig; members: ShiftMember[] })
                   <LoginCell m={m} />
                 </td>
                 <td className="py-1 text-right">
-                  <button onClick={() => remove(m)} disabled={removing === m.id} className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">
+                  <button
+                    onClick={() => remove(m)}
+                    disabled={removing === m.id}
+                    className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
                     {removing === m.id ? "削除中…" : "削除"}
                   </button>
                 </td>
@@ -775,9 +823,19 @@ function LoginCell({ m }: { m: ShiftMember }) {
       {open && (
         <span className="mt-1 flex flex-wrap items-center gap-1">
           {!m.loginId && (
-            <input value={loginId} onChange={(e) => setLoginId(e.target.value.toLowerCase())} placeholder="ログインID" className="w-24 rounded border px-1 py-1 font-mono" />
+            <input
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value.toLowerCase())}
+              placeholder="ログインID"
+              className="w-24 rounded border px-1 py-1 font-mono"
+            />
           )}
-          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワード（8文字以上）" className="w-36 rounded border px-1 py-1" />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="パスワード（8文字以上）"
+            className="w-36 rounded border px-1 py-1"
+          />
           <button
             disabled={busy}
             onClick={() =>
@@ -841,14 +899,17 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
       });
       // 同じ行のまとまりの名前を変えたら、その従業員も新しい名前にする
       if (next.length === cfg.groups.length)
-        for (let i = 0; i < next.length; i++) if (next[i] !== cfg.groups[i] && !next.includes(cfg.groups[i])) await renameMemberGroup(members, cfg.groups[i], next[i]);
+        for (let i = 0; i < next.length; i++)
+          if (next[i] !== cfg.groups[i] && !next.includes(cfg.groups[i])) await renameMemberGroup(members, cfg.groups[i], next[i]);
       // 記号を書き換えたら、勤務表（全部の日）のマスもその記号に置き換える
       const renames = Object.fromEntries(list.filter((c) => c.was && c.was !== c.code && !list.some((x) => x.code === c.was)).map((c) => [c.was!, c.code]));
       const replaced = Object.keys(renames).length ? await replaceShiftCodes(renames) : 0;
       setCodes(list.map((c) => ({ ...c, was: c.code })));
       setMsg(
         replaced > 0
-          ? `保存しました。勤務表のマス ${replaced}か所の記号も書き換えました（${Object.entries(renames).map(([a, b]) => `${a}→${b}`).join("、")}）`
+          ? `保存しました。勤務表のマス ${replaced}か所の記号も書き換えました（${Object.entries(renames)
+              .map(([a, b]) => `${a}→${b}`)
+              .join("、")}）`
           : "保存しました",
       );
     } catch (e) {
@@ -922,7 +983,9 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
               追加
             </button>
           </div>
-          <p className="mt-2 text-xs text-gray-500">記号を書き換えて「保存する」を押すと、勤務表（過去・先の日も全部）のその記号のマスも、新しい記号に書き換わります。</p>
+          <p className="mt-2 text-xs text-gray-500">
+            記号を書き換えて「保存する」を押すと、勤務表（過去・先の日も全部）のその記号のマスも、新しい記号に書き換わります。
+          </p>
           <UnknownCodes cfg={cfg} />
         </div>
       )}
@@ -937,12 +1000,23 @@ function Settings({ cfg, members, part }: { cfg: ShiftConfig; members: ShiftMemb
             <h2 className="font-bold">休みの希望の締め切り</h2>
             <label className="mt-1 flex items-center gap-2">
               その日の
-              <input inputMode="numeric" value={cutoff} onChange={(e) => setCutoff(e.target.value.replace(/\D/g, ""))} className="w-16 rounded border px-2 py-1 text-right" />
+              <input
+                inputMode="numeric"
+                value={cutoff}
+                onChange={(e) => setCutoff(e.target.value.replace(/\D/g, ""))}
+                className="w-16 rounded border px-2 py-1 text-right"
+              />
               日前まで出せる
             </label>
             <label className="mt-2 flex flex-wrap items-center gap-2">
               それより近い日の希望・変更は
-              <input value={contact} maxLength={20} onChange={(e) => setContact(e.target.value)} placeholder="例：平山" className="w-32 rounded border px-2 py-1" />
+              <input
+                value={contact}
+                maxLength={20}
+                onChange={(e) => setContact(e.target.value)}
+                placeholder="例：平山"
+                className="w-32 rounded border px-2 py-1"
+              />
               に直接確認（従業員の画面に出ます）
             </label>
           </div>
@@ -978,7 +1052,14 @@ function UnknownCodes({ cfg }: { cfg: ShiftConfig }) {
   async function apply() {
     const m = Object.fromEntries(Object.entries(map).filter(([, v]) => v));
     if (Object.keys(m).length === 0) return;
-    if (!window.confirm(`${Object.entries(m).map(([a, b]) => `「${a}」→「${b}」`).join("、")} に置き換えます。よろしいですか？`)) return;
+    if (
+      !window.confirm(
+        `${Object.entries(m)
+          .map(([a, b]) => `「${a}」→「${b}」`)
+          .join("、")} に置き換えます。よろしいですか？`,
+      )
+    )
+      return;
     setBusy(true);
     try {
       const n = await replaceShiftCodes(m);
@@ -1015,7 +1096,11 @@ function UnknownCodes({ cfg }: { cfg: ShiftConfig }) {
               </select>
             </label>
           ))}
-          <button onClick={apply} disabled={busy || !Object.values(map).some(Boolean)} className="mt-1 rounded-lg bg-berry px-4 py-1.5 font-bold text-white disabled:opacity-40">
+          <button
+            onClick={apply}
+            disabled={busy || !Object.values(map).some(Boolean)}
+            className="mt-1 rounded-lg bg-berry px-4 py-1.5 font-bold text-white disabled:opacity-40"
+          >
             置き換える
           </button>
         </div>

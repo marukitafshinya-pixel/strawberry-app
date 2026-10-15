@@ -18,6 +18,19 @@ service cloud.firestore {
     function isAdmin() {
       return isStaff() && request.auth.token.role == 'admin';
     }
+    // その日の作業配置表で「集荷係」（枠のID pickup）に名前が入っている従業員か（収穫管理をその日だけ使える）
+    function isPickupOn(date) {
+      return isWorker()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && exists(/databases/$(database)/documents/haichi/$(date))
+        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId
+          in get(/databases/$(database)/documents/haichi/$(date)).data.cells.get('pickup', {'members': []}).members;
+    }
+    // 勤務管理表で「収穫管理を毎日使える」にした従業員（社員など）か
+    function isHarvestWorker() {
+      return isWorker()
+        && get(/databases/$(database)/documents/shiftMembers/$(get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId)).data.get('harvestEntry', false) == true;
+    }
     // 日付（YYYY-MM-DD）が、8日前から明日までか
     function recentDay(date) {
       return date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
@@ -283,10 +296,10 @@ service cloud.firestore {
     match /shiftMembers/{id} {
       allow read: if isStaff() || isWorker();
       allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'order', 'active', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'harvestEntry', 'order', 'active', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 30;
       allow update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'order', 'active', 'updatedAt', 'uid', 'loginId'])
+        && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'harvestEntry', 'order', 'active', 'updatedAt', 'uid', 'loginId'])
         && request.resource.data.get('uid', null) == resource.data.get('uid', null)
         && request.resource.data.get('loginId', null) == resource.data.get('loginId', null)
         && request.resource.data.name is string && request.resource.data.name.size() <= 30;
@@ -318,25 +331,25 @@ service cloud.firestore {
         && request.resource.data.done is bool;
     }
     // 勤務の記号・まとまり・希望の締め切り
-    // 収穫の記録（だれがどのハウスで何ケース取ったか）：管理者は全部、スタッフは最近の日（8日前〜明日）だけ読み書きできる。集計は管理者だけ
+    // 収穫の記録（だれがどのハウスで何ケース取ったか）：管理者は全部、スタッフは最近の日（8日前〜明日）、集荷係の従業員はその日だけ読み書きできる。集計は管理者だけ
     match /harvest/{date} {
-      allow read: if isAdmin() || (isStaff() && recentDay(date));
+      allow read: if isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && (isAdmin() || (isStaff() && recentDay(date)))
+        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
         && request.resource.data.houses is map && request.resource.data.houses.size() <= 80;
     }
-    // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフが読み書きする
+    // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
-      allow read: if isStaff();
-      allow write: if isStaff()
+      allow read: if isStaff() || isWorker();
+      allow write: if (isStaff() || isHarvestWorker() || isPickupOn(date))
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
         && request.resource.data.houses is map && request.resource.data.houses.size() <= 80;
     }
     // ハウスのまとまり（集計で使う）
     match /config/harvest {
-      allow read: if isStaff();
+      allow read: if isStaff() || isWorker();
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['groups', 'startTime', 'updatedAt'])
         && (!('groups' in request.resource.data) || (request.resource.data.groups is list && request.resource.data.groups.size() <= 20))

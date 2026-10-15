@@ -37,13 +37,15 @@ import {
 } from "@/lib/harvest";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 
+/** 作業配置表の「集荷係」の枠のID */
+const PICKUP_SLOT = "pickup";
 /** スタッフが入力できるのは、この日数前まで（それより前は管理者だけ） */
 const STAFF_DAYS = 7;
 /** 収穫しない使い方（この行は収穫の欄を使わない） */
 const NO_HARVEST: HouseUse[] = ["picking", "reserve", "off"];
 
 export default function HarvestPage() {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const haichi = useHaichiDay(date);
@@ -54,9 +56,27 @@ export default function HarvestPage() {
   const narrow = useNarrow();
   /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
   const [phoneView, setPhoneView] = useState<boolean | null>(null);
-  const phone = phoneView ?? narrow;
+  const isWorker = role === "worker";
+  // 従業員（勤務の画面のログイン）は、今日の作業配置表で「集荷係」に入っている日だけ、今日の分を使える。いつも携帯の画面。
+  // 勤務管理表で「収穫管理を毎日使える」にした人（社員など）は、スタッフと同じく毎日（8日前〜明日の分）使える
+  const phone = isWorker || (phoneView ?? narrow);
+  const me = isWorker ? members?.find((m) => m.uid === user?.uid) : undefined;
+  const everyDay = me?.harvestEntry === true;
 
-  if (role !== "admin" && role !== "staff") return <p>この画面はスタッフだけが使えます。</p>;
+  if (role !== "admin" && role !== "staff" && !isWorker) return <p>この画面はスタッフだけが使えます。</p>;
+  if (isWorker) {
+    if (!members || haichi === null) return <p className="text-gray-500">読み込み中…</p>;
+    if (!me || (!everyDay && (date !== todayJST() || !haichi.cells[PICKUP_SLOT]?.members.includes(me.id))))
+      return (
+        <div className="rounded-xl bg-white p-4 text-gray-700">
+          <p>収穫管理は、その日の作業配置表で「集荷係」に入っている人だけが使えます。今日は集荷係に入っていません。</p>
+          <p className="mt-1 text-sm text-gray-500">毎日使う人は、管理者が勤務管理表の従業員リストで「収穫管理 毎日使える」にチェックを入れてください。</p>
+          <Link href="/staff/shift/me/" className="mt-3 inline-block rounded-lg border px-4 py-2">
+            ← 勤務の画面
+          </Link>
+        </div>
+      );
+  }
   const isAdmin = role === "admin";
   const tooOld = !isAdmin && date < addDays(todayJST(), -STAFF_DAYS);
   const total = rec ? Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0) : 0;
@@ -90,14 +110,18 @@ export default function HarvestPage() {
       <div className="pb-6">
         <div className="sticky top-0 z-20 -mx-3 border-b bg-white px-3 py-2 shadow-sm">
           <div className="flex items-center gap-1">
-            <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-2 py-1.5">
-              ◀
-            </button>
+            {(!isWorker || everyDay) && (
+              <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-2 py-1.5">
+                ◀
+              </button>
+            )}
             <span className="flex-1 text-center font-bold">{formatJa(date)}</span>
-            <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-2 py-1.5">
-              ▶
-            </button>
-            {date !== todayJST() && (
+            {(!isWorker || everyDay) && (
+              <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg border px-2 py-1.5">
+                ▶
+              </button>
+            )}
+            {(!isWorker || everyDay) && date !== todayJST() && (
               <button onClick={() => setDate(todayJST())} className="rounded-lg border px-2 py-1.5 text-sm">
                 今日
               </button>
@@ -105,8 +129,8 @@ export default function HarvestPage() {
           </div>
           <div className="mt-1 flex items-center justify-between">
             <span className="text-sm text-gray-600">
-              <Link href="/staff/" className="underline">
-                ← メニュー
+              <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="underline">
+                {isWorker ? "← 勤務の画面" : "← メニュー"}
               </Link>
             </span>
             <span className="tabular-nums">
@@ -126,7 +150,7 @@ export default function HarvestPage() {
         {content}
       </div>
     );
-    if (narrow) return screen;
+    if (narrow || isWorker) return screen;
     return (
       <>
         <div className="flex flex-wrap items-center gap-2">
