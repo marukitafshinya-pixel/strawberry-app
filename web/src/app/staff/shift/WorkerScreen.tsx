@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
-import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
+import { addDays, formatJa, isValidYmd, todayJST, weekday } from "@/lib/date";
 import { useHaichiDay } from "@/lib/haichi";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
@@ -100,6 +100,7 @@ export function WorkerScreen({
         cutoffDays={cfg.cutoffDays}
         contact={cfg.contact || "管理者"}
         codes={requestCodes(cfg)}
+        requests={requests}
       />
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -164,7 +165,20 @@ export function WorkerScreen({
 }
 
 /** asMember＝管理者がその従業員の分として出すとき（携帯画面タブ） */
-function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: number; contact: string; codes: string[]; asMember?: string }) {
+function RequestForm({
+  cutoffDays,
+  contact,
+  codes,
+  asMember,
+  requests,
+}: {
+  cutoffDays: number;
+  contact: string;
+  codes: string[];
+  asMember?: string;
+  /** 出した希望（カレンダーのマスに印を出す） */
+  requests: ShiftRequest[] | null;
+}) {
   const restFirst = addDays(todayJST(), cutoffDays);
   /** 休みの希望（希休）だけ締め切り（2週間前）まで。そのほか（定時出勤・AM・PM・時間など）は明日から出せる */
   const workFirst = addDays(todayJST(), 1);
@@ -220,10 +234,6 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
       </div>
       <p className="mt-1 text-xs text-gray-500">時間だけの希望（午前だけ・14時まで など）も選べます。</p>
       <div className="mt-2 space-y-2">
-        <label className="block">
-          <span className="text-sm text-gray-600">日にち</span>
-          <input type="date" min={first} value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
-        </label>
         <div>
           <span className="text-sm text-gray-600">希望</span>
           <div className="mt-1 flex flex-wrap gap-2">
@@ -237,6 +247,21 @@ function RequestForm({ cutoffDays, contact, codes, asMember }: { cutoffDays: num
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <span className="text-sm text-gray-600">日にち</span>
+          <BigCalendar
+            value={date}
+            first={first}
+            marks={Object.fromEntries((requests ?? []).filter((r) => r.status !== "rejected").map((r) => [r.date, r.code]))}
+            onPick={(d) => {
+              setDate(d);
+              setMsg(null);
+            }}
+          />
+          <p className="mt-1 text-center text-lg font-bold">
+            {isValidYmd(date) && date >= first ? `${formatJa(date)} を選んでいます` : <span className="text-red-600">日にちを選んでください</span>}
+          </p>
         </div>
         <label className="block">
           <span className="text-sm text-gray-600">ひとこと（任意）</span>
@@ -285,5 +310,60 @@ function MyRequest({ r, asMember }: { r: ShiftRequest; asMember?: string }) {
       )}
       {error && <span className="w-full text-xs text-red-600">{error}</span>}
     </li>
+  );
+}
+
+/** 指で押しやすい大きなカレンダー（1か月分）。first より前の日は選べない。marks はすでに出した希望の印 */
+function BigCalendar({ value, first, marks, onPick }: { value: string; first: string; marks: Record<string, string>; onPick: (d: string) => void }) {
+  const [month, setMonth] = useState((isValidYmd(value) && value >= first ? value : first).slice(0, 7));
+  const thisMonth = todayJST().slice(0, 7);
+  const start = `${month}-01`;
+  const lead = "日月火水木金土".indexOf(weekday(start));
+  const days: string[] = [];
+  for (let d = start; d.startsWith(month); d = addDays(d, 1)) days.push(d);
+  const cells: (string | null)[] = [...Array(lead).fill(null), ...days];
+  const [y, m] = month.split("-").map(Number);
+  const shift = (n: number) => setMonth(addDays(`${month}-15`, n * 30).slice(0, 7));
+  return (
+    <div className="mt-1 rounded-xl border bg-white p-2">
+      <div className="flex items-center justify-between">
+        <button onClick={() => shift(-1)} disabled={month <= thisMonth} className="rounded-lg border px-4 py-2 text-lg disabled:opacity-30" aria-label="前の月">
+          ‹
+        </button>
+        <span className="text-lg font-bold">
+          {y}年{m}月
+        </span>
+        <button onClick={() => shift(1)} className="rounded-lg border px-4 py-2 text-lg" aria-label="次の月">
+          ›
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-1 text-center">
+        {"日月火水木金土".split("").map((w, i) => (
+          <span key={w} className={`text-xs font-bold ${i === 0 ? "text-red-600" : i === 6 ? "text-blue-700" : "text-gray-500"}`}>
+            {w}
+          </span>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <span key={`e${i}`} />;
+          const w = weekday(d);
+          const ok = d >= first;
+          const on = d === value;
+          return (
+            <button
+              key={d}
+              disabled={!ok}
+              onClick={() => onPick(d)}
+              className={`flex h-14 flex-col items-center justify-center rounded-lg border text-lg font-bold ${
+                on ? "border-berry bg-berry text-white" : ok ? "bg-white active:bg-rose-50" : "border-transparent bg-gray-100 text-gray-300"
+              } ${!on && ok ? (w === "日" ? "text-red-600" : w === "土" ? "text-blue-700" : "") : ""}`}
+              aria-label={`${formatJa(d)}${marks[d] ? `（${marks[d]}を出しています）` : ""}`}
+            >
+              {Number(d.slice(8))}
+              {marks[d] && <span className={`text-[10px] leading-none font-normal ${on ? "text-white" : "text-amber-700"}`}>{marks[d]}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
