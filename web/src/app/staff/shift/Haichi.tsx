@@ -22,7 +22,7 @@ import { ColorChartOverlay } from "./ColorChart";
 import { ForecastStrip } from "./ForecastStrip";
 import { TempBadge } from "./TempBadge";
 import { sortMembers } from "./ShiftTable";
-import { HouseUseIcon } from "@/components/HouseUseIcon";
+import { HouseUseIcon, houseUseBg } from "@/components/HouseUseIcon";
 import { useHouseUse, type HouseUseMap } from "@/lib/harvest";
 
 /** 配置表（見るだけの形と、割り振る形の両方で使う） */
@@ -87,6 +87,8 @@ export function HaichiBoard({
                             >
                               <th
                                 className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 font-bold ${isHouseNo(slot.label) ? "text-center" : "text-left"} ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
+                                // 収穫のハウスは、その日の使い方でマスの色を変える（収穫＝黄色、いちご狩り＝ピンク、半分は半分ずつ）
+                                style={uses && sectionArrows(sec) ? { background: houseUseBg(uses[slot.label] ?? "harvest") } : undefined}
                               >
                                 <span className="inline-flex items-center gap-1">
                                   {isHouseNo(slot.label) ? `No.${slot.label}` : slot.label}

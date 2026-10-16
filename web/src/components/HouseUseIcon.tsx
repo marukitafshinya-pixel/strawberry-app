@@ -1,4 +1,4 @@
-// ハウスの使い方（収穫管理）の絵：収穫＝収穫かご、いちご狩り全＝赤いいちご、いちご狩り予備＝上半分が白いいちご、
+// ハウスの使い方（収穫管理）の絵：収穫＝収穫かご（から）、いちご狩り全＝赤いいちご、いちご狩り予備＝上半分が白いいちご、
 // いちご狩り前・後ろ＝赤いいちご＋「前」「後」、休み＝お月さま。作業配置表のハウスの番号の横に出す
 import { useId } from "react";
 import type { HouseUse } from "@/lib/harvest";
@@ -55,10 +55,6 @@ function Basket() {
         <path d="M9 36h46M11 44h42M13 51h38" />
         <path d="M20 29l3 27M32 29v27M44 29l-3 27" />
       </g>
-      <circle cx="22" cy="26" r="5" fill="#e11d48" />
-      <circle cx="32" cy="24" r="5.5" fill="#e11d48" />
-      <circle cx="42" cy="26" r="5" fill="#e11d48" />
-      <path d="M30 19l2 2 2-2" stroke="#16a34a" strokeWidth="2" fill="none" />
     </>
   );
 }
@@ -85,6 +81,17 @@ const TITLE: Record<HouseUse, string> = {
   reserve: "いちご狩り予備",
   off: "休み",
 };
+
+const HARVEST_BG = "#fef3c7";
+const PICKING_BG = "#ffe4e6";
+/** 作業配置表のハウスの番号のマスの色：収穫＝うすい黄色、いちご狩り（全・予備）＝うすいピンク、前・後ろ＝半分ずつ、休み＝灰色 */
+export function houseUseBg(use: HouseUse): string {
+  if (use === "harvest") return HARVEST_BG;
+  if (use === "picking" || use === "reserve") return PICKING_BG;
+  if (use === "half") return `linear-gradient(to right, ${PICKING_BG} 50%, ${HARVEST_BG} 50%)`;
+  if (use === "halfBack") return `linear-gradient(to right, ${HARVEST_BG} 50%, ${PICKING_BG} 50%)`;
+  return "#e5e7eb";
+}
 
 /** ハウスの使い方の絵。size はピクセル（「前」「後」の字もこれに合わせる） */
 export function HouseUseIcon({ use, size = 22 }: { use: HouseUse; size?: number }) {
