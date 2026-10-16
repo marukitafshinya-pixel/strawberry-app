@@ -10,7 +10,7 @@ export { createWebReservation } from "./web.js";
 export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js";
 export { cancelShiftRequest, createWorkerLogin, deleteShiftMember, submitShiftRequest, updateWorkerLogin } from "./shift.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
-export { importWeatherMonth } from "./weather.js";
+export { importWeatherMonth, refreshHarvestWeather } from "./weather.js";
 export { refreshForecast } from "./forecast.js";
 export { refreshHarvestSpeeds } from "./harvest.js";
 

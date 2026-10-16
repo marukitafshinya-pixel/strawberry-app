@@ -20,8 +20,11 @@ export type WeatherDay = {
   tMin?: number | null;
   /** 日照時間（h） */
   sun?: number | null;
+  /** 夜温：前の日の18時からこの日の9時までで、いちばん低かった気温（℃）と、その時刻（"HH:MM"、前の日なら "前日HH:MM"） */
+  nightMin?: number | null;
+  nightMinAt?: string | null;
 };
-type Key = keyof WeatherDay;
+type Key = "precip" | "tAvg" | "tMax" | "tMin" | "sun";
 
 const decode = (s: string) =>
   s
@@ -122,6 +125,20 @@ async function fetchMonthHtml(year: number, month: number): Promise<string> {
   return await res.text();
 }
 
+/** 1か月分の日ごとの値を読み込んで保存する（夜温など、ほかの項目は消さない） */
+async function importMonth(year: number, month: number) {
+  const ym = `${year}-${String(month).padStart(2, "0")}`;
+  let days: Record<string, WeatherDay>;
+  try {
+    days = parseJmaDaily(await fetchMonthHtml(year, month));
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError("internal", e instanceof Error ? e.message : "気象庁のページを読めませんでした");
+  }
+  await db.doc(`weather/${ym}`).set({ station: WEATHER_STATION.name, days, fetchedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { month: ym, count: Object.keys(days).length };
+}
+
 /** 1か月分の気象データを、気象庁から取り込んで保存する（スタッフ） */
 export const importWeatherMonth = onCall({ timeoutSeconds: 60 }, async (req) => {
   await assertStaff(req);
@@ -133,13 +150,116 @@ export const importWeatherMonth = onCall({ timeoutSeconds: 60 }, async (req) => 
   const ym = `${year}-${String(month).padStart(2, "0")}`;
   const nowJst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 7);
   if (ym > nowJst) throw new HttpsError("invalid-argument", "まだ先の月です");
-  let days: Record<string, WeatherDay>;
-  try {
-    days = parseJmaDaily(await fetchMonthHtml(year, month));
-  } catch (e) {
-    if (e instanceof HttpsError) throw e;
-    throw new HttpsError("internal", e instanceof Error ? e.message : "気象庁のページを読めませんでした");
+  return await importMonth(year, month);
+});
+
+// ---------- 夜温（10分ごとの値から、その夜でいちばん低い気温） ----------
+
+/** 10分ごとの値のページから、時刻（"00:10"〜"24:00"）→ 気温 を読む */
+export function parseJma10min(html: string): { time: string; temp: number | null }[] {
+  const table = html.match(/<table[^>]*id="tablefix1"[\s\S]*?<\/table>/i)?.[0];
+  if (!table) throw new Error("気象庁のページに、10分ごとの表が見つかりませんでした");
+  const grid = tableGrid(table);
+  const head = grid.filter((r) => r.header);
+  const width = Math.max(...grid.map((r) => r.cells.length));
+  const labels = Array.from({ length: width }, (_, c) => head.map((r) => r.cells[c] ?? "").join("/"));
+  const col = labels.findIndex((l) => l.includes("気温"));
+  if (col < 0) throw new Error("気象庁の表に、気温の列が見つかりませんでした");
+  const out: { time: string; temp: number | null }[] = [];
+  for (const r of grid) {
+    if (r.header) continue;
+    const time = r.cells[0] ?? "";
+    if (!/^\d{2}:\d{2}$/.test(time)) continue;
+    out.push({ time, temp: weatherNum(r.cells[col] ?? "", "tMin") });
   }
-  await db.doc(`weather/${ym}`).set({ station: WEATHER_STATION.name, days, fetchedAt: FieldValue.serverTimestamp() });
-  return { month: ym, count: Object.keys(days).length };
+  return out;
+}
+
+/** 夜の時間（前の日の18時すぎ〜この日の9時）で、いちばん低い気温。どちらかの日の表が足りなければ null */
+export function nightMinOf(prev: { time: string; temp: number | null }[], day: { time: string; temp: number | null }[]) {
+  const evening = prev.filter((x) => x.time > "18:00").map((x) => ({ ...x, at: `前日${x.time}` }));
+  const morning = day.filter((x) => x.time <= "09:00").map((x) => ({ ...x, at: x.time }));
+  // 夜の時間の表がそろっていないとき（まだ9時前など）は出さない
+  if (prev.find((x) => x.time === "24:00")?.temp == null || day.find((x) => x.time === "09:00")?.temp == null) return null;
+  let best: { temp: number; at: string } | null = null;
+  for (const x of [...evening, ...morning]) if (x.temp != null && (best == null || x.temp < best.temp)) best = { temp: x.temp, at: x.at };
+  return best;
+}
+
+const jma10minUrl = (date: string) =>
+  `https://www.data.jma.go.jp/stats/etrn/view/10min_a1.php?prec_no=${WEATHER_STATION.precNo}&block_no=${WEATHER_STATION.blockNo}&year=${Number(date.slice(0, 4))}&month=${Number(date.slice(5, 7))}&day=${Number(date.slice(8, 10))}&view=`;
+
+async function fetch10minHtml(date: string): Promise<string> {
+  if (process.env.FUNCTIONS_EMULATOR === "true") return readFileSync(join(__dirname, "../test-fixtures/jma-10min-a1.html"), "utf8");
+  const res = await fetch(jma10minUrl(date), { headers: { "User-Agent": "ichigo-app (night temperature; a few pages per day)" } });
+  if (!res.ok) throw new Error(`気象庁のページを読めませんでした（${res.status}）`);
+  return await res.text();
+}
+
+const shiftDate = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 86400_000).toISOString().slice(0, 10);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** 1回に読む10分ごとのページの数（気象庁のサイトに負担をかけない） */
+const MAX_PAGES = 8;
+/** 夜温をさかのぼって集める日数 */
+const NIGHT_DAYS = 45;
+/** 日ごとの値（日照時間など）を読み直す間隔 */
+const DAILY_MAX_AGE_MS = 6 * 3600_000;
+
+/**
+ * 収穫の振り返りに使う気象データを集める（管理者・スタッフ）。画面を開いたときに呼ぶ。
+ * ・今月（月のはじめは先月も）の日ごとの値（日照時間など）を、6時間に1回まで読み直す
+ * ・夜温がまだない日を、新しい日から順に、1回に数ページずつ集める（足りない分は次に開いたときに続ける）
+ */
+export const refreshHarvestWeather = onCall({ timeoutSeconds: 120 }, async (req) => {
+  await assertStaff(req);
+  const now = new Date(Date.now() + 9 * 3600_000);
+  const today = now.toISOString().slice(0, 10);
+  const hhmm = now.toISOString().slice(11, 16);
+
+  // 日ごとの値（日照時間・気温など）
+  const months = [today.slice(0, 7)];
+  if (Number(today.slice(8, 10)) <= 2) months.unshift(shiftDate(`${today.slice(0, 7)}-01`, -1).slice(0, 7));
+  const docs = new Map<string, Record<string, WeatherDay>>();
+  for (const ym of months) {
+    const snap = await db.doc(`weather/${ym}`).get();
+    const at = snap.get("fetchedAt") as { toMillis: () => number } | undefined;
+    if (!at || Date.now() - at.toMillis() > DAILY_MAX_AGE_MS) await importMonth(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)));
+  }
+
+  // 夜温がまだない日（9時を過ぎていれば今日も）
+  const last = hhmm >= "09:20" ? today : shiftDate(today, -1);
+  const first = shiftDate(last, -(NIGHT_DAYS - 1));
+  const ymSet = new Set<string>();
+  for (let d = first; d <= last; d = shiftDate(d, 1)) ymSet.add(d.slice(0, 7));
+  for (const ym of ymSet) docs.set(ym, ((await db.doc(`weather/${ym}`).get()).get("days") as Record<string, WeatherDay>) ?? {});
+  const missing: string[] = [];
+  for (let d = last; d >= first; d = shiftDate(d, -1)) if (docs.get(d.slice(0, 7))?.[d.slice(8, 10)]?.nightMin == null) missing.push(d);
+
+  const pages = new Map<string, { time: string; temp: number | null }[]>();
+  let fetched = 0;
+  const page = async (date: string) => {
+    if (!pages.has(date)) {
+      if (fetched > 0) await sleep(500);
+      fetched++;
+      pages.set(date, parseJma10min(await fetch10minHtml(date)));
+    }
+    return pages.get(date)!;
+  };
+  let saved = 0;
+  for (const d of missing) {
+    const need = [shiftDate(d, -1), d].filter((x) => !pages.has(x)).length;
+    if (fetched + need > MAX_PAGES) break;
+    let m: ReturnType<typeof nightMinOf>;
+    try {
+      m = nightMinOf(await page(shiftDate(d, -1)), await page(d));
+    } catch {
+      break; // 読めなければ、次に開いたときにやり直す
+    }
+    if (!m) continue;
+    await db
+      .doc(`weather/${d.slice(0, 7)}`)
+      .set({ station: WEATHER_STATION.name, days: { [d.slice(8, 10)]: { nightMin: m.temp, nightMinAt: m.at } } }, { merge: true });
+    saved++;
+  }
+  return { saved, remaining: missing.length - saved };
 });

@@ -16,8 +16,11 @@ export type WeatherDay = {
   tMax?: number | null;
   tMin?: number | null;
   sun?: number | null;
+  /** 夜温：前の日の18時からこの日の9時までで、いちばん低かった気温と、その時刻（"04:30"・"前日23:00"） */
+  nightMin?: number | null;
+  nightMinAt?: string | null;
 };
-export type WeatherKey = keyof WeatherDay;
+export type WeatherKey = "precip" | "tAvg" | "tMax" | "tMin" | "sun";
 export type WeatherMonth = { month: string; days: Record<string, WeatherDay>; fetchedAt?: { toDate: () => Date } };
 
 /** 表に出す項目。sum＝月の合計を出す、avg＝月の平均、max/min＝月の最大・最小 */

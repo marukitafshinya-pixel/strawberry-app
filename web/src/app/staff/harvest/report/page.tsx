@@ -2,7 +2,7 @@
 
 // 収穫の実績（管理者だけ）：期間を決めて、人別・ハウス別の収穫ケース数と1ケースあたりの時間、ハウスの使い方のカレンダーを見る
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { addDays, formatJa, todayJST, weekday } from "@/lib/date";
 import { useHaichiTemplate } from "@/lib/haichi";
@@ -32,6 +32,8 @@ import {
 } from "@/lib/harvest";
 import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harvestForecast";
 import { useShiftMembers } from "@/lib/shift";
+import { callFunction } from "@/lib/callFunction";
+import { useWeatherMonths, type WeatherDay } from "@/lib/weather";
 
 type Tab = "people" | "houses" | "calendar" | "forecast";
 
@@ -438,9 +440,16 @@ function ForecastTab({
   const ends = useHarvestEnds(from, to);
   const [open, setOpen] = useState<string | null>(null);
   const speeds = useHarvestSpeeds();
+  // 振り返りに使う気象データ（日照時間・夜温）を集めてもらう（足りない分だけ。気象庁のサイトに負担をかけないよう少しずつ）
+  useEffect(() => {
+    callFunction("refreshHarvestWeather", {}).catch(() => {});
+  }, []);
+  const weather = useWeatherMonths(addDays(from, -1).slice(0, 7), to.slice(0, 7));
   if (!ends || !speeds) return <p className="mt-4 text-gray-500">読み込み中…</p>;
+  const wOf = (d: string): WeatherDay | undefined => weather?.find((m) => m.month === d.slice(0, 7))?.days[d.slice(8, 10)];
+  const total = (d: string) => Object.values(data[d] ?? {}).reduce((n, h) => n + (h.cases ?? 0), 0);
   const days = Object.entries(ends)
-    .filter(([, v]) => v.forecast != null || v.endTime != null)
+    .filter(([d, v]) => v.forecast != null || v.endTime != null || total(d) > 0)
     .sort((a, b) => b[0].localeCompare(a[0]));
   const diffs = days.filter(([, v]) => v.forecast != null && v.endTime != null).map(([, v]) => v.endTime! - v.forecast!);
   const avgAbs = diffs.length ? diffs.reduce((n, d) => n + Math.abs(d), 0) / diffs.length : null;
@@ -448,6 +457,9 @@ function ForecastTab({
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
+        「夜温」は、その日の朝までの夜（前の日の18時〜9時）でいちばん低かった外の気温、「前日の日照」は前の日の日照時間です（気象庁のアメダス「美瑛」）。収穫ケースの総数との関係は、データがたまってから振り返りで調べます。
+      </p>
+      <p className="mt-1 text-sm text-gray-600">
         「朝の予測」は、収穫の開始時刻までの予測です（開始時刻を過ぎてから開いた日は、最初の予測）。日付を押すと、ハウスごとの予測と実際が見られます。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
       </p>
       <div className="mt-2 flex flex-wrap gap-3">
@@ -465,6 +477,9 @@ function ForecastTab({
               <th className="px-3 py-2 text-right">朝の予測</th>
               <th className="px-3 py-2 text-right">実際の収穫終了</th>
               <th className="px-3 py-2 text-right">差</th>
+              <th className="px-3 py-2 text-right">収穫ケース</th>
+              <th className="px-3 py-2 text-right">夜温</th>
+              <th className="px-3 py-2 text-right">前日の日照</th>
             </tr>
           </thead>
           <tbody>
@@ -478,10 +493,21 @@ function ForecastTab({
                   <td className="px-3 py-2 text-right">{clock(v.forecast)}</td>
                   <td className="px-3 py-2 text-right font-bold">{clock(v.endTime)}</td>
                   <td className="px-3 py-2 text-right">{v.forecast != null && v.endTime != null ? sign(v.endTime - v.forecast) : ""}</td>
+                  <td className="px-3 py-2 text-right">{total(d) > 0 ? fmtCases(total(d)) : ""}</td>
+                  <td className="px-3 py-2 text-right">
+                    {wOf(d)?.nightMin != null ? (
+                      <>
+                        {wOf(d)!.nightMin!.toFixed(1)}℃<span className="ml-1 text-xs text-gray-500">{wOf(d)!.nightMinAt}</span>
+                      </>
+                    ) : (
+                      "－"
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">{wOf(addDays(d, -1))?.sun != null ? `${wOf(addDays(d, -1))!.sun!.toFixed(1)}時間` : "－"}</td>
                 </tr>
                 {open === d && (
                   <tr>
-                    <td colSpan={4} className="bg-sky-50/40 px-3 py-2">
+                    <td colSpan={7} className="bg-sky-50/40 px-3 py-2">
                       {v.forecastHouses ? (
                         <HouseForecastTable fh={v.forecastHouses} rec={data[d] ?? {}} houses={houses} names={names} />
                       ) : (
@@ -494,7 +520,7 @@ function ForecastTab({
             ))}
             {!days.length && (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
+                <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
                   この期間の予測の記録はまだありません
                 </td>
               </tr>
