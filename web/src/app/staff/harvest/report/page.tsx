@@ -34,6 +34,8 @@ import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harv
 import { useShiftMembers } from "@/lib/shift";
 import { callFunction } from "@/lib/callFunction";
 import { useWeatherMonths, type WeatherDay } from "@/lib/weather";
+import { nightLow, pollGoveeNow, saveGoveeHouses, saveGoveeKey, useGoveeConfig, useHouseTemps, type GoveeConfig } from "@/lib/govee";
+import { errorText } from "@/lib/callFunction";
 
 type Tab = "people" | "houses" | "calendar" | "forecast";
 
@@ -127,6 +129,7 @@ export default function HarvestReportPage() {
       )}
       {ready && <GroupSetting groups={groups} houses={harvestHouses(template)} />}
       {ready && cfg && <PlantsSetting plants={cfg.plants} houses={harvestHouses(template)} />}
+      {ready && <GoveeSetting houses={harvestHouses(template)} />}
     </>
   );
 }
@@ -445,6 +448,16 @@ function ForecastTab({
     callFunction("refreshHarvestWeather", {}).catch(() => {});
   }, []);
   const weather = useWeatherMonths(addDays(from, -1).slice(0, 7), to.slice(0, 7));
+  const temps = useHouseTemps(from, to);
+  /** ハウスの中の夜温：その夜にいちばん低かったハウスの温度 */
+  const houseLow = (d: string) => {
+    let best: { house: string; temp: number; at: string } | null = null;
+    for (const [house, list] of Object.entries(temps?.[d] ?? {})) {
+      const m = nightLow(list);
+      if (m && (best == null || m.temp < best.temp)) best = { house, ...m };
+    }
+    return best;
+  };
   if (!ends || !speeds) return <p className="mt-4 text-gray-500">読み込み中…</p>;
   const wOf = (d: string): WeatherDay | undefined => weather?.find((m) => m.month === d.slice(0, 7))?.days[d.slice(8, 10)];
   const total = (d: string) => Object.values(data[d] ?? {}).reduce((n, h) => n + (h.cases ?? 0), 0);
@@ -457,7 +470,7 @@ function ForecastTab({
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
-        「夜温」は、その日の朝までの夜（前の日の18時〜9時）でいちばん低かった外の気温、「前日の日照」は前の日の日照時間です（気象庁のアメダス「美瑛」）。収穫ケースの総数との関係は、データがたまってから振り返りで調べます。
+        「夜温（外）」は、その日の朝までの夜（前の日の18時〜9時）でいちばん低かった外の気温、「夜温（ハウス）」は温度計（Govee）のあるハウスでいちばん低かった温度、「前日の日照」は前の日の日照時間です（気象庁のアメダス「美瑛」）。収穫ケースの総数との関係は、データがたまってから振り返りで調べます。
       </p>
       <p className="mt-1 text-sm text-gray-600">
         「朝の予測」は、収穫の開始時刻までの予測です（開始時刻を過ぎてから開いた日は、最初の予測）。日付を押すと、ハウスごとの予測と実際が見られます。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
@@ -478,7 +491,8 @@ function ForecastTab({
               <th className="px-3 py-2 text-right">実際の収穫終了</th>
               <th className="px-3 py-2 text-right">差</th>
               <th className="px-3 py-2 text-right">収穫ケース</th>
-              <th className="px-3 py-2 text-right">夜温</th>
+              <th className="px-3 py-2 text-right">夜温（外）</th>
+              <th className="px-3 py-2 text-right">夜温（ハウス）</th>
               <th className="px-3 py-2 text-right">前日の日照</th>
             </tr>
           </thead>
@@ -503,11 +517,36 @@ function ForecastTab({
                       "－"
                     )}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    {houseLow(d) ? (
+                      <>
+                        {houseLow(d)!.temp.toFixed(1)}℃
+                        <span className="ml-1 text-xs text-gray-500">
+                          No.{houseLow(d)!.house} {houseLow(d)!.at}
+                        </span>
+                      </>
+                    ) : (
+                      "－"
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right">{wOf(addDays(d, -1))?.sun != null ? `${wOf(addDays(d, -1))!.sun!.toFixed(1)}時間` : "－"}</td>
                 </tr>
                 {open === d && (
                   <tr>
-                    <td colSpan={7} className="bg-sky-50/40 px-3 py-2">
+                    <td colSpan={8} className="bg-sky-50/40 px-3 py-2">
+                      {temps?.[d] && Object.keys(temps[d]).length > 0 && (
+                        <p className="mb-2 text-xs text-gray-700">
+                          ハウスの中の夜温（いちばん低かった温度）：
+                          {houses
+                            .filter((h) => temps[d][h])
+                            .map((h) => {
+                              const m = nightLow(temps[d][h]);
+                              return m ? `No.${h} ${m.temp.toFixed(1)}℃（${m.at}）` : "";
+                            })
+                            .filter(Boolean)
+                            .join("、")}
+                        </p>
+                      )}
                       {v.forecastHouses ? (
                         <HouseForecastTable fh={v.forecastHouses} rec={data[d] ?? {}} houses={houses} names={names} />
                       ) : (
@@ -520,7 +559,7 @@ function ForecastTab({
             ))}
             {!days.length && (
               <tr>
-                <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
+                <td colSpan={8} className="px-3 py-4 text-center text-gray-500">
                   この期間の予測の記録はまだありません
                 </td>
               </tr>
@@ -591,6 +630,114 @@ function SpeedTable({ speeds, names }: { speeds: HarvestSpeeds; names: Map<strin
 }
 
 /** ハウスの株数（ハウスの大きさ。予測に使う） */
+/** ハウスの中の温度計（Govee）：API キーの登録と、どの温度計がどのハウスか（管理者） */
+function GoveeSetting({ houses }: { houses: string[] }) {
+  const cfg = useGoveeConfig();
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [now, setNow] = useState<Record<string, number | null>>({});
+  const [houseOf, setHouseOf] = useState<Record<string, string> | null>(null);
+  const cur = houseOf ?? cfg?.houseOf ?? {};
+  async function check() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = await saveGoveeKey(key);
+      setKey("");
+      setNow(r.now);
+      setMsg(`Govee につながりました（温度計 ${r.devices.length}台）`);
+    } catch (e) {
+      setMsg(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function save(c: GoveeConfig | null | undefined) {
+    if (!c) return;
+    try {
+      await saveGoveeHouses(Object.fromEntries(Object.entries(cur).filter(([d, h]) => h && c.devices.some((x) => x.device === d))));
+      setHouseOf(null);
+      const r = await pollGoveeNow();
+      setMsg(r.saved ? `保存しました。今の温度が ${r.saved}台分 読めました` : "保存しました（今の温度は読めませんでした）");
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  }
+  const named = Object.values(cfg?.houseOf ?? {}).filter(Boolean).length;
+  return (
+    <div className="mt-3 rounded-xl border bg-white p-3 text-sm">
+      <button onClick={() => setOpen(!open)} className="font-bold text-gray-700">
+        {open ? "▼" : "▶"} ハウスの中の温度計（Govee）{cfg?.keySet ? `（${named}台を記録中）` : "（未登録）"}
+      </button>
+      {msg && <span className="ml-3">{msg}</span>}
+      {open && (
+        <div className="mt-2 space-y-3">
+          <p className="text-gray-600">
+            夜のあいだ（18時〜翌朝9時）20分ごとに、温度計の今の温度を読んで残します。API キーは Govee Home アプリの「プロフィール → 設定 → API
+            キーを申請」でメールに届きます。キーはサーバーだけが使い、この画面からも読み出せません。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              autoComplete="off"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder={cfg?.keySet ? "登録ずみ（変えるときだけ入れる）" : "API キーを貼り付け"}
+              className="w-72 rounded border px-2 py-1"
+            />
+            <button
+              disabled={busy || (!key && !cfg?.keySet)}
+              onClick={() => void check()}
+              className="rounded-lg bg-berry px-4 py-2 font-bold text-white disabled:opacity-40"
+            >
+              {busy ? "確認中…" : key ? "登録して確かめる" : "つながるか確かめる"}
+            </button>
+          </div>
+          {cfg && cfg.devices.length > 0 && (
+            <div>
+              <p className="text-gray-600">温度計ごとに、置いているハウスを選んでください（選ばない温度計は記録しません）。</p>
+              <table className="mt-1 text-sm">
+                <tbody>
+                  {cfg.devices.map((d) => (
+                    <tr key={d.device} className="border-t">
+                      <td className="py-1 pr-3">
+                        {d.name}
+                        <span className="ml-1 text-xs text-gray-400">{d.sku}</span>
+                      </td>
+                      <td className="py-1 pr-3 tabular-nums">
+                        {d.device in now ? (now[d.device] == null ? "読めません" : `${now[d.device]!.toFixed(1)}℃`) : ""}
+                      </td>
+                      <td className="py-1">
+                        <select
+                          value={cur[d.device] ?? ""}
+                          onChange={(e) => setHouseOf({ ...cur, [d.device]: e.target.value })}
+                          className="rounded border px-2 py-1"
+                        >
+                          <option value="">使わない</option>
+                          {houses.map((h) => (
+                            <option key={h} value={h}>
+                              No.{h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button onClick={() => void save(cfg)} className="mt-2 rounded-lg bg-berry px-4 py-2 font-bold text-white">
+                保存する
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlantsSetting({ plants, houses }: { plants: Record<string, number>; houses: string[] }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Record<string, string>>({});

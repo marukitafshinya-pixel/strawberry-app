@@ -589,6 +589,29 @@ describe("収穫管理の入力の記録 (harvest/{date}/log)", () => {
   });
 });
 
+describe("ハウスの中の温度（Govee）", () => {
+  it("API キーは誰も読めない。温度計のハウス決めと温度は管理者だけ", async () => {
+    const devices = [{ device: "AA:01", sku: "H5179", name: "1" }];
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "secrets/govee"), { apiKey: "k" });
+      await setDoc(doc(db, "config/govee"), { devices, keySet: true });
+      await setDoc(doc(db, "houseTemp/2026-10-16"), { readings: { "6": [{ t: "04:00", temp: 8.1 }] } });
+    });
+    await assertFails(getDoc(doc(admin(), "secrets/govee")));
+    await assertFails(setDoc(doc(admin(), "secrets/govee"), { apiKey: "x" }));
+    await assertSucceeds(getDoc(doc(admin(), "config/govee")));
+    await assertFails(getDoc(doc(staff(), "config/govee")));
+    await assertSucceeds(setDoc(doc(admin(), "config/govee"), { houseOf: { "AA:01": "6" } }, { merge: true }));
+    await assertFails(setDoc(doc(staff(), "config/govee"), { houseOf: { "AA:01": "6" } }, { merge: true }));
+    // 温度計の一覧は画面からは変えられない
+    await assertFails(setDoc(doc(admin(), "config/govee"), { devices: [] }, { merge: true }));
+    await assertSucceeds(getDoc(doc(admin(), "houseTemp/2026-10-16")));
+    await assertFails(getDoc(doc(staff(), "houseTemp/2026-10-16")));
+    await assertFails(setDoc(doc(admin(), "houseTemp/2026-10-16"), { readings: {} }));
+  });
+});
+
 describe("収穫終了の予測（forecast・株数・速さ）", () => {
   const today = new Date().toISOString().slice(0, 10);
   it("朝の予測と株数を保存でき、速さはサーバーだけが書ける", async () => {

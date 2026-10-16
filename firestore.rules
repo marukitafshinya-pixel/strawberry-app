@@ -389,6 +389,20 @@ service cloud.firestore {
         && (!('groups' in request.resource.data) || (request.resource.data.groups is list && request.resource.data.groups.size() <= 20))
         && (!('startTime' in request.resource.data) || (request.resource.data.startTime is int && request.resource.data.startTime >= 0 && request.resource.data.startTime < 1440));
     }
+    // ハウスの中の温度計（Govee）：一覧はサーバーが API キーで読んで入れる。管理者は、どの温度計がどのハウスかを決めるだけ。
+    // API キーそのもの（secrets/govee）はルールを書かない＝画面からは誰も読み書きできない（サーバーだけが使う）
+    match /config/govee {
+      allow read: if isAdmin();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['devices', 'houseOf', 'keySet', 'updatedAt'])
+        && request.resource.data.get('devices', []) == resource.data.get('devices', [])
+        && request.resource.data.get('keySet', false) == resource.data.get('keySet', false)
+        && (!('houseOf' in request.resource.data) || (request.resource.data.houseOf is map && request.resource.data.houseOf.size() <= 40));
+    }
+    // ハウスの中の夜の温度（houseTemp/{その夜が明けた日}）：サーバーが20分ごとに入れる。見られるのは管理者だけ
+    match /houseTemp/{date} {
+      allow read: if isAdmin();
+    }
     // 人ごとの収穫の速さ（1,000株あたりの分。収穫終了の予測に使う）：サーバーが毎日の記録から計算する。書き込みはサーバーだけ
     match /stats/harvestSpeed {
       allow read: if isStaff() || isWorker();
