@@ -62,6 +62,8 @@ export type Forecast = {
   unassigned: string[];
   /** 予測できなかったハウス（速さのデータがない、入った時刻がわからない） */
   unknown: string[];
+  /** ハウス → 応援に入る予測（だれが・何時から）。自分のハウスを早く終えた人が、おそいハウスを手伝う */
+  helps: Record<string, { member: string; from: number }[]>;
 };
 
 /**
@@ -104,67 +106,98 @@ export function forecastHarvest(f: ForecastInput): Forecast {
   /** 全員の過去の速さの平均（1株あたりの分） */
   const avgRate = f.speed.avg != null ? f.speed.avg / 1000 : null;
 
-  /** そのハウスにかかる時間の予測（分） */
-  const duration = (h: string): number | null => {
-    const ms = f.who(h);
-    const p = eff(h);
-    if (!ms.length || p <= 0) return null;
+  /** その人がそのハウスで1株を収穫するのにかかる分（その日の実績を、人ごとの速さのちがいで直す。なければ過去の速さ） */
+  const minPerPlant = (m: string, h: string): number | null => {
     const today = todayRate(h);
-    if (today != null) {
-      // その日の実績の速さを、人ごとの速さのちがいで少し直す（速い人は短く）
-      const rates = ms.map((m) => {
-        const pr = personRate(m);
-        return pr != null && avgRate ? (today * pr) / avgRate : today;
-      });
-      return p / rates.reduce((n, r) => n + 1 / r, 0);
-    }
-    const rates = ms.map(personRate);
-    if (rates.some((r) => r == null)) return null;
-    return p / rates.reduce<number>((n, r) => n + 1 / (r as number), 0);
+    const pr = personRate(m);
+    if (today != null) return pr != null && avgRate ? (today * pr) / avgRate : today;
+    return pr;
   };
 
-  const houseEnd: Record<string, number> = {};
-  const houseStart: Record<string, number> = {};
+  // ---- 1分ずつ、だれがどのハウスをどれだけ進めるかを順に計算する（シミュレーション）
+  // 自分の回るハウスを全部終えた人は、そのとき収穫中でいちばん終わるのがおそいハウスへ応援に行く
+  type House = { remaining: number; team: Set<string>; started: number | null; fin: number | null };
+  const hs = new Map<string, House>();
+  for (const h of f.houses)
+    if (eff(h) > 0 && f.rec[h]?.end == null) hs.set(h, { remaining: eff(h), team: new Set(), started: f.rec[h]?.start ?? null, fin: null });
+  type Person = { id: string; queue: string[]; at: string | null; free: number | null };
+  const persons: Person[] = [];
   const unknown = new Set<string>();
   const people = [...new Set(f.houses.flatMap((h) => (eff(h) > 0 ? f.who(h) : [])))];
   for (const m of people) {
     // その人の回る順：矢印の順のあとに、ほかに入っているハウス（作業配置表の順）
     const route = (f.routes[m] ?? []).filter((h) => f.who(h).includes(m));
     const seq = [...route, ...f.houses.filter((h) => !route.includes(h) && f.who(h).includes(m))].filter((h) => eff(h) > 0);
-    let cursor: number | null = null;
-    for (const h of seq) {
-      const r = f.rec[h] ?? {};
-      if (r.end != null) {
-        cursor = Math.max(cursor ?? 0, r.end);
-        continue;
-      }
-      let start: number | null = r.start ?? cursor ?? f.startOf(h);
-      const d = duration(h);
-      if (start == null || d == null) {
-        unknown.add(h);
-        cursor = null;
-        continue;
-      }
-      // 休憩の中に入るときは、休憩が終わってから。休憩をはさむときは、休憩の分だけおそく終わる
-      const bEnd = f.brk.start + f.brk.minutes;
-      if (r.start == null && start >= f.brk.start && start < bEnd) start = bEnd;
-      let fin: number = start + d;
-      if (start < f.brk.start && fin > f.brk.start) fin += f.brk.minutes;
-      else if (r.start != null && start >= f.brk.start && start < bEnd) fin += bEnd - start;
-      // まだ終わっていないのに予測の時刻を過ぎていたら、今を終わる時刻とする（あとのハウスもそこから数える）
-      if (f.now != null && fin < f.now) fin = f.now;
-      houseEnd[h] = Math.max(houseEnd[h] ?? 0, Math.round(fin));
-      // 「入った」がまだなら、入る予測（前のハウスの終わる予測）を残す。何人かで入るときは、いちばん早い人の時刻
-      if (r.start == null) houseStart[h] = Math.min(houseStart[h] ?? Infinity, Math.round(start));
-      cursor = fin;
+    const queue = seq.filter((h) => hs.has(h));
+    if (!queue.length) continue;
+    // 動き出せる時刻：最初の残りのハウスの「入った」→ 前のハウスの「終わった」→ 予定の開始時刻
+    const lastEnd = seq.reduce<number | null>((n, h) => (f.rec[h]?.end != null ? Math.max(n ?? 0, f.rec[h].end!) : n), null);
+    const free = f.rec[queue[0]]?.start ?? lastEnd ?? f.startOf(queue[0]);
+    if (free == null || queue.some((h) => minPerPlant(m, h) == null)) {
+      queue.forEach((h) => unknown.add(h));
+      continue;
     }
+    persons.push({ id: m, queue, at: null, free });
+  }
+  const helps: Record<string, { member: string; from: number }[]> = {};
+  const bStart = f.brk.start;
+  const bEnd = f.brk.start + f.brk.minutes;
+  const t0 = persons.length ? Math.min(...persons.map((p) => p.free!)) : 0;
+  const open = () => [...hs.values()].some((x) => x.fin == null);
+  for (let t = t0; persons.length && open() && t < t0 + 24 * 60; t++) {
+    if (t >= bStart && t < bEnd) continue; // 休憩中はだれも進めない
+    // 手があいた人を、次のハウスへ（なければ応援へ）
+    for (const p of persons) {
+      if (p.at != null || p.free == null || t < p.free) continue;
+      while (p.queue.length && hs.get(p.queue[0])!.fin != null) p.queue.shift();
+      let target = p.queue.shift() ?? null;
+      if (!target) {
+        // 応援：収穫中のハウスのうち、いまのままだといちばん終わるのがおそいところ
+        let worst = -1;
+        for (const [h, x] of hs) {
+          if (x.fin != null || x.team.size === 0 || minPerPlant(p.id, h) == null) continue;
+          const rate = [...x.team].reduce((n, m) => n + 1 / minPerPlant(m, h)!, 0);
+          const left = x.remaining / rate;
+          if (left > worst) [worst, target] = [left, h];
+        }
+        if (!target) {
+          // いま収穫中のハウスがなければ、1分後にもう一度さがす（ほかの人がこれから入るハウスを手伝えるように）
+          p.free = t + 1;
+          continue;
+        }
+        (helps[target] ??= []).push({ member: p.id, from: t });
+      }
+      const x = hs.get(target)!;
+      x.team.add(p.id);
+      if (x.started == null) x.started = t;
+      p.at = target;
+    }
+    // 1分ぶん進める
+    for (const [h, x] of hs) {
+      if (x.fin != null || x.team.size === 0) continue;
+      x.remaining -= [...x.team].reduce((n, m) => n + 1 / minPerPlant(m, h)!, 0);
+      // まだ終わっていないハウスは、今より前には終わらない
+      if (x.remaining <= 0 && !(f.now != null && t + 1 < f.now)) {
+        x.fin = t + 1;
+        for (const p of persons) if (p.at === h) [p.at, p.free] = [null, t + 1];
+        x.team.clear();
+      } else if (x.remaining <= 0) x.remaining = 1e-6;
+    }
+  }
+  const houseEnd: Record<string, number> = {};
+  const houseStart: Record<string, number> = {};
+  for (const [h, x] of hs) {
+    if (x.fin != null) houseEnd[h] = x.fin;
+    else if (f.who(h).length) unknown.add(h);
+    // 「入った」がまだなら、入る予測を残す
+    if (f.rec[h]?.start == null && x.started != null) houseStart[h] = x.started;
   }
   const unassigned = f.houses.filter((h) => eff(h) > 0 && f.who(h).length === 0 && f.rec[h]?.end == null);
   const ended = f.houses.filter((h) => f.rec[h]?.end != null && eff(h) > 0).map((h) => f.rec[h].end as number);
   const ends = [...Object.values(houseEnd), ...ended];
   const pending = f.houses.filter((h) => eff(h) > 0 && f.who(h).length > 0 && f.rec[h]?.end == null);
   const end = ends.length && (pending.length === 0 || Object.keys(houseEnd).length > 0) ? Math.max(...ends) : null;
-  return { houseEnd, houseStart, end, unassigned, unknown: [...unknown] };
+  return { houseEnd, houseStart, end, unassigned, unknown: [...unknown].filter((h) => houseEnd[h] == null), helps };
 }
 
 /** 人ごとの速さ（サーバーが計算したもの） */
