@@ -118,9 +118,9 @@ export default function HarvestReportPage() {
       ) : tab === "forecast" ? (
         <ForecastTab from={from} to={to} names={new Map(members.map((m) => [m.id, m.name]))} />
       ) : tab === "houses" ? (
-        <Houses data={data} breaks={breaks} groups={groups} houses={harvestHouses(template)} />
+        <Houses data={data} breaks={breaks} houses={harvestHouses(template)} />
       ) : (
-        <Calendar from={from} to={to} data={data} use={use} groups={groups} houses={harvestHouses(template)} />
+        <Calendar from={from} to={to} data={data} use={use} houses={harvestHouses(template)} />
       )}
       {ready && <GroupSetting groups={groups} houses={harvestHouses(template)} />}
       {ready && cfg && <PlantsSetting plants={cfg.plants} houses={harvestHouses(template)} />}
@@ -240,12 +240,10 @@ function People({
 function Houses({
   data,
   breaks,
-  groups,
   houses,
 }: {
   data: Record<string, HarvestDoc>;
   breaks: Record<string, HarvestBreak>;
-  groups: HouseGroup[];
   houses: string[];
 }) {
   const byHouse = new Map<string, Tally>();
@@ -256,7 +254,6 @@ function Houses({
       addHouse(byHouse.get(house)!, h, date, undefined, breaks[date]);
     }
   const all = [...new Set([...houses, ...byHouse.keys()])];
-  const order = [...groups.map((g) => g.name), "その他"];
   const total = emptyTally();
   for (const t of byHouse.values()) {
     total.cases += t.cases;
@@ -286,25 +283,8 @@ function Houses({
           </tr>
         </thead>
         <tbody>
-          {order.map((g) => {
-            const list = all.filter((h) => groupOf(groups, h) === g);
-            if (!list.length) return null;
-            const sub = emptyTally();
-            for (const h of list) {
-              const t = byHouse.get(h);
-              if (!t) continue;
-              sub.cases += t.cases;
-              sub.minutes += t.minutes;
-              sub.timedCases += t.timedCases;
-              t.days.forEach((d) => sub.days.add(d));
-            }
-            return (
-              <Fragment key={g}>
-                {list.map((h) => line(`No.${h}`, byHouse.get(h)))}
-                {line(`${g} 小計`, sub, "bg-gray-50 font-bold")}
-              </Fragment>
-            );
-          })}
+          {/* 収穫管理の画面と同じ並び（作業配置表の収穫の枠の順）。まとまりごとの小計は出さない */}
+          {all.map((h) => line(`No.${h}`, byHouse.get(h)))}
           {line("合計", total, "border-t-2 bg-rose-50 font-bold")}
         </tbody>
       </table>
@@ -318,14 +298,12 @@ function Calendar({
   to,
   data,
   use,
-  groups,
   houses,
 }: {
   from: string;
   to: string;
   data: Record<string, HarvestDoc>;
   use: { days: Record<string, HouseUseMap>; before: HouseUseMap };
-  groups: HouseGroup[];
   houses: string[];
 }) {
   const dates: string[] = [];
@@ -338,7 +316,6 @@ function Calendar({
     state[d] = cur;
   }
   const cases = (d: string, h: string) => data[d]?.[h]?.cases ?? 0;
-  const order = [...groups.map((g) => g.name), "その他"];
   /** いちご狩り（半分も）に使った日数 */
   const pickingDays = (h: string) => dates.filter((d) => ["picking", "half", "halfBack", "reserve"].includes(state[d][h] ?? "harvest")).length;
   return (
@@ -366,38 +343,26 @@ function Calendar({
             </tr>
           </thead>
           <tbody>
-            {order.map((g) => {
-              const list = houses.filter((h) => groupOf(groups, h) === g);
-              if (!list.length) return null;
-              return (
-                <Fragment key={g}>
-                  <tr>
-                    <td colSpan={dates.length + 2} className="sticky left-0 bg-gray-50 px-2 py-1 font-bold">
-                      {g}
+            {/* 収穫管理の画面と同じ並び（作業配置表の収穫の枠の順） */}
+            {houses.map((h) => (
+              <tr key={h}>
+                <td className="sticky left-0 z-10 bg-white px-2 py-1 font-bold">No.{h}</td>
+                <td className="px-2 py-1 text-center">{pickingDays(h) || ""}</td>
+                {dates.map((d) => {
+                  const u = houseUseOf(state[d][h]);
+                  const c = cases(d, h);
+                  return (
+                    <td
+                      key={d}
+                      title={`${formatJa(d)} No.${h}：${u.label}${c ? `・${fmtCases(c)}ケース` : ""}`}
+                      className={`border border-white px-1 py-1 text-center ${u.cls}`}
+                    >
+                      {c ? fmtCases(c) : u.key === "harvest" ? "" : u.short}
                     </td>
-                  </tr>
-                  {list.map((h) => (
-                    <tr key={h}>
-                      <td className="sticky left-0 z-10 bg-white px-2 py-1 font-bold">No.{h}</td>
-                      <td className="px-2 py-1 text-center">{pickingDays(h) || ""}</td>
-                      {dates.map((d) => {
-                        const u = houseUseOf(state[d][h]);
-                        const c = cases(d, h);
-                        return (
-                          <td
-                            key={d}
-                            title={`${formatJa(d)} No.${h}：${u.label}${c ? `・${fmtCases(c)}ケース` : ""}`}
-                            className={`border border-white px-1 py-1 text-center ${u.cls}`}
-                          >
-                            {c ? fmtCases(c) : u.key === "harvest" ? "" : u.short}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </Fragment>
-              );
-            })}
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
