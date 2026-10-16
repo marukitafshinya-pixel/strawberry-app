@@ -12,6 +12,7 @@ import { addDays, formatJa, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import {
   addCases,
+  logHarvest,
   clock,
   fmtCases,
   planHarvest,
@@ -167,6 +168,10 @@ export default function HarvestPage() {
   const lastEnd = rec ? Object.values(rec).reduce<number | null>((m, h) => (h.end != null && (m == null || h.end > m) ? h.end : m), null) : null;
   const endShown = day?.endTime ?? lastEnd;
   /** 休憩：押すと、その日の休憩の始まり・長さを変えられる */
+  const saveBreak = (b: HarvestBreak) =>
+    saveHarvestBreak(date, b)
+      .then(() => logHarvest(date, { break: b }))
+      .catch(() => alert("保存できませんでした"));
   const breakBox = day && (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       休憩
@@ -176,12 +181,12 @@ export default function HarvestPage() {
         placeholder="900"
         small
         parse={parseClock}
-        onCommit={(v) => v != null && void saveHarvestBreak(date, { ...brk, start: v }).catch(() => alert("保存できませんでした"))}
+        onCommit={(v) => v != null && void saveBreak({ ...brk, start: v })}
       />
       から
       <select
         value={brk.minutes}
-        onChange={(e) => void saveHarvestBreak(date, { ...brk, minutes: Number(e.target.value) }).catch(() => alert("保存できませんでした"))}
+        onChange={(e) => void saveBreak({ ...brk, minutes: Number(e.target.value) })}
         className="rounded-lg border bg-white px-1 py-2 text-base"
         aria-label="休憩の長さ"
       >
@@ -203,7 +208,11 @@ export default function HarvestPage() {
         placeholder="930"
         small
         parse={parseClock}
-        onCommit={(v) => void saveHarvestEnd(date, v).catch(() => alert("保存できませんでした"))}
+        onCommit={(v) =>
+          void saveHarvestEnd(date, v)
+            .then(() => logHarvest(date, { dayEnd: v }))
+            .catch(() => alert("保存できませんでした"))
+        }
       />
       {day.endTime == null && fc && (
         <span className="text-xs leading-tight text-sky-800">
@@ -420,12 +429,24 @@ function Sheet({
   const syncKey = outOfSync.map((h) => `${h}:${who(h).join(",")}`).join("|");
   useEffect(() => {
     if (!syncKey) return;
-    for (const h of outOfSync) saveHouseHarvest(date, h, { members: who(h) }).catch(() => {});
+    for (const h of outOfSync)
+      saveHouseHarvest(date, h, { members: who(h) })
+        .then(() => logHarvest(date, { house: h, members: who(h), auto: true }))
+        .catch(() => {});
     // syncKey が変わったときだけ（同じ書き直しを何度もしない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncKey, date]);
-  /** 1つのハウスを保存する。まだ保存していない予定（収穫者・開始時刻）も一緒に保存する */
-  const save = (h: string, patch: HouseHarvest) => saveHouseHarvest(date, h, { ...pending(h), ...patch });
+  /** 1つのハウスを保存する。まだ保存していない予定（収穫者・開始時刻）も一緒に保存する。入れたものは入力の記録にも残す（auto＝画面が自動で入れた） */
+  const save = async (h: string, patch: HouseHarvest, auto = false) => {
+    await saveHouseHarvest(date, h, { ...pending(h), ...patch });
+    const { start, end, members, cases } = patch;
+    logHarvest(date, { house: h, start, end, members, cases, ...(auto ? { auto } : {}) });
+  };
+  /** ケースを足す（＋1・−1・＋0.1）。入力の記録にも残す */
+  const add = async (h: string, delta: number) => {
+    await addCases(date, h, delta, pending(h));
+    logHarvest(date, { house: h, delta });
+  };
 
   /** 終わった時刻を入れたら、その人の次のハウス（配置表の矢印の順）の「入った」が空なら同じ時刻を入れる */
   async function setEnd(h: string, end: number | null) {
@@ -439,11 +460,14 @@ function Sheet({
       const next = route.slice(route.indexOf(h) + 1).find((x) => route.includes(h) && !NO_HARVEST.includes(usageOf(x)));
       if (next && !done.has(next) && rec[next]?.start == null) {
         done.add(next);
-        await save(next, { start: end });
+        await save(next, { start: end }, true);
       }
     }
   }
-  const setUse = (h: string, k: HouseUse) => saveHouseUse(date, Object.fromEntries(houses.map((x) => [x, x === h ? k : usageOf(x)])));
+  const setUse = async (h: string, k: HouseUse) => {
+    await saveHouseUse(date, Object.fromEntries(houses.map((x) => [x, x === h ? k : usageOf(x)])));
+    logHarvest(date, { house: h, use: k });
+  };
 
   // 作業配置表の収穫の枠と同じ並び（1・6・8・4・5・9・10・17〜27）
   const rows = houses;
@@ -542,7 +566,7 @@ function Sheet({
   );
   const minus = (h: string, cls = "") => (
     <button
-      onClick={() => run(addCases(date, h, -1, pending(h)))}
+      onClick={() => run(add(h, -1))}
       disabled={!rec[h]?.cases || rec[h].cases! < 1}
       className={`rounded-lg border px-3 py-2 text-gray-600 disabled:opacity-30 ${cls}`}
       aria-label={`No.${h} を1ケース減らす`}
@@ -551,18 +575,14 @@ function Sheet({
     </button>
   );
   const plus = (h: string, cls = "") => (
-    <button
-      onClick={() => run(addCases(date, h, 1, pending(h)))}
-      className={`rounded-lg bg-berry font-bold text-white active:scale-95 ${cls}`}
-      aria-label={`No.${h} に1ケース足す`}
-    >
+    <button onClick={() => run(add(h, 1))} className={`rounded-lg bg-berry font-bold text-white active:scale-95 ${cls}`} aria-label={`No.${h} に1ケース足す`}>
       ＋1
     </button>
   );
   /** 端数を足す（＋0.1） */
   const plusTenth = (h: string, cls = "") => (
     <button
-      onClick={() => run(addCases(date, h, 0.1, pending(h)))}
+      onClick={() => run(add(h, 0.1))}
       className={`rounded-lg border-2 border-berry bg-white font-bold text-berry active:scale-95 ${cls}`}
       aria-label={`No.${h} に0.1ケース足す`}
     >
@@ -591,7 +611,10 @@ function Sheet({
   const allDone = targets.length > 0 && targets.every((h) => rec[h]?.end != null);
   const latest = allDone ? Math.max(...targets.map((h) => rec[h].end!)) : null;
   useEffect(() => {
-    if (endTime == null && latest != null) saveHarvestEnd(date, latest).catch(() => {});
+    if (endTime == null && latest != null)
+      saveHarvestEnd(date, latest)
+        .then(() => logHarvest(date, { dayEnd: latest, auto: true }))
+        .catch(() => {});
   }, [endTime, latest, date]);
 
   const help = (

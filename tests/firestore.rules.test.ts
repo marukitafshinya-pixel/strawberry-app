@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeEach, describe, it } from "vitest";
 
 let env: RulesTestEnvironment;
@@ -559,6 +559,33 @@ describe("収穫管理：毎日使える従業員（社員など）", () => {
     await assertFails(setDoc(doc(worker("w6"), `harvest/${today}`), { houses }));
     // 管理者でなければ「毎日使える」は付けられない
     await assertFails(setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }));
+  });
+});
+
+describe("収穫管理の入力の記録 (harvest/{date}/log)", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const pickup = () => env.authenticatedContext("w1", { role: "worker" }).firestore();
+  it("収穫管理を使える人が足せる。見られるのは管理者だけ、直せない", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w1"), { memberId: "m1", loginId: "tanaka", active: true });
+      await setDoc(doc(db, "haichi/2026-10-15"), { cells: { pickup: { members: ["m1"], memo: "" } }, note: "", done: false });
+    });
+    const at = serverTimestamp();
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/log/a`), { house: "17", delta: 1, at, by: "u1" }));
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/log/b`), { house: "17", end: 430, members: ["m1"], at, by: "u1" }));
+    await assertSucceeds(setDoc(doc(pickup(), "harvest/2026-10-15/log/c"), { house: "18", start: 431, auto: true, at, by: "w1" }));
+    // 集荷係でない日・ほかの人の名前・時刻のごまかし・知らない項目はだめ
+    await assertFails(setDoc(doc(pickup(), "harvest/2026-10-16/log/d"), { house: "18", delta: 1, at, by: "w1" }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/log/e`), { house: "17", delta: 1, at, by: "u2" }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/log/f`), { house: "17", delta: 1, at: new Date(0), by: "u1" }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/log/g`), { house: "17", memo: "x", at, by: "u1" }));
+    await assertFails(setDoc(doc(staff(), "harvest/2020-01-01/log/h"), { house: "17", delta: 1, at, by: "u1" }));
+    // 読めるのは管理者だけ。あとから直せない
+    await assertSucceeds(getDoc(doc(admin(), `harvest/${today}/log/a`)));
+    await assertFails(getDoc(doc(staff(), `harvest/${today}/log/a`)));
+    await assertFails(getDoc(doc(pickup(), "harvest/2026-10-15/log/c")));
+    await assertFails(updateDoc(doc(admin(), `harvest/${today}/log/a`), { delta: 2 }));
   });
 });
 

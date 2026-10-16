@@ -353,6 +353,25 @@ service cloud.firestore {
         && (!('endTime' in request.resource.data) || request.resource.data.endTime == null
           || (request.resource.data.endTime is int && request.resource.data.endTime >= 0 && request.resource.data.endTime < 1440));
     }
+    // 収穫管理の入力の記録（何時何分に、だれが、どのハウスに何を入れたか）。あとで予測の精度を上げるために見る。
+    // 入れられるのは収穫管理を使える人、見られるのは管理者だけ。あとから直したり消したりはできない
+    match /harvest/{date}/log/{id} {
+      allow read: if isAdmin();
+      allow create: if (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
+        && request.resource.data.keys().hasOnly(['at', 'by', 'house', 'delta', 'cases', 'start', 'end', 'members', 'use', 'dayEnd', 'break', 'auto'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid
+        && (!('house' in request.resource.data) || (request.resource.data.house is string && request.resource.data.house.size() <= 10))
+        && (!('delta' in request.resource.data) || request.resource.data.delta is number)
+        && (!('cases' in request.resource.data) || request.resource.data.cases is number)
+        && (!('start' in request.resource.data) || request.resource.data.start == null || request.resource.data.start is int)
+        && (!('end' in request.resource.data) || request.resource.data.end == null || request.resource.data.end is int)
+        && (!('dayEnd' in request.resource.data) || request.resource.data.dayEnd == null || request.resource.data.dayEnd is int)
+        && (!('members' in request.resource.data) || (request.resource.data.members is list && request.resource.data.members.size() <= 20))
+        && (!('use' in request.resource.data) || (request.resource.data.use is string && request.resource.data.use.size() <= 10))
+        && (!('break' in request.resource.data) || (request.resource.data.break is map && request.resource.data.break.keys().hasOnly(['start', 'minutes'])))
+        && (!('auto' in request.resource.data) || request.resource.data.auto is bool);
+    }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
       allow read: if isStaff() || isWorker();

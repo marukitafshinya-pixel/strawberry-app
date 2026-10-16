@@ -4,7 +4,7 @@
 // ケースは集荷のたびに「＋1」を押して数え、押すたびにすぐ保存する（どの端末でも同じ数になる）。
 // その日のハウスの使い方（収穫・いちご狩り・半分・予備・休み）は houseUse/{YYYY-MM-DD}。記録がない日は前の日の状態を引きつぐ。
 // 1ケースあたりの時間は、1人だけで収穫したハウスで計算する（途中で応援が入ったハウスは、ケース数だけ数える）。実績は管理者だけが見られる。
-import { collection, doc, documentId, increment, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, documentId, increment, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from "./haichi";
@@ -283,6 +283,37 @@ export async function addCases(date: string, house: string, delta: number, extra
   const { db } = await getFirebase();
   const patch: Record<string, unknown> = { ...extra, cases: increment(delta) };
   await setDoc(doc(db, "harvest", date), { houses: { [house]: patch }, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/**
+ * 入力の記録の1行（harvest/{日付}/log）。何時何分に、だれが、どのハウスに何を入れたか。
+ * delta＝＋1・−1・＋0.1、cases＝確定数を直接入れた、auto＝画面が自動で入れた（作業配置表に合わせた・次のハウスの「入った」など）
+ */
+export type HarvestLogEntry = {
+  house?: string;
+  delta?: number;
+  cases?: number;
+  start?: number | null;
+  end?: number | null;
+  members?: string[];
+  use?: HouseUse;
+  dayEnd?: number | null;
+  break?: HarvestBreak;
+  auto?: boolean;
+};
+
+/** 入力の記録を1行足す。記録できなくても入力はそのまま（失敗しても知らせない） */
+export function logHarvest(date: string, entry: HarvestLogEntry) {
+  if (!DATE_RE.test(date)) return;
+  void getFirebase()
+    .then(({ db, auth }) => {
+      const by = auth.currentUser?.uid;
+      if (!by) return;
+      // 入れていない項目（undefined）は書かない
+      const data = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined));
+      return addDoc(collection(db, "harvest", date, "log"), { ...data, at: serverTimestamp(), by });
+    })
+    .catch(() => {});
 }
 
 /** 期間の収穫の記録（管理者だけ）。日付 → ハウス → 記録 */
