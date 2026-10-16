@@ -15,6 +15,7 @@ import { ColorChartOverlay } from "../ColorChart";
 import { ForecastStrip } from "../ForecastStrip";
 import { TempBadge } from "../TempBadge";
 import { HaichiBoard } from "../Haichi";
+import { useHouseUse } from "@/lib/harvest";
 import { ShiftTable } from "../ShiftTable";
 
 const DAY_CHOICES = [7, 14, 21, 28] as const;
@@ -80,6 +81,7 @@ function Display() {
   };
   const haichiTemplate = useHaichiTemplate();
   const haichiDay = useHaichiDay(hDate);
+  const houseUse = useHouseUse(hDate);
   const to = addDays(from, span - 1);
   const cfg = useShiftConfig();
   const members = useShiftMembers();
@@ -150,7 +152,7 @@ function Display() {
             <span>作業配置表　{formatJa(hDate)}</span>
             <TempBadge date={hDate} big />
           </h2>
-          <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} />
+          <HaichiBoard big cols={layout === "split" ? 2 : 3} template={haichiTemplate} day={haichiDay} names={names} uses={houseUse?.houses} />
         </div>
       ) : (
         <p className="p-6 text-gray-500">読み込み中…</p>
@@ -166,7 +168,9 @@ function Display() {
   return (
     <div className="flex h-dvh flex-col bg-white">
       {/* 操作の帯。全画面・半分のときは隠して、マウスを上に持っていったときだけ見える */}
-      <div className={`flex flex-wrap items-center gap-2 border-b bg-gray-50 px-3 py-2 transition-opacity ${hideBar ? "absolute inset-x-0 top-0 z-30 opacity-0 shadow-md hover:opacity-100" : ""}`}>
+      <div
+        className={`flex flex-wrap items-center gap-2 border-b bg-gray-50 px-3 py-2 transition-opacity ${hideBar ? "absolute inset-x-0 top-0 z-30 opacity-0 shadow-md hover:opacity-100" : ""}`}
+      >
         <div className="inline-flex overflow-hidden rounded-lg border bg-white text-sm font-bold">
           {(
             [
@@ -292,7 +296,13 @@ function Display() {
               </PaneBox>
             )}
             {showT && (
-              <PaneBox single={layout !== "split"} onFull={() => onlyFull("table")} onBack={() => setLayout("split")} label="勤務表" className={showH ? "w-1/2" : "w-full"}>
+              <PaneBox
+                single={layout !== "split"}
+                onFull={() => onlyFull("table")}
+                onBack={() => setLayout("split")}
+                label="勤務表"
+                className={showH ? "w-1/2" : "w-full"}
+              >
                 {tablePane}
               </PaneBox>
             )}

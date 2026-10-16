@@ -22,6 +22,8 @@ import { ColorChartOverlay } from "./ColorChart";
 import { ForecastStrip } from "./ForecastStrip";
 import { TempBadge } from "./TempBadge";
 import { sortMembers } from "./ShiftTable";
+import { HouseUseIcon } from "@/components/HouseUseIcon";
+import { useHouseUse, type HouseUseMap } from "@/lib/harvest";
 
 /** 配置表（見るだけの形と、割り振る形の両方で使う） */
 export function HaichiBoard({
@@ -31,9 +33,12 @@ export function HaichiBoard({
   big,
   cols,
   edit,
+  uses,
 }: {
   template: HaichiTemplate;
   day: HaichiDay;
+  /** その日のハウスの使い方（収穫管理）。あれば、収穫のハウスの番号の横に絵を出す */
+  uses?: HouseUseMap;
   names: Record<string, string>;
   /** 大きく出す（配置完了のあと・投影用） */
   big?: boolean;
@@ -83,7 +88,10 @@ export function HaichiBoard({
                               <th
                                 className={`whitespace-nowrap border-r border-gray-400 bg-gray-100 px-2 font-bold ${isHouseNo(slot.label) ? "text-center" : "text-left"} ${big ? "w-40 py-2 text-2xl" : "w-28 py-1.5 text-sm"}`}
                               >
-                                {isHouseNo(slot.label) ? `No.${slot.label}` : slot.label}
+                                <span className="inline-flex items-center gap-1">
+                                  {isHouseNo(slot.label) ? `No.${slot.label}` : slot.label}
+                                  {uses && sectionArrows(sec) && <HouseUseIcon use={uses[slot.label] ?? "harvest"} size={big ? 34 : 22} />}
+                                </span>
                               </th>
                               {sectionArrows(sec) && (
                                 <td className={`border-r border-gray-300 text-center ${big ? "w-14" : "w-12"}`}>
@@ -197,6 +205,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const day = useHaichiDay(date);
+  const houseUse = useHouseUse(date);
   const shiftDays = useShiftDays(date, date);
   const [error, setError] = useState("");
   const [editingTemplate, setEditingTemplate] = useState(false);
@@ -425,6 +434,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
           <HaichiBoard
             template={template}
             day={day}
+            uses={houseUse?.houses}
             names={names}
             big={done}
             edit={
