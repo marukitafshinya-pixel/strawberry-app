@@ -527,13 +527,6 @@ function Sheet({
       {rec[h]?.end == null && forecast?.houseEnd[h] != null && (
         <span className="text-[11px] leading-tight text-sky-700">予測 {clock(forecast.houseEnd[h])}</span>
       )}
-      {/* 応援の予測：自分のハウスを早く終えた人が、手伝いに入る */}
-      {rec[h]?.end == null &&
-        (forecast?.helps[h] ?? []).map((x) => (
-          <span key={x.member} className="whitespace-nowrap text-[11px] leading-tight text-violet-700">
-            応援 {names.get(x.member) ?? "？"} {clock(x.from)}〜
-          </span>
-        ))}
     </span>
   );
   const casesCell = (h: string) => (
