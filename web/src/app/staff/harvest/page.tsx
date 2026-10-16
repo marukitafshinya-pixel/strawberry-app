@@ -94,11 +94,13 @@ export default function HarvestPage() {
   }, []);
   const plan = template && haichi ? planHarvest(template, haichi) : null;
   const houses = template ? harvestHouses(template) : [];
+  const jst = new Date(tick + 9 * 3600e3);
+  const nowMin = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  const hp = plan && rec && cfg ? helpersFor(rec, plan, cfg.startTime) : null;
   const fc =
-    plan && rec && use && cfg && speeds
+    plan && rec && use && cfg && speeds && hp
       ? (() => {
-          const h = helpersFor(rec, plan, cfg.startTime);
-          const jst = new Date(tick + 9 * 3600e3);
+          const h = hp;
           return forecastHarvest({
             houses,
             routes: plan.routes,
@@ -109,17 +111,32 @@ export default function HarvestPage() {
             groups: cfg.groups,
             speed: speeds,
             startOf: h.startOf,
-            now: date === todayJST() ? jst.getUTCHours() * 60 + jst.getUTCMinutes() : null,
+            now: date === todayJST() ? nowMin : null,
             brk,
           });
         })()
       : null;
-  // 朝の予測を残す：今日、まだどのハウスも終わっていないあいだの予測（実際の収穫終了と比べて、誤差を見るため）
+  // 朝の予測を残す（実際と比べて、どこでずれたかを見るため）：収穫終了と、ハウスごとの入る・終わる予測。
+  // 収穫の開始時刻までは更新し、それを過ぎたら固定する（開始時刻を過ぎてから初めて開いた日は、最初の予測で固定）。
+  // どこかのハウスが終わったあとは残さない
   const fcEnd = fc?.end ?? null;
+  const fcHouses =
+    fc && hp && rec
+      ? Object.fromEntries(
+          Object.entries(fc.houseEnd).map(([h, e]) => [h, { start: rec[h]?.start ?? hp.startOf(h) ?? fc.houseStart[h] ?? null, end: e, members: hp.who(h) }]),
+        )
+      : null;
+  const fcKey = fcHouses ? JSON.stringify(fcHouses) : "";
   const anyEnded = !!rec && Object.values(rec).some((x) => x.end != null);
+  const beforeStart = !!cfg && nowMin < cfg.startTime;
   useEffect(() => {
-    if (date === todayJST() && fcEnd != null && day && !anyEnded && day.forecast !== fcEnd) saveHarvestForecast(date, fcEnd).catch(() => {});
-  }, [date, fcEnd, anyEnded, day]);
+    if (date !== todayJST() || fcEnd == null || !fcHouses || !day || anyEnded) return;
+    if (!beforeStart && day.forecast != null) return;
+    if (day.forecast === fcEnd && JSON.stringify(day.forecastHouses ?? {}) === fcKey) return;
+    saveHarvestForecast(date, fcEnd, fcHouses).catch(() => {});
+    // fcKey が変わったときだけ書く
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, fcEnd, fcKey, anyEnded, beforeStart, day?.forecast]);
   /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
   const [phoneView, setPhoneView] = useState<boolean | null>(null);
   const isWorker = role === "worker";

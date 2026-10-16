@@ -23,6 +23,7 @@ import {
   saveHarvestPlants,
   useHouseUseRange,
   type HarvestDoc,
+  type ForecastHouses,
   type HarvestBreak,
   DEFAULT_BREAK,
   type HouseGroup,
@@ -116,7 +117,7 @@ export default function HarvestReportPage() {
       ) : tab === "people" ? (
         <People data={data} breaks={breaks} names={new Map(members.map((m) => [m.id, m.name]))} groups={groups} />
       ) : tab === "forecast" ? (
-        <ForecastTab from={from} to={to} names={new Map(members.map((m) => [m.id, m.name]))} />
+        <ForecastTab from={from} to={to} data={data} houses={harvestHouses(template)} names={new Map(members.map((m) => [m.id, m.name]))} />
       ) : tab === "houses" ? (
         <Houses data={data} breaks={breaks} houses={harvestHouses(template)} />
       ) : (
@@ -237,15 +238,7 @@ function People({
 }
 
 /** ハウス別：まとまりごとの小計つき */
-function Houses({
-  data,
-  breaks,
-  houses,
-}: {
-  data: Record<string, HarvestDoc>;
-  breaks: Record<string, HarvestBreak>;
-  houses: string[];
-}) {
+function Houses({ data, breaks, houses }: { data: Record<string, HarvestDoc>; breaks: Record<string, HarvestBreak>; houses: string[] }) {
   const byHouse = new Map<string, Tally>();
   for (const [date, day] of Object.entries(data))
     for (const [house, h] of Object.entries(day)) {
@@ -429,8 +422,21 @@ function GroupSetting({ groups, houses }: { groups: HouseGroup[]; houses: string
 }
 
 /** 予測と実際：日ごとの朝の予測と実際の収穫終了、その差。人ごとの速さ（1,000株あたりの分） */
-function ForecastTab({ from, to, names }: { from: string; to: string; names: Map<string, string> }) {
+function ForecastTab({
+  from,
+  to,
+  data,
+  houses,
+  names,
+}: {
+  from: string;
+  to: string;
+  data: Record<string, HarvestDoc>;
+  houses: string[];
+  names: Map<string, string>;
+}) {
   const ends = useHarvestEnds(from, to);
+  const [open, setOpen] = useState<string | null>(null);
   const speeds = useHarvestSpeeds();
   if (!ends || !speeds) return <p className="mt-4 text-gray-500">読み込み中…</p>;
   const days = Object.entries(ends)
@@ -442,7 +448,7 @@ function ForecastTab({ from, to, names }: { from: string; to: string; names: Map
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
-        「朝の予測」は、その日にどのハウスもまだ終わっていなかったときの収穫終了の予測です。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
+        「朝の予測」は、収穫の開始時刻までの予測です（開始時刻を過ぎてから開いた日は、最初の予測）。日付を押すと、ハウスごとの予測と実際が見られます。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
       </p>
       <div className="mt-2 flex flex-wrap gap-3">
         <div className="rounded-xl border bg-white p-3">
@@ -463,12 +469,28 @@ function ForecastTab({ from, to, names }: { from: string; to: string; names: Map
           </thead>
           <tbody>
             {days.map(([d, v]) => (
-              <tr key={d} className="border-t">
-                <td className="px-3 py-2">{formatJa(d)}</td>
-                <td className="px-3 py-2 text-right">{clock(v.forecast)}</td>
-                <td className="px-3 py-2 text-right font-bold">{clock(v.endTime)}</td>
-                <td className="px-3 py-2 text-right">{v.forecast != null && v.endTime != null ? sign(v.endTime - v.forecast) : ""}</td>
-              </tr>
+              <Fragment key={d}>
+                <tr className="cursor-pointer border-t hover:bg-sky-50" onClick={() => setOpen(open === d ? null : d)}>
+                  <td className="px-3 py-2">
+                    {v.forecastHouses ? (open === d ? "▼ " : "▶ ") : ""}
+                    {formatJa(d)}
+                  </td>
+                  <td className="px-3 py-2 text-right">{clock(v.forecast)}</td>
+                  <td className="px-3 py-2 text-right font-bold">{clock(v.endTime)}</td>
+                  <td className="px-3 py-2 text-right">{v.forecast != null && v.endTime != null ? sign(v.endTime - v.forecast) : ""}</td>
+                </tr>
+                {open === d && (
+                  <tr>
+                    <td colSpan={4} className="bg-sky-50/40 px-3 py-2">
+                      {v.forecastHouses ? (
+                        <HouseForecastTable fh={v.forecastHouses} rec={data[d] ?? {}} houses={houses} names={names} />
+                      ) : (
+                        <p className="text-xs text-gray-500">この日は、ハウスごとの予測の記録がありません（記録を始める前の日です）。</p>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
             {!days.length && (
               <tr>
@@ -482,6 +504,45 @@ function ForecastTab({ from, to, names }: { from: string; to: string; names: Map
       </div>
       <SpeedTable speeds={speeds} names={names} />
     </>
+  );
+}
+
+/** その日のハウスごとの、朝の予測と実際（どのハウス・だれの所でずれたかを見る） */
+function HouseForecastTable({ fh, rec, houses, names }: { fh: ForecastHouses; rec: HarvestDoc; houses: string[]; names: Map<string, string> }) {
+  const list = [...houses.filter((h) => fh[h] || rec[h]?.end != null), ...Object.keys(fh).filter((h) => !houses.includes(h))];
+  const diff = (d: number | null) => (d == null ? "" : d === 0 ? "±0" : d > 0 ? `＋${d}分` : `−${-d}分`);
+  const color = (d: number | null) => (d == null ? "" : d >= 15 ? "font-bold text-red-700" : d <= -15 ? "font-bold text-sky-700" : "");
+  return (
+    <table className="w-full min-w-max text-xs tabular-nums">
+      <thead className="text-left text-gray-500">
+        <tr>
+          <th className="px-2 py-1">ハウス</th>
+          <th className="px-2 py-1">収穫者</th>
+          <th className="px-2 py-1">朝の予測</th>
+          <th className="px-2 py-1">実際</th>
+          <th className="px-2 py-1 text-right">終わりの差</th>
+          <th className="px-2 py-1 text-right">かかった時間の差</th>
+        </tr>
+      </thead>
+      <tbody>
+        {list.map((h) => {
+          const p = fh[h];
+          const r = rec[h] ?? {};
+          const endDiff = p && r.end != null ? r.end - p.end : null;
+          const durDiff = p && p.start != null && r.start != null && r.end != null ? r.end - r.start - (p.end - p.start) : null;
+          return (
+            <tr key={h} className="border-t border-sky-100">
+              <td className="px-2 py-1 font-bold">No.{h}</td>
+              <td className="px-2 py-1">{(r.members ?? p?.members ?? []).map((m) => names.get(m) ?? "？").join("・")}</td>
+              <td className="px-2 py-1">{p ? `${clock(p.start)}〜${clock(p.end)}` : "－"}</td>
+              <td className="px-2 py-1">{r.start != null || r.end != null ? `${clock(r.start)}〜${clock(r.end)}` : "－"}</td>
+              <td className={`px-2 py-1 text-right ${color(endDiff)}`}>{diff(endDiff)}</td>
+              <td className={`px-2 py-1 text-right ${color(durDiff)}`}>{diff(durDiff)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

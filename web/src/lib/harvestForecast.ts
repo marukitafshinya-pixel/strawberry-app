@@ -8,7 +8,17 @@ import { collection, doc, documentId, onSnapshot, query, serverTimestamp, setDoc
 import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
-import { groupOf, houseMinutes, readBreak, type HarvestBreak, type HarvestDoc, type HouseGroup, type HouseUse } from "./harvest";
+import {
+  groupOf,
+  houseMinutes,
+  readBreak,
+  readForecastHouses,
+  type ForecastHouses,
+  type HarvestBreak,
+  type HarvestDoc,
+  type HouseGroup,
+  type HouseUse,
+} from "./harvest";
 
 /** 収穫する株数（いちご狩り前・後ろは半分。収穫しない使い方は 0） */
 export function harvestPlants(plants: Record<string, number>, house: string, use: HouseUse): number {
@@ -187,13 +197,18 @@ export function useHarvestSpeeds(): HarvestSpeeds | null {
 export const refreshHarvestSpeeds = () => callFunction("refreshHarvestSpeeds", {}).catch(() => {});
 
 /** 朝の予測を残す（実際の収穫終了と比べるため） */
-export async function saveHarvestForecast(date: string, forecast: number) {
+export async function saveHarvestForecast(date: string, forecast: number, forecastHouses: ForecastHouses) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "harvest", date), { forecast, updatedAt: serverTimestamp() }, { merge: true });
+  // 予測の2つはまるごと置きかえる（前の予測にあったハウスが残らないように）。ほかの記録はそのまま
+  await setDoc(
+    doc(db, "harvest", date),
+    { forecast, forecastHouses, updatedAt: serverTimestamp() },
+    { mergeFields: ["forecast", "forecastHouses", "updatedAt"] },
+  );
 }
 
 /** 期間の、日ごとの朝の予測と実際の収穫終了（管理者だけ）。日付 → { forecast, endTime } */
-export type HarvestDayMeta = { forecast: number | null; endTime: number | null; brk: HarvestBreak | null };
+export type HarvestDayMeta = { forecast: number | null; endTime: number | null; brk: HarvestBreak | null; forecastHouses: ForecastHouses | null };
 export function useHarvestEnds(from: string, to: string): Record<string, HarvestDayMeta> | null {
   const key = `${from}_${to}`;
   const [state, setState] = useState<{ key: string; v: Record<string, HarvestDayMeta> } | null>(null);
@@ -214,6 +229,7 @@ export function useHarvestEnds(from: string, to: string): Record<string, Harvest
                   forecast: typeof d.get("forecast") === "number" ? (d.get("forecast") as number) : null,
                   endTime: typeof d.get("endTime") === "number" ? (d.get("endTime") as number) : null,
                   brk: readBreak(d.get("break")),
+                  forecastHouses: readForecastHouses(d.get("forecastHouses")),
                 },
               ]),
             ),

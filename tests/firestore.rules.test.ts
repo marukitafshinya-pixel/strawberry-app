@@ -567,6 +567,7 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
   it("朝の予測と株数を保存でき、速さはサーバーだけが書ける", async () => {
     await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { forecast: 565 }));
     await assertFails(setDoc(doc(staff(), `harvest/${today}`), { forecast: "9:25" }));
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { forecast: 565, forecastHouses: { "17": { start: 360, end: 410 } } }));
     await assertSucceeds(setDoc(doc(staff(), `harvest/${today}`), { break: { start: 540, minutes: 15 } }));
     await assertFails(setDoc(doc(staff(), `harvest/${today}`), { break: { start: 540, minutes: 15, memo: "x" } }));
     await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { plants: { "21": 3448 } }));

@@ -342,7 +342,8 @@ service cloud.firestore {
       allow read: if isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
-        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'break', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'break', 'updatedAt'])
+        && (!('forecastHouses' in request.resource.data) || (request.resource.data.forecastHouses is map && request.resource.data.forecastHouses.size() <= 80))
         && (!('break' in request.resource.data) || (request.resource.data.break is map
           && request.resource.data.break.keys().hasOnly(['start', 'minutes'])
           && request.resource.data.break.start is int && request.resource.data.break.minutes is int
