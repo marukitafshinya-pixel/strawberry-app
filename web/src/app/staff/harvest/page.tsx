@@ -261,6 +261,11 @@ export default function HarvestPage() {
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
               {isWorker ? "← 勤務の画面" : "← メニュー"}
             </Link>
+            {!isWorker && (
+              <Link href="/staff/shift/" className="text-sm text-gray-600 underline">
+                勤務管理表へ
+              </Link>
+            )}
             {isAdmin && (
               // 管理者だけ：収穫の開始時刻の設定と、実績の画面へ
               <>
@@ -295,6 +300,9 @@ export default function HarvestPage() {
       <p className="text-sm">
         <Link href="/staff/" className="text-gray-500 underline">
           ← メニュー
+        </Link>
+        <Link href="/staff/shift/" className="ml-4 text-gray-500 underline">
+          📅 勤務管理表へ
         </Link>
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">

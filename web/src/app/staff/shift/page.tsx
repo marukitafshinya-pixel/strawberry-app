@@ -315,6 +315,9 @@ function ShiftView() {
         <Link href="/staff/" className="text-gray-500 underline">
           ← メニュー
         </Link>
+        <Link href="/staff/harvest/" className="ml-4 text-gray-500 underline">
+          🍓 収穫管理へ
+        </Link>
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">勤務管理表</h1>
