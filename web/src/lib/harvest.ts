@@ -10,7 +10,8 @@ import { getFirebase } from "./firebase";
 import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from "./haichi";
 
 /** 1つのハウスのその日の記録。start・end は0時からの分、cases は確定数（0.1枚単位） */
-export type HouseHarvest = { members?: string[]; start?: number | null; end?: number | null; cases?: number };
+/** membersEdited＝収穫管理の画面で収穫者を手で変えた（作業配置表に合わせない） */
+export type HouseHarvest = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number };
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;
 

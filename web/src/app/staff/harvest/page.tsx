@@ -44,14 +44,22 @@ import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
 function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
-  /** そのハウスの収穫者（保存していなければ作業配置表の人） */
-  const who = (h: string) => rec[h]?.members ?? plan.members[h] ?? [];
+  /** 作業配置表に収穫の割り振りがある日か（ない日は、記録した収穫者を使う） */
+  const planActive = Object.keys(plan.members).length > 0;
+  /**
+   * そのハウスの収穫者：収穫管理の画面で手で変えたハウスはその人、それ以外は作業配置表の人
+   * （作業配置表をあとから変えても、収穫管理に反映する）
+   */
+  const who = (h: string) => (rec[h]?.membersEdited ? (rec[h].members ?? []) : planActive ? (plan.members[h] ?? []) : (rec[h]?.members ?? []));
   /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
   const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
   /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
   const startOf = (h: string) => rec[h]?.start ?? plannedStart(h);
   return { who, plannedStart, startOf };
 }
+
+/** 収穫者の並びが同じか（順番はちがってもよい） */
+const sameMembers = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 /** 作業配置表の「集荷係」の枠のID */
 const PICKUP_SLOT = "pickup";
@@ -383,13 +391,22 @@ function Sheet({
   const { who, plannedStart, startOf } = helpersFor(rec, plan, startTime);
   /** まだ保存していない予定（収穫者・開始時刻）。そのハウスを初めて保存するときに一緒に保存する */
   const pending = (h: string): HouseHarvest => ({
-    ...(rec[h]?.members ? {} : { members: who(h) }),
+    ...(rec[h]?.members && (rec[h].membersEdited || sameMembers(rec[h].members!, who(h))) ? {} : { members: who(h) }),
     ...(rec[h]?.start == null && plannedStart(h) != null ? { start: plannedStart(h) } : {}),
   });
   const run = (p: Promise<unknown>) => {
     setError("");
     p.catch((e) => setError(errorText(e)));
   };
+  // 作業配置表を変えたら、記録してある収穫者も合わせる（収穫管理の画面で手で変えたハウスはそのまま）
+  const outOfSync = houses.filter((h) => rec[h]?.members && !rec[h].membersEdited && !sameMembers(rec[h].members!, who(h)));
+  const syncKey = outOfSync.map((h) => `${h}:${who(h).join(",")}`).join("|");
+  useEffect(() => {
+    if (!syncKey) return;
+    for (const h of outOfSync) saveHouseHarvest(date, h, { members: who(h) }).catch(() => {});
+    // syncKey が変わったときだけ（同じ書き直しを何度もしない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncKey, date]);
   /** 1つのハウスを保存する。まだ保存していない予定（収穫者・開始時刻）も一緒に保存する */
   const save = (h: string, patch: HouseHarvest) => saveHouseHarvest(date, h, { ...pending(h), ...patch });
 
@@ -419,7 +436,7 @@ function Sheet({
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
     const cur = who(to);
     const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
-    run(save(to, { members: cur.includes(id) ? cur : [...cur, id], ...startAt }));
+    run(save(to, { members: cur.includes(id) ? cur : [...cur, id], membersEdited: true, ...startAt }));
   }
   /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
   function onPick(id: string, from: string, e: React.PointerEvent) {
@@ -439,7 +456,7 @@ function Sheet({
       start.current = null;
       setDrag(null);
       if (!s) return;
-      if (!s.moved) return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id) }));
+      if (!s.moved) return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id), membersEdited: true }));
       const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
       if (target?.dataset.drop) dropTo(s.id, s.from, target.dataset.drop);
     };
@@ -466,7 +483,7 @@ function Sheet({
       planned={!rec[h]?.members && who(h).length > 0}
       names={names}
       members={members}
-      onChange={(next) => run(save(h, { members: next }))}
+      onChange={(next) => run(save(h, { members: next, membersEdited: true }))}
       onPick={(id, e) => onPick(id, h, e)}
     />
   );
