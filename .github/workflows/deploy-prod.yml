@@ -99,9 +99,13 @@ jobs:
             }
             const ok = k.type === "service_account" && k.private_key && k.client_email;
             if (k.project_id !== "ichigo-prod") { console.log("::error::本番（ichigo-prod）の鍵ではありません"); process.exit(1); }
-            console.log("type:", k.type, "/ project_id:", k.project_id, "/ 秘密鍵あり:", Boolean(k.private_key));
+            console.log("type:", k.type, "/ project_id:", k.project_id, "/ 秘密鍵あり:", Boolean(k.private_key), "/ アカウント:", k.client_email);
             if (!ok) { console.log("::error::サービスアカウントの鍵ではありません"); process.exit(1); }
           ' "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx firebase deploy --only hosting,firestore:rules,firestore:indexes,functions --project prod --non-interactive --force
+          # サーバー側（ルール・Functions）で失敗しても、画面（hosting）は出す。失敗したことは最後に知らせる
+          FAILED=0
+          npx firebase deploy --only firestore:rules,firestore:indexes,functions --project prod --non-interactive --force || FAILED=1
+          npx firebase deploy --only hosting --project prod --non-interactive --force || FAILED=1
           rm -f "$RUNNER_TEMP/sa.json"
+          if [ "$FAILED" = 1 ]; then echo "::error::本番に入れる途中で失敗したところがあります（上のログを見てください）"; exit 1; fi

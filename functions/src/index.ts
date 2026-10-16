@@ -11,8 +11,7 @@ export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js
 export { cancelShiftRequest, createWorkerLogin, deleteShiftMember, submitShiftRequest, updateWorkerLogin } from "./shift.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
 export { importWeatherMonth, refreshHarvestWeather } from "./weather.js";
-// pollGovee（夜のあいだ20分ごとに読むタイマー）は、本番に入れる Google のアカウントに Cloud Scheduler の権限を足してから出す
-export { saveGoveeKey, pollGoveeNow } from "./govee.js";
+export { saveGoveeKey, pollGovee, pollGoveeNow } from "./govee.js";
 export { refreshForecast } from "./forecast.js";
 export { refreshHarvestSpeeds } from "./harvest.js";
 
