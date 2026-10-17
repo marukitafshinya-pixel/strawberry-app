@@ -144,9 +144,7 @@ export function StackedColumns({
         {rows.map((r, i) => {
           const cx = pad.l + slot * i + slot / 2;
           let acc = 0;
-          const segs = series
-            .map((s) => ({ s, v: r.values[s.key] ?? 0 }))
-            .filter((x) => x.v > 0);
+          const segs = series.map((s) => ({ s, v: r.values[s.key] ?? 0 })).filter((x) => x.v > 0);
           return (
             <g key={r.key}>
               {segs.map(({ s, v }, j) => {
@@ -236,7 +234,10 @@ export function Meter({ value, max, color = SERIES_COLORS[0] }: { value: number;
   const over = value > max;
   return (
     <span className="block h-3 overflow-hidden rounded-full" style={{ background: GRID }}>
-      <span className="block h-full rounded-full" style={{ width: `${ratio * 100}%`, background: over ? "#c0392b" : color, boxShadow: `inset -2px 0 0 ${SURFACE}` }} />
+      <span
+        className="block h-full rounded-full"
+        style={{ width: `${ratio * 100}%`, background: over ? "#c0392b" : color, boxShadow: `inset -2px 0 0 ${SURFACE}` }}
+      />
     </span>
   );
 }
@@ -245,15 +246,7 @@ export function Meter({ value, max, color = SERIES_COLORS[0] }: { value: number;
  * 凡例を兼ねた切り替えボタン。押すとその系列（分類）をグラフに出す／出さないを切り替える。
  * 色は系列ごとに固定なので、切り替えても他の系列の色は変わらない。
  */
-export function SeriesToggle({
-  series,
-  hidden,
-  onChange,
-}: {
-  series: Series[];
-  hidden: string[];
-  onChange: (hidden: string[]) => void;
-}) {
+export function SeriesToggle({ series, hidden, onChange }: { series: Series[]; hidden: string[]; onChange: (hidden: string[]) => void }) {
   if (series.length === 0) return null;
   const allShown = hidden.length === 0;
   return (
@@ -447,7 +440,9 @@ export function WeatherStrip({
         {panels.map((p, pi) => {
           const y0 = top + panels.slice(0, pi).reduce((n, q) => n + heightOf(q.kind) + 14, 0);
           const PH = heightOf(p.kind);
-          const vals = rows.flatMap((r) => p.keys.flatMap((k) => [r.values[k], compare ? r.prev?.[k] : null])).filter((v): v is number => typeof v === "number");
+          const vals = rows
+            .flatMap((r) => p.keys.flatMap((k) => [r.values[k], compare ? r.prev?.[k] : null]))
+            .filter((v): v is number => typeof v === "number");
           let lo = p.kind === "temp" ? Math.floor(Math.min(...vals, 0) / 5) * 5 : 0;
           let hi = p.kind === "temp" ? Math.ceil(Math.max(...vals, 10) / 5) * 5 : niceMax(Math.max(1, ...vals));
           if (!vals.length) {
@@ -489,18 +484,42 @@ export function WeatherStrip({
                       return (
                         <g key={`${k}-${which}`} opacity={isPrev ? 0.7 : 1}>
                           {segs.map((d, j) => (
-                            <path key={j} d={d} fill="none" stroke={color} strokeWidth={isPrev ? 1.5 : 2} strokeDasharray={isPrev ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" />
+                            <path
+                              key={j}
+                              d={d}
+                              fill="none"
+                              stroke={color}
+                              strokeWidth={isPrev ? 1.5 : 2}
+                              strokeDasharray={isPrev ? "5 4" : undefined}
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                            />
                           ))}
                           {/* 列が広いとき（月ごとなど）は点も打つ。1つだけの値でも見えるように。前年は白抜き */}
                           {slot >= 24 &&
                             rows.map((r, i) => {
                               const v = get(r);
                               return typeof v === "number" ? (
-                                <circle key={r.key} cx={cx(i)} cy={y(v)} r={3.5} fill={isPrev ? SURFACE : color} stroke={isPrev ? color : SURFACE} strokeWidth={1.5} />
+                                <circle
+                                  key={r.key}
+                                  cx={cx(i)}
+                                  cy={y(v)}
+                                  r={3.5}
+                                  fill={isPrev ? SURFACE : color}
+                                  stroke={isPrev ? color : SURFACE}
+                                  strokeWidth={1.5}
+                                />
                               ) : null;
                             })}
                           {hover !== null && typeof get(rows[hover]) === "number" && (
-                            <circle cx={cx(hover)} cy={y(get(rows[hover])!)} r={4} fill={isPrev ? SURFACE : color} stroke={isPrev ? color : SURFACE} strokeWidth={2} />
+                            <circle
+                              cx={cx(hover)}
+                              cy={y(get(rows[hover])!)}
+                              r={4}
+                              fill={isPrev ? SURFACE : color}
+                              stroke={isPrev ? color : SURFACE}
+                              strokeWidth={2}
+                            />
                           )}
                         </g>
                       );
@@ -521,7 +540,14 @@ export function WeatherStrip({
                       if (typeof b.v !== "number" || b.v <= 0) return null;
                       const h = y0 + PH - y(b.v);
                       const dim = hover === null || hover === i ? 1 : 0.55;
-                      return <path key={`${r.key}-${b.prev}`} d={topRoundedRect(b.x, y(b.v), Math.max(1.5, b.w), h, Math.min(3, b.w / 2))} fill={color} opacity={(b.prev ? 0.4 : 1) * dim} />;
+                      return (
+                        <path
+                          key={`${r.key}-${b.prev}`}
+                          d={topRoundedRect(b.x, y(b.v), Math.max(1.5, b.w), h, Math.min(3, b.w / 2))}
+                          fill={color}
+                          opacity={(b.prev ? 0.4 : 1) * dim}
+                        />
+                      );
                     });
                   })}
               <line x1={pad.l} x2={W - pad.r} y1={y0 + PH} y2={y0 + PH} stroke="#bdbbb4" strokeWidth={1} />
@@ -599,7 +625,11 @@ export function WeatherPicker({
       <span className="text-xs text-gray-500">気象を並べる：</span>
       {order.map((k) => (
         <label key={k} className="flex items-center gap-1">
-          <input type="checkbox" checked={show.includes(k)} onChange={(e) => onChange(e.target.checked ? order.filter((x) => x === k || show.includes(x)) : show.filter((x) => x !== k))} />
+          <input
+            type="checkbox"
+            checked={show.includes(k)}
+            onChange={(e) => onChange(e.target.checked ? order.filter((x) => x === k || show.includes(x)) : show.filter((x) => x !== k))}
+          />
           <Swatch k={k} />
           {WEATHER_STYLE[k].label}
         </label>
@@ -632,3 +662,121 @@ export function WeatherPicker({
   );
 }
 export type WeatherKey5 = WKey;
+
+/**
+ * 折れ線（例：温度計ごとの温度）。値のないところは線を切る。
+ * 線は2px、さわったところに縦の線と、その列の値の吹き出しを出す。系列は凡例で見分ける
+ */
+export function LineChart({
+  rows,
+  series,
+  unit,
+  height = 220,
+  width = 640,
+}: {
+  rows: { key: string; label: string; values: Record<string, number | null | undefined> }[];
+  series: Series[];
+  unit: string;
+  height?: number;
+  width?: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [box, W] = useWidth<HTMLDivElement>(width);
+  const pad = { l: 40, r: 12, t: 10, b: 24 };
+  const plotW = W - pad.l - pad.r;
+  const H = height;
+  const plotH = H - pad.t - pad.b;
+  const vals = rows.flatMap((r) => series.map((s) => r.values[s.key])).filter((v): v is number => typeof v === "number");
+  const lo = vals.length ? Math.floor(Math.min(...vals) / 2) * 2 : 0;
+  const hi = vals.length ? Math.max(lo + 2, Math.ceil(Math.max(...vals) / 2) * 2) : 10;
+  const step = hi - lo > 20 ? 5 : 2;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
+  const x = (i: number) => pad.l + (rows.length <= 1 ? plotW / 2 : (plotW * i) / (rows.length - 1));
+  const y = (v: number) => pad.t + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
+  // 横軸の文字は8つくらいまで
+  const every = Math.max(1, Math.ceil(rows.length / 8));
+  const num = (v: number) => v.toLocaleString("ja-JP", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const pathOf = (k: string) => {
+    let d = "";
+    let pen = false;
+    rows.forEach((r, i) => {
+      const v = r.values[k];
+      if (typeof v !== "number") {
+        pen = false;
+        return;
+      }
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    return d;
+  };
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = rows.length <= 1 ? 0 : Math.round(((px - pad.l) / plotW) * (rows.length - 1));
+    setHover(Math.max(0, Math.min(rows.length - 1, i)));
+  };
+  return (
+    <div className="relative" ref={box}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full touch-none"
+        role="img"
+        aria-label="折れ線グラフ"
+        onPointerMove={onMove}
+        onPointerDown={onMove}
+        onPointerLeave={() => setHover(null)}
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
+            <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
+              {t}
+              {t === ticks[ticks.length - 1] ? unit : ""}
+            </text>
+          </g>
+        ))}
+        {rows.map((r, i) =>
+          i % every === 0 ? (
+            <text key={r.key} x={x(i)} y={H - 6} textAnchor="middle" fontSize={11} fill={TEXT_MUTED}>
+              {r.label}
+            </text>
+          ) : null,
+        )}
+        {hover != null && <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + plotH} stroke={TEXT_MUTED} strokeWidth={1} strokeDasharray="3 3" />}
+        {series.map((s) => (
+          <path key={s.key} d={pathOf(s.key)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {/* 点が1つだけの系列も見えるように、離れた点は丸で出す */}
+        {series.map((s) =>
+          rows.map((r, i) => {
+            const v = r.values[s.key];
+            const alone = typeof v === "number" && typeof rows[i - 1]?.values[s.key] !== "number" && typeof rows[i + 1]?.values[s.key] !== "number";
+            const on = hover === i && typeof v === "number";
+            return alone || on ? (
+              <circle key={`${s.key}-${r.key}`} cx={x(i)} cy={y(v as number)} r={4} fill={s.color} stroke={SURFACE} strokeWidth={2} />
+            ) : null;
+          }),
+        )}
+      </svg>
+      {hover != null && rows[hover] && (
+        <Tooltip x={(x(hover) / W) * 100}>
+          <div className="font-bold">{rows[hover].label}</div>
+          <ul className="mt-1 space-y-0.5">
+            {series.map((s) => {
+              const v = rows[hover].values[s.key];
+              return (
+                <li key={s.key} className="flex items-center gap-2 text-xs">
+                  <span className="inline-block h-2 w-2 rounded-sm" style={{ background: s.color }} />
+                  <span className="font-semibold tabular-nums">{typeof v === "number" ? `${num(v)}${unit}` : "－"}</span>
+                  <span className="text-gray-500">{s.label}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Tooltip>
+      )}
+    </div>
+  );
+}

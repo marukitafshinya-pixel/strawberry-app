@@ -74,3 +74,20 @@ export function nightLow(list: { t: string; temp: number }[] | undefined): { tem
   for (const x of list ?? []) if (best == null || x.temp < best.temp) best = { temp: x.temp, at: x.t >= "12:00" ? `前日${x.t}` : x.t };
   return best;
 }
+
+/**
+ * そのハウスの温度に使う温度計のハウス：同じまとまりの中で、番号がいちばん近い温度計。
+ * まとまりに温度計がない（またはその夜に読めていない）ときは、全体でいちばん近い温度計
+ */
+export function sensorFor(house: string, sensors: string[], groupOfHouse: (h: string) => string): string | null {
+  if (sensors.includes(house)) return house;
+  const near = (list: string[]) =>
+    list.reduce<string | null>((best, s) => {
+      const d = Math.abs(Number(s) - Number(house));
+      return best == null || d < Math.abs(Number(best) - Number(house)) || (d === Math.abs(Number(best) - Number(house)) && Number(s) < Number(best))
+        ? s
+        : best;
+    }, null);
+  const g = groupOfHouse(house);
+  return near(sensors.filter((s) => groupOfHouse(s) === g)) ?? near(sensors);
+}
