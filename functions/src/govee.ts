@@ -120,7 +120,7 @@ export async function pollGoveeOnce(nowMs = Date.now(), force = false) {
 }
 
 /** 夜のあいだ、20分ごとに読む（日本時間 18:00〜9:00） */
-export const pollGovee = onSchedule({ schedule: "*/20 0-9,18-23 * * *", timeZone: "Asia/Tokyo", timeoutSeconds: 120 }, async () => {
+export const pollGovee = onSchedule({ schedule: "*/20 0-9,18-23 * * *", timeZone: "Asia/Tokyo", timeoutSeconds: 90 }, async () => {
   await pollGoveeOnce();
 });
 
