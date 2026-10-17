@@ -1,6 +1,7 @@
 "use client";
 
-// ハウスの中の温度（Govee の温湿度計）。サーバーが夜のあいだ20分ごとに読んで houseTemp/{その夜が明けた日} に残す。
+// ハウスの中の温度（Govee の温湿度計）。サーバーが1日じゅう20分ごとに読んで houseTemp/{日付} に残す。
+// 1つの日付には「前の日の9時すぎ〜その日の9時」の24時間分が入る（その日の収穫の前の24時間）。
 // API キーはサーバーだけが持つ（画面からは登録するだけで、読み出せない）。見られるのは管理者だけ
 import { collection, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
@@ -9,7 +10,7 @@ import { getFirebase } from "./firebase";
 
 export type GoveeDevice = { device: string; sku: string; name: string };
 export type GoveeConfig = { devices: GoveeDevice[]; houseOf: Record<string, string>; keySet: boolean };
-/** ハウス → その夜の温度（t＝"HH:MM"、temp＝℃） */
+/** ハウス → その日の分の温度（t＝"HH:MM"、temp＝℃） */
 export type HouseTempNight = Record<string, { t: string; temp: number }[]>;
 
 export function useGoveeConfig(): GoveeConfig | null | undefined {
@@ -68,11 +69,34 @@ export function useHouseTemps(from: string, to: string): Record<string, HouseTem
   return state && state.key === key ? state.v : null;
 }
 
-/** その夜でいちばん低い温度と時刻（"前日23:00" のように、前の日の夜なら「前日」を付ける） */
+/** 読んだ時刻の表し方（9時すぎは前の日の分なので「前日」を付ける） */
+const atOf = (t: string) => (t > "09:00" ? `前日${t}` : t);
+
+/** いちばん低い温度と時刻（ふつうは夜） */
 export function nightLow(list: { t: string; temp: number }[] | undefined): { temp: number; at: string } | null {
-  let best: { temp: number; at: string } | null = null;
-  for (const x of list ?? []) if (best == null || x.temp < best.temp) best = { temp: x.temp, at: x.t >= "12:00" ? `前日${x.t}` : x.t };
-  return best;
+  return dayStats(list)?.min ?? null;
+}
+
+/** 1日（24時間）に読む回数（20分ごと） */
+export const READS_PER_DAY = 72;
+
+/** その日の分の最低・平均・最高（n＝読めた回数。少ない日は平均・最高があてにならない） */
+export function dayStats(list: { t: string; temp: number }[] | undefined) {
+  if (!list?.length) return null;
+  let min = list[0];
+  let max = list[0];
+  let sum = 0;
+  for (const x of list) {
+    if (x.temp < min.temp) min = x;
+    if (x.temp > max.temp) max = x;
+    sum += x.temp;
+  }
+  return {
+    min: { temp: min.temp, at: atOf(min.t) },
+    max: { temp: max.temp, at: atOf(max.t) },
+    avg: Math.round((sum / list.length) * 10) / 10,
+    n: list.length,
+  };
 }
 
 /**

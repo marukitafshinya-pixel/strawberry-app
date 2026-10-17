@@ -1,5 +1,6 @@
-// ハウスの中の温度（Govee の温湿度計 H5179）。夜のあいだ（18時〜翌朝9時）20分ごとに Govee から今の温度を読み取り、
-// houseTemp/{日付}（その夜が明けた日。収穫の日と同じ）に残す。振り返りで「その夜でいちばん低い温度」を見る。
+// ハウスの中の温度（Govee の温湿度計 H5179）。1日じゅう20分ごとに Govee から今の温度を読み取り、
+// houseTemp/{日付} に残す。1つの日付には「前の日の9時すぎ〜その日の9時」の24時間分が入る（その日の収穫の前の24時間）。
+// 振り返りで、その24時間の最低・平均・最高の温度を見る。
 // Govee の API キーは、管理者が画面から登録する（secrets/govee。画面からは誰も読めない。サーバーだけが使う）。
 // Govee の公開 API（Govee Developer Platform）を使う。読めるのは今の値だけなので、こちらから定期的に読みにいく。
 import { randomUUID } from "node:crypto";
@@ -60,12 +61,12 @@ async function readTemp(apiKey: string, d: { device: string; sku: string }): Pro
   return parseState(await goveeFetch("/device/state", apiKey, { requestId: randomUUID(), payload: { sku: d.sku, device: d.device } }));
 }
 
-/** 日本時間の今。date＝その夜が明けた日（12時より前なら今日、あとなら明日）、time＝"HH:MM" */
-export function nightSlot(nowMs: number): { date: string; time: string; inNight: boolean } {
+/** 日本時間の今。date＝どの日の分か（9時までなら今日、9時すぎなら明日）、time＝"HH:MM" */
+export function daySlot(nowMs: number): { date: string; time: string } {
   const jst = new Date(nowMs + 9 * 3600_000);
   const time = jst.toISOString().slice(11, 16);
-  const day = jst.getUTCHours() >= 12 ? new Date(jst.getTime() + 86400_000) : jst;
-  return { date: day.toISOString().slice(0, 10), time, inNight: time >= "18:00" || time <= "09:00" };
+  const day = time > "09:00" ? new Date(jst.getTime() + 86400_000) : jst;
+  return { date: day.toISOString().slice(0, 10), time };
 }
 
 /** Govee の API キーを登録する（管理者）。キーが使えるか確かめて、温湿度計の一覧と今の温度を返す（キーそのものは返さない） */
@@ -92,9 +93,8 @@ export const saveGoveeKey = onCall({ timeoutSeconds: 60 }, async (req) => {
 });
 
 /** 1回分：ハウスを決めた温湿度計の今の温度を読んで残す */
-export async function pollGoveeOnce(nowMs = Date.now(), force = false) {
-  const slot = nightSlot(nowMs);
-  if (!slot.inNight && !force) return { saved: 0 };
+export async function pollGoveeOnce(nowMs = Date.now()) {
+  const slot = daySlot(nowMs);
   const apiKey = (await db.doc("secrets/govee").get()).get("apiKey") as string | undefined;
   if (!apiKey) return { saved: 0 };
   const cfg = await db.doc("config/govee").get();
@@ -113,19 +113,17 @@ export async function pollGoveeOnce(nowMs = Date.now(), force = false) {
     if (temp == null) continue; // 通信がうまくいかない温湿度計は、その回は飛ばす
     readings[house] = FieldValue.arrayUnion({ t: slot.time, temp });
   }
-  // 夜の時間でなければ残さない（確認で読んだだけ）
-  if (Object.keys(readings).length && slot.inNight)
-    await db.doc(`houseTemp/${slot.date}`).set({ readings, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  if (Object.keys(readings).length) await db.doc(`houseTemp/${slot.date}`).set({ readings, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { saved: Object.keys(readings).length, date: slot.date };
 }
 
-/** 夜のあいだ、20分ごとに読む（日本時間 18:00〜9:00） */
-export const pollGovee = onSchedule({ schedule: "*/20 0-9,18-23 * * *", timeZone: "Asia/Tokyo", timeoutSeconds: 90 }, async () => {
+/** 1日じゅう、20分ごとに読む */
+export const pollGovee = onSchedule({ schedule: "*/20 * * * *", timeZone: "Asia/Tokyo", timeoutSeconds: 90 }, async () => {
   await pollGoveeOnce();
 });
 
-/** 今すぐ1回読む（管理者。つながっているかの確認用）。昼に読んだ分は残さない */
+/** 今すぐ1回読んで残す（管理者。つながっているかの確認用） */
 export const pollGoveeNow = onCall({ timeoutSeconds: 60 }, async (req) => {
   await assertAdmin(req);
-  return await pollGoveeOnce(Date.now(), true);
+  return await pollGoveeOnce(Date.now());
 });

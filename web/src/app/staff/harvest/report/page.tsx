@@ -34,7 +34,18 @@ import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harv
 import { useShiftMembers } from "@/lib/shift";
 import { callFunction } from "@/lib/callFunction";
 import { useWeatherMonths, type WeatherDay } from "@/lib/weather";
-import { nightLow, pollGoveeNow, saveGoveeHouses, saveGoveeKey, sensorFor, useGoveeConfig, useHouseTemps, type GoveeConfig } from "@/lib/govee";
+import {
+  dayStats,
+  nightLow,
+  pollGoveeNow,
+  READS_PER_DAY,
+  saveGoveeHouses,
+  saveGoveeKey,
+  sensorFor,
+  useGoveeConfig,
+  useHouseTemps,
+  type GoveeConfig,
+} from "@/lib/govee";
 import { LineChart, NEUTRAL, SERIES_COLORS, Legend } from "@/components/charts";
 import { errorText } from "@/lib/callFunction";
 
@@ -634,66 +645,91 @@ function SpeedTable({ speeds, names }: { speeds: HarvestSpeeds; names: Map<strin
 }
 
 /** ハウスの株数（ハウスの大きさ。予測に使う） */
-/** 夜の時間（18:00〜翌9:00）を20分ごとに */
-const NIGHT_SLOTS = Array.from({ length: (15 * 60) / 20 + 1 }, (_, i) => (18 * 60 + i * 20) % 1440);
+/** その日の分の24時間（前の日の9:20〜その日の9:00）を20分ごとに */
+const DAY_SLOTS = Array.from({ length: READS_PER_DAY }, (_, i) => (9 * 60 + 20 + i * 20) % 1440);
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 /** 読んだ時刻（"18:01" など）を、いちばん近い20分の区切りにする */
 const slotOf = (t: string) => {
   const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   return (Math.round(m / 20) * 20) % 1440;
 };
+type TempKind = "min" | "avg" | "max";
+const TEMP_KINDS: { key: TempKind; label: string }[] = [
+  { key: "min", label: "最低" },
+  { key: "avg", label: "平均" },
+  { key: "max", label: "最高" },
+];
+/** 平均・最高を出すのに足りる読めた回数（24時間の4分の3） */
+const ENOUGH = Math.round(READS_PER_DAY * 0.75);
 
-/** ハウスの温度：温度計ごとの夜の温度のグラフと、ハウスごとに使う温度計・その夜の最低温度 */
+/** ハウスの温度：温度計ごとの温度のグラフと、ハウスごとに使う温度計・その日の最低・平均・最高 */
 function HouseTempTab({ from, to, houses, groups }: { from: string; to: string; houses: string[]; groups: HouseGroup[] }) {
   const temps = useHouseTemps(from, to);
-  const weather = useWeatherMonths(from.slice(0, 7), to.slice(0, 7));
+  const weather = useWeatherMonths(addDays(from, -1).slice(0, 7), to.slice(0, 7));
   const [pick, setPick] = useState<string | null>(null);
+  const [kind, setKind] = useState<TempKind>("min");
   if (!temps) return <p className="mt-4 text-gray-500">読み込み中…</p>;
-  const nights = Object.keys(temps)
+  const days = Object.keys(temps)
     .filter((d) => Object.keys(temps[d]).length > 0)
     .sort();
-  if (!nights.length)
-    return <p className="mt-4 text-gray-500">この期間のハウスの温度の記録はまだありません（温度計の記録は、夜の18時〜翌朝9時に20分ごとです）。</p>;
-  const night = pick && nights.includes(pick) ? pick : nights[nights.length - 1];
-  // 温度計のあるハウス（作業配置表の順）。色はハウスごとに固定（期間を変えても同じハウスは同じ色）
-  const sensorHouses = [...new Set(nights.flatMap((d) => Object.keys(temps[d])))].sort((a, b) => houses.indexOf(a) - houses.indexOf(b));
+  if (!days.length) return <p className="mt-4 text-gray-500">この期間のハウスの温度の記録はまだありません（温度計の記録は20分ごとです）。</p>;
+  const day = pick && days.includes(pick) ? pick : days[days.length - 1];
+  // 温度計のあるハウス（作業配置表の順）。色はハウスごとに固定
+  const sensorHouses = [...new Set(days.flatMap((d) => Object.keys(temps[d])))].sort((a, b) => houses.indexOf(a) - houses.indexOf(b));
   const series = sensorHouses.slice(0, SERIES_COLORS.length).map((h, i) => ({ key: h, label: `No.${h}`, color: SERIES_COLORS[i] }));
-  const outside = { key: "out", label: "外（美瑛）", color: NEUTRAL };
-  const nightMinOut = (d: string) => weather?.find((m) => m.month === d.slice(0, 7))?.days[d.slice(8, 10)]?.nightMin ?? null;
+  const wOf = (d: string) => weather?.find((m) => m.month === d.slice(0, 7))?.days[d.slice(8, 10)];
+  // 外の気温：最低＝その朝までの夜温、平均・最高＝前の日の値（気象庁アメダス「美瑛」）
+  const outside = { key: "out", label: kind === "min" ? "外（夜温）" : "外（前日）", color: NEUTRAL };
+  const outOf = (d: string) => (kind === "min" ? wOf(d)?.nightMin : kind === "avg" ? wOf(addDays(d, -1))?.tAvg : wOf(addDays(d, -1))?.tMax) ?? null;
+  const pickOf = (st: ReturnType<typeof dayStats>) => {
+    if (!st) return null;
+    if (kind === "min") return st.min.temp;
+    if (st.n < ENOUGH) return null; // 読めた回数が少ない日は、平均・最高を出さない
+    return kind === "avg" ? st.avg : st.max.temp;
+  };
   const g = (h: string) => groupOf(groups, h);
 
-  // 日ごとの、夜のいちばん低い温度
-  const dailyRows = nights.map((d) => ({
+  const dailyRows = days.map((d) => ({
     key: d,
     label: `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`,
-    values: { ...Object.fromEntries(series.map((s) => [s.key, nightLow(temps[d][s.key])?.temp ?? null])), out: nightMinOut(d) },
+    values: { ...Object.fromEntries(series.map((s) => [s.key, pickOf(dayStats(temps[d][s.key]))])), out: outOf(d) },
   }));
-  // えらんだ夜の、20分ごとの温度
-  const nightRows = NIGHT_SLOTS.map((m) => ({
+  const dayRows = DAY_SLOTS.map((m) => ({
     key: String(m),
     label: hhmm(m),
-    values: Object.fromEntries(series.map((s) => [s.key, (temps[night][s.key] ?? []).find((x) => slotOf(x.t) === m)?.temp ?? null])),
+    values: Object.fromEntries(series.map((s) => [s.key, (temps[day][s.key] ?? []).find((x) => slotOf(x.t) === m)?.temp ?? null])),
   }));
-  // ハウスごとに使う温度計（その夜に読めている温度計の中から）
-  const available = Object.keys(temps[night]).filter((h) => (temps[night][h] ?? []).length > 0);
+  const available = Object.keys(temps[day]).filter((h) => (temps[day][h] ?? []).length > 0);
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
-        温度計のないハウスは、<b>同じまとまりの中で番号がいちばん近い温度計</b>
-        の温度を使います（まとまりに温度計がない・その夜に読めなかったときは、全体でいちばん近い温度計）。日付は「その夜が明けた日」（収穫の日）です。
+        日付ごとに、<b>前の日の9時すぎ〜その日の朝9時の24時間</b>（その日の収穫の前の24時間）の温度を、最低・平均・最高で出します。温度計のないハウスは、
+        <b>同じまとまりの中で番号がいちばん近い温度計</b>の温度を使います（まとまりに温度計がない・その日に読めなかったときは、全体でいちばん近い温度計）。
       </p>
       <section className="mt-3 rounded-xl border bg-white p-3">
-        <h2 className="font-bold">夜のいちばん低い温度（日ごと）</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-bold">日ごとの温度</h2>
+          <div className="flex overflow-hidden rounded-lg border text-sm">
+            {TEMP_KINDS.map((k) => (
+              <button key={k.key} onClick={() => setKind(k.key)} className={`px-3 py-1 ${kind === k.key ? "bg-berry font-bold text-white" : "bg-white"}`}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-1">
           <Legend series={[...series, outside]} />
         </div>
         <LineChart rows={dailyRows} series={[...series, outside]} unit="℃" />
+        {kind !== "min" && (
+          <p className="text-xs text-gray-500">平均・最高は、24時間のうち4分の3以上読めた日だけ出します（読めない時間が長いと、平均・最高がずれるため）。</p>
+        )}
       </section>
       <section className="mt-3 rounded-xl border bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-bold">夜の温度の動き</h2>
-          <select value={night} onChange={(e) => setPick(e.target.value)} className="rounded border px-2 py-1 text-sm">
-            {[...nights].reverse().map((d) => (
+          <h2 className="font-bold">温度の動き（24時間）</h2>
+          <select value={day} onChange={(e) => setPick(e.target.value)} className="rounded border px-2 py-1 text-sm">
+            {[...days].reverse().map((d) => (
               <option key={d} value={d}>
                 {formatJa(d)} の朝まで
               </option>
@@ -703,36 +739,58 @@ function HouseTempTab({ from, to, houses, groups }: { from: string; to: string; 
         <div className="mt-1">
           <Legend series={series} />
         </div>
-        <LineChart rows={nightRows} series={series} unit="℃" />
+        <LineChart rows={dayRows} series={series} unit="℃" />
       </section>
       <section className="mt-3 overflow-x-auto rounded-xl border bg-white">
-        <h2 className="px-3 pt-3 font-bold">ハウスごとの夜の最低温度（{formatJa(night)} の朝まで）</h2>
+        <h2 className="px-3 pt-3 font-bold">ハウスごとの温度（{formatJa(day)} の朝までの24時間）</h2>
         <table className="mt-2 w-full min-w-max text-sm tabular-nums">
           <thead className="bg-gray-50 text-left text-xs text-gray-600">
             <tr>
               <th className="px-3 py-2">まとまり</th>
               <th className="px-3 py-2">ハウス</th>
               <th className="px-3 py-2">使う温度計</th>
-              <th className="px-3 py-2 text-right">最低温度</th>
-              <th className="px-3 py-2">時刻</th>
+              <th className="px-3 py-2 text-right">最低</th>
+              <th className="px-3 py-2 text-right">平均</th>
+              <th className="px-3 py-2 text-right">最高</th>
+              <th className="px-3 py-2 text-right">読めた回数</th>
             </tr>
           </thead>
           <tbody>
             {houses.map((h) => {
               const s = sensorFor(h, available, g);
-              const m = s ? nightLow(temps[night][s]) : null;
+              const st = s ? dayStats(temps[day][s]) : null;
+              const few = !!st && st.n < ENOUGH;
               return (
                 <tr key={h} className="border-t">
                   <td className="px-3 py-1.5 text-gray-500">{g(h)}</td>
                   <td className="px-3 py-1.5 font-bold">No.{h}</td>
                   <td className="px-3 py-1.5">{s == null ? "－" : s === h ? "このハウス" : `No.${s}`}</td>
-                  <td className="px-3 py-1.5 text-right">{m ? `${m.temp.toFixed(1)}℃` : "－"}</td>
-                  <td className="px-3 py-1.5 text-gray-500">{m?.at ?? ""}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {st ? (
+                      <>
+                        {st.min.temp.toFixed(1)}℃<span className="ml-1 text-xs text-gray-500">{st.min.at}</span>
+                      </>
+                    ) : (
+                      "－"
+                    )}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right ${few ? "text-gray-400" : ""}`}>{st ? `${st.avg.toFixed(1)}℃` : "－"}</td>
+                  <td className={`px-3 py-1.5 text-right ${few ? "text-gray-400" : ""}`}>
+                    {st ? (
+                      <>
+                        {st.max.temp.toFixed(1)}℃<span className="ml-1 text-xs text-gray-500">{st.max.at}</span>
+                      </>
+                    ) : (
+                      "－"
+                    )}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right ${few ? "text-amber-700" : "text-gray-500"}`}>{st ? `${st.n}/${READS_PER_DAY}` : ""}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        <p className="px-3 py-2 text-xs text-gray-500">読めた回数が少ない日（うすい字）は、平均・最高があてになりません（夜だけ記録していた日など）。</p>
       </section>
     </>
   );
@@ -783,7 +841,7 @@ function GoveeSetting({ houses }: { houses: string[] }) {
       {open && (
         <div className="mt-2 space-y-3">
           <p className="text-gray-600">
-            夜のあいだ（18時〜翌朝9時）20分ごとに、温度計の今の温度を読んで残します。API キーは Govee Home アプリの「プロフィール → 設定 → API
+            1日じゅう20分ごとに、温度計の今の温度を読んで残します。API キーは Govee Home アプリの「プロフィール → 設定 → API
             キーを申請」でメールに届きます。キーはサーバーだけが使い、この画面からも読み出せません。
           </p>
           <div className="flex flex-wrap items-center gap-2">
