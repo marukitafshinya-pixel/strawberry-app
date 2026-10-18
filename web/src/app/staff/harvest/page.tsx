@@ -548,6 +548,7 @@ function Sheet({
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
       here={startOf(h) != null && rec[h]?.end == null && !NO_HARVEST.includes(usageOf(h))}
+      finished={rec[h]?.end != null}
       names={names}
       members={members}
       onChange={(next) => run(save(h, { members: next, membersEdited: true }))}
@@ -646,7 +647,7 @@ function Sheet({
   const help = (
     <>
       集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
-      <b className="text-emerald-700">緑</b>になります。時刻は「710」で
+      <b className="text-emerald-700">緑</b>、終わったハウスの名前は<b className="text-gray-500">灰色（✓）</b>になります。時刻は「710」で
       7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
       {use.from !== date &&
         (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
@@ -774,11 +775,13 @@ function Sheet({
 /**
  * 収穫者：名前を押すと外せる。名前を引っぱって別のハウスの行に落とすと、そのハウスにも入る。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない）。
  * here＝いま収穫しているハウス（「入った」があって「終わった」がまだ）。名前を緑にして、だれがどこにいるかを一目でわかるようにする
+ * finished＝もう終わったハウス。名前を灰色にして「✓」を付ける（これから入るハウスの名前と見分けるため）
  */
 function Members({
   ids,
   planned,
   here,
+  finished,
   names,
   members,
   onChange,
@@ -787,6 +790,7 @@ function Members({
   ids: string[];
   planned: boolean;
   here: boolean;
+  finished: boolean;
   names: Map<string, string>;
   members: ShiftMember[];
   onChange: (ids: string[]) => void;
@@ -804,11 +808,14 @@ function Members({
           className={`touch-none select-none rounded-full border px-2 py-1 ${
             here
               ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
-              : planned
-                ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
-                : "bg-amber-50"
+              : finished
+                ? "border-gray-400 bg-gray-300 text-gray-600"
+                : planned
+                  ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
+                  : "bg-amber-50"
           }`}
         >
+          {finished && !here ? "✓ " : ""}
           {names.get(id) ?? "（いない人）"} ×
         </button>
       ))}
