@@ -416,6 +416,16 @@ service cloud.firestore {
         && request.resource.data.get('keySet', false) == resource.data.get('keySet', false)
         && (!('houseOf' in request.resource.data) || (request.resource.data.houseOf is map && request.resource.data.houseOf.size() <= 40));
     }
+    // 管理者の助言（収穫の振り返りから。次の日から考えること）：管理者だけが読み書きできる
+    match /harvestNotes/{id} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['text', 'from', 'until', 'sourceDate', 'done', 'createdAt', 'updatedAt'])
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 300
+        && request.resource.data.from is string && request.resource.data.from.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (request.resource.data.until == null || (request.resource.data.until is string && request.resource.data.until.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && request.resource.data.done is bool;
+    }
     // 温度の見張り担当（①②③の順。従業員リストの id）：従業員の携帯に「見張り画面を開く」を出すため、従業員も読める
     match /config/tempWatch {
       allow read: if isStaff() || isWorker();

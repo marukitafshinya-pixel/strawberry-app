@@ -138,7 +138,7 @@ export default function HarvestReportPage() {
       ) : tab === "forecast" ? (
         <ForecastTab from={from} to={to} data={data} houses={harvestHouses(template)} names={new Map(members.map((m) => [m.id, m.name]))} />
       ) : tab === "review" ? (
-        <ReviewTab data={data} meta={meta} houses={harvestHouses(template)} groups={groups} members={members} />
+        <ReviewTab data={data} meta={meta} houses={harvestHouses(template)} groups={groups} members={members} use={use} />
       ) : tab === "temp" ? (
         <HouseTempTab from={from} to={to} houses={harvestHouses(template)} groups={groups} />
       ) : tab === "houses" ? (

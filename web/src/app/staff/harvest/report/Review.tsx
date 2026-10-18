@@ -6,9 +6,25 @@ import { useState } from "react";
 import { LineChart, Legend, SERIES_COLORS } from "@/components/charts";
 import { addDays, formatJa } from "@/lib/date";
 import { dayStats, useHouseTemps } from "@/lib/govee";
-import { clock, DEFAULT_BREAK, fmtCases, groupOf, useHarvestLog, type HarvestDoc, type HarvestLogRow, type HouseGroup } from "@/lib/harvest";
-import type { HarvestDayMeta } from "@/lib/harvestForecast";
-import { caseTimeline, minOfDay, reviewHouses, reviewPoints, type Point } from "@/lib/harvestReview";
+import {
+  addHarvestNote,
+  clock,
+  DEFAULT_BREAK,
+  deleteHarvestNote,
+  fmtCases,
+  groupOf,
+  noteActiveOn,
+  setHarvestNoteDone,
+  useHarvestConfig,
+  useHarvestLog,
+  useHarvestNotes,
+  type HarvestDoc,
+  type HarvestLogRow,
+  type HouseGroup,
+  type HouseUseMap,
+} from "@/lib/harvest";
+import { harvestPlants, type HarvestDayMeta } from "@/lib/harvestForecast";
+import { caseTimeline, minOfDay, reviewHouses, reviewPoints, reviewSummary, type Point } from "@/lib/harvestReview";
 import type { ShiftMember } from "@/lib/shift";
 import { useWeatherMonths } from "@/lib/weather";
 
@@ -28,18 +44,23 @@ export function ReviewTab({
   houses,
   groups,
   members,
+  use,
 }: {
   data: Record<string, HarvestDoc>;
   meta: Record<string, HarvestDayMeta>;
   houses: string[];
   groups: HouseGroup[];
   members: ShiftMember[];
+  /** ハウスの使い方（日付 → 使い方）と、期間の前のいちばん近い記録 */
+  use: { days: Record<string, HouseUseMap>; before: HouseUseMap };
 }) {
   const days = Object.keys(data)
     .filter((d) => Object.values(data[d]).some((h) => h.start != null || (h.cases ?? 0) > 0))
     .sort()
     .reverse();
   const [pick, setPick] = useState<string | null>(null);
+  const cfg = useHarvestConfig();
+  const notes = useHarvestNotes();
   const day = pick && days.includes(pick) ? pick : (days[0] ?? null);
   const log = useHarvestLog(day);
   const weather = useWeatherMonths(day ? addDays(day, -1).slice(0, 7) : "0000-00", day ? day.slice(0, 7) : "0000-00");
@@ -55,6 +76,19 @@ export function ReviewTab({
 
   const rows = log ? reviewHouses(houses, rec, log, m?.forecastHouses ?? null, brk) : [];
   const points = log ? reviewPoints(rows, nameOf) : [];
+  // その日のハウスの使い方（記録がない日は前の日の状態を引きつぐ）。いちご狩り前・後ろの日は半分の株数で数える
+  const useKey = Object.keys(use.days)
+    .filter((d) => d <= (day ?? ""))
+    .sort()
+    .pop();
+  const usage = useKey ? use.days[useKey] : use.before;
+  const summary = reviewSummary(
+    reviewHouses(houses, rec, log ?? [], m?.forecastHouses ?? null, brk),
+    { endTime: m?.endTime ?? null, forecast: m?.forecast ?? null },
+    (h) => harvestPlants(cfg?.plants ?? {}, h, usage[h] ?? "harvest"),
+    nameOf,
+    points,
+  );
   const total = Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0);
   const wOf = (d: string) => weather?.find((x) => x.month === d.slice(0, 7))?.days[d.slice(8, 10)];
   const out = wOf(day);
@@ -118,6 +152,21 @@ export function ReviewTab({
         )}
         {tile("＋1 を押した回数", log ? taps : "…", log ? `入力の記録 ${log.length}件` : undefined)}
       </div>
+
+      <section className="mt-4 rounded-xl border-2 border-indigo-200 bg-indigo-50/50 p-3">
+        <h2 className="font-bold">総括（なぜずれたか）</h2>
+        <div className="mt-1 space-y-1 text-sm leading-relaxed">
+          {summary.lines.map((t, i) => (
+            <p key={i}>{t}</p>
+          ))}
+        </div>
+        <p className="mt-2 text-sm">
+          <b>主な原因：</b>
+          {summary.causes.join(" ／ ")}
+        </p>
+      </section>
+
+      <AdviceBox day={day} suggestions={summary.advice} notes={notes} />
 
       {log === null ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
@@ -230,4 +279,108 @@ function describe(x: HarvestLogRow, nameOf: (id: string) => string): string {
   if (x.dayEnd !== undefined) return `収穫終了 ${clock(x.dayEnd) || "（消す）"}`;
   if (x.break) return `休憩 ${clock(x.break.start)}から${x.break.minutes}分`;
   return h;
+}
+
+/** その日の助言（管理者だけ）：候補を押して入れ、書き直して「次の日から考えること」として残す。この日に出ていた「考えること」も並べる */
+function AdviceBox({ day, suggestions, notes }: { day: string; suggestions: string[]; notes: ReturnType<typeof useHarvestNotes> }) {
+  const [text, setText] = useState("");
+  const [span, setSpan] = useState<"1" | "7" | "forever">("7");
+  const [msg, setMsg] = useState("");
+  const from = addDays(day, 1);
+  const shown = (notes ?? []).filter((n) => noteActiveOn(n, day));
+  const made = (notes ?? []).filter((n) => n.sourceDate === day);
+  async function save() {
+    if (!text.trim()) return;
+    try {
+      await addHarvestNote({ text, from, until: span === "forever" ? null : addDays(from, Number(span) - 1), sourceDate: day });
+      setText("");
+      setMsg("保存しました。次の日から収穫管理の画面（管理者のログインだけ）に出ます");
+    } catch {
+      setMsg("保存できませんでした");
+    }
+  }
+  const spanText = (n: { from: string; until: string | null }) =>
+    n.until == null ? `${formatJa(n.from)}から ずっと` : n.until === n.from ? `${formatJa(n.from)}だけ` : `${formatJa(n.from)}〜${formatJa(n.until)}`;
+  return (
+    <section className="mt-3 rounded-xl border bg-white p-3">
+      <h2 className="font-bold">
+        管理者の助言（次の日から考えること）<span className="ml-2 text-xs font-normal text-gray-500">管理者のログインだけに出ます</span>
+      </h2>
+      {suggestions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              onClick={() => setText(text ? `${text}\n${s}` : s)}
+              className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1 text-left text-sm text-indigo-900"
+            >
+              ＋ {s}
+            </button>
+          ))}
+        </div>
+      )}
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
+        maxLength={300}
+        placeholder="例：No.17 は実が多いので、明日は最初から2人で入る"
+        className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+      />
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+        <span>出す期間</span>
+        <select value={span} onChange={(e) => setSpan(e.target.value as typeof span)} className="rounded border px-2 py-1">
+          <option value="1">次の日だけ</option>
+          <option value="7">1週間</option>
+          <option value="forever">ずっと（済みにするまで）</option>
+        </select>
+        <button onClick={() => void save()} disabled={!text.trim()} className="rounded-lg bg-berry px-4 py-1.5 font-bold text-white disabled:opacity-40">
+          考えることに残す
+        </button>
+        {msg && <span className="text-gray-600">{msg}</span>}
+      </div>
+      {(shown.length > 0 || made.length > 0) && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <NoteList title="この日に出ていた「考えること」（守れたか見直す）" list={shown} spanText={spanText} />
+          <NoteList title="この日の振り返りから残したもの" list={made} spanText={spanText} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NoteList({
+  title,
+  list,
+  spanText,
+}: {
+  title: string;
+  list: NonNullable<ReturnType<typeof useHarvestNotes>>;
+  spanText: (n: { from: string; until: string | null }) => string;
+}) {
+  if (!list.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-bold text-gray-600">{title}</p>
+      <ul className="mt-1 space-y-1">
+        {list.map((n) => (
+          <li key={n.id} className={`rounded-lg border px-3 py-2 text-sm ${n.done ? "bg-gray-50 text-gray-400 line-through" : "bg-amber-50"}`}>
+            <p className="whitespace-pre-wrap">{n.text}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              {spanText(n)}
+              <button onClick={() => void setHarvestNoteDone(n.id, !n.done)} className="rounded border bg-white px-2 py-0.5 text-gray-700 no-underline">
+                {n.done ? "もどす" : "済み"}
+              </button>
+              <button
+                onClick={() => window.confirm("この「考えること」を消しますか？") && void deleteHarvestNote(n.id)}
+                className="rounded border bg-white px-2 py-0.5 text-gray-700"
+              >
+                消す
+              </button>
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

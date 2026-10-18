@@ -653,6 +653,20 @@ describe("温度の見張り（担当・警報）", () => {
   });
 });
 
+describe("管理者の助言 (harvestNotes)", () => {
+  it("管理者だけが読み書きできる（スタッフ・従業員は読めない）", async () => {
+    const note = { text: "No.17 は最初から2人で", from: "2026-10-19", until: null, sourceDate: "2026-10-18", done: false };
+    await assertSucceeds(setDoc(doc(admin(), "harvestNotes/n1"), note));
+    await assertSucceeds(getDoc(doc(admin(), "harvestNotes/n1")));
+    await assertFails(getDoc(doc(staff(), "harvestNotes/n1")));
+    await assertFails(getDoc(doc(env.authenticatedContext("w1", { role: "worker" }).firestore(), "harvestNotes/n1")));
+    await assertFails(setDoc(doc(staff(), "harvestNotes/n2"), note));
+    await assertFails(setDoc(doc(admin(), "harvestNotes/n3"), { ...note, text: "" }));
+    await assertFails(setDoc(doc(admin(), "harvestNotes/n3"), { ...note, from: "明日" }));
+    await assertSucceeds(setDoc(doc(admin(), "harvestNotes/n1"), { ...note, done: true }));
+  });
+});
+
 describe("収穫終了の予測（forecast・株数・速さ）", () => {
   const today = new Date().toISOString().slice(0, 10);
   it("朝の予測と株数を保存でき、速さはサーバーだけが書ける", async () => {

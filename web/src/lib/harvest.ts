@@ -4,7 +4,7 @@
 // ケースは集荷のたびに「＋1」を押して数え、押すたびにすぐ保存する（どの端末でも同じ数になる）。
 // その日のハウスの使い方（収穫・いちご狩り・半分・予備・休み）は houseUse/{YYYY-MM-DD}。記録がない日は前の日の状態を引きつぐ。
 // 1ケースあたりの時間は、1人だけで収穫したハウスで計算する（途中で応援が入ったハウスは、ケース数だけ数える）。実績は管理者だけが見られる。
-import { addDoc, collection, doc, documentId, increment, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, documentId, increment, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from "./haichi";
@@ -542,4 +542,63 @@ export function useHarvestLog(date: string | null): HarvestLogRow[] | null {
     };
   }, [date]);
   return date && state && state.date === date ? state.v : null;
+}
+
+// ---------- 管理者の助言（次の日から考えること）。管理者だけが書けて、管理者だけが見られる ----------
+
+/** from〜until（null＝ずっと）のあいだ、収穫管理の画面（管理者のログインだけ）と振り返りに出す。done＝済み */
+export type HarvestNote = { id: string; text: string; from: string; until: string | null; sourceDate: string; done: boolean };
+
+/** enabled＝読む（管理者だけ。ほかの人は読めないので読みに行かない） */
+export function useHarvestNotes(enabled = true): HarvestNote[] | null {
+  const [v, setV] = useState<HarvestNote[] | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        collection(db, "harvestNotes"),
+        (snap) =>
+          setV(
+            snap.docs
+              .map((d) => ({
+                id: d.id,
+                text: (d.get("text") as string) ?? "",
+                from: (d.get("from") as string) ?? "",
+                until: (d.get("until") as string | null) ?? null,
+                sourceDate: (d.get("sourceDate") as string) ?? "",
+                done: d.get("done") === true,
+              }))
+              .sort((a, b) => (a.from === b.from ? a.text.localeCompare(b.text) : a.from.localeCompare(b.from))),
+          ),
+        () => setV([]),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [enabled]);
+  return v;
+}
+
+/** その日に出す「考えること」か */
+export const noteActiveOn = (n: HarvestNote, date: string) => !n.done && n.from <= date && (n.until == null || date <= n.until);
+
+export async function addHarvestNote(note: Omit<HarvestNote, "id" | "done">) {
+  if (![note.from, note.sourceDate, ...(note.until ? [note.until] : [])].every((d) => DATE_RE.test(d))) throw new Error("日付が正しくありません");
+  const { db } = await getFirebase();
+  await addDoc(collection(db, "harvestNotes"), { ...note, text: note.text.trim().slice(0, 300), done: false, createdAt: serverTimestamp() });
+}
+
+export async function setHarvestNoteDone(id: string, done: boolean) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "harvestNotes", id), { done, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function deleteHarvestNote(id: string) {
+  const { db } = await getFirebase();
+  await deleteDoc(doc(db, "harvestNotes", id));
 }

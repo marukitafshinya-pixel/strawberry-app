@@ -12,6 +12,8 @@ import { addDays, formatJa, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import {
   addCases,
+  noteActiveOn,
+  useHarvestNotes,
   logHarvest,
   clock,
   fmtCases,
@@ -146,6 +148,7 @@ export default function HarvestPage() {
   const phone = isWorker || (phoneView ?? narrow);
   const me = isWorker ? members?.find((m) => m.uid === user?.uid) : undefined;
   const everyDay = me?.harvestEntry === true;
+  const notes = useHarvestNotes(role === "admin");
 
   if (role !== "admin" && role !== "staff" && !isWorker) return <p>この画面はスタッフだけが使えます。</p>;
   if (isWorker) {
@@ -162,6 +165,22 @@ export default function HarvestPage() {
       );
   }
   const isAdmin = role === "admin";
+  // 管理者の助言（次の日から考えること）：管理者のログインだけに出す
+  const todayNotes = (notes ?? []).filter((n) => noteActiveOn(n, date));
+  const notesBox = isAdmin && todayNotes.length > 0 && (
+    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+      <p className="font-bold">
+        📝 今日気をつけること<span className="ml-2 text-xs font-normal text-gray-500">管理者のログインだけに出ています</span>
+      </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {todayNotes.map((n) => (
+          <li key={n.id} className="whitespace-pre-wrap">
+            {n.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
   const tooOld = !isAdmin && date < addDays(todayJST(), -STAFF_DAYS);
   const total = rec ? Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0) : 0;
   // 収穫終了：入れていなければ、ハウスの「終わった」のいちばん遅い時刻（点線）
@@ -290,6 +309,7 @@ export default function HarvestPage() {
             {endBox}
           </div>
           {unassignedNote}
+          {notesBox}
           <div className="mt-1 flex justify-end">{breakBox}</div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
@@ -368,6 +388,7 @@ export default function HarvestPage() {
         )}
       </div>
       {unassignedNote}
+      {notesBox}
       {content}
     </>
   );
