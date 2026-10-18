@@ -7,6 +7,7 @@ import { useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST, weekday } from "@/lib/date";
 import { useHaichiDay } from "@/lib/haichi";
+import { useTempWatchers } from "@/lib/govee";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
 
@@ -62,12 +63,20 @@ export function WorkerScreen({
   const haichi = useHaichiDay(today);
   // 今日の作業配置表で「集荷係」に入っているか、「収穫管理 毎日使える」の人なら、収穫管理（＋1で数える画面）を開けるボタンを出す
   const harvest = me.harvestEntry === true || !!haichi?.cells.pickup?.members.includes(me.id);
+  // 温度の見張り担当なら、見張り画面を開くボタンを出す
+  const watchers = useTempWatchers();
+  const watcherNo = preview ? -1 : (watchers?.indexOf(me.id) ?? -1);
 
   return (
     <div className="space-y-5">
       {harvest && (
         <Link href="/staff/harvest/" className="block rounded-2xl bg-berry p-4 text-center text-xl font-bold text-white shadow">
           🍓 収穫管理（今日の集荷）を開く
+        </Link>
+      )}
+      {watcherNo >= 0 && (
+        <Link href="/staff/harvest/watch/" className="block rounded-2xl bg-indigo-700 p-4 text-center text-xl font-bold text-white shadow">
+          🌙 温度の見張りを開く（担当{"①②③"[watcherNo]}）
         </Link>
       )}
       <h1 className="text-xl font-bold">{me.name} さんの勤務</h1>

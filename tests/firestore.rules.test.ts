@@ -615,6 +615,31 @@ describe("ハウスの中の温度（Govee）", () => {
   });
 });
 
+describe("温度の見張り（担当・警報）", () => {
+  const worker = (uid: string) => env.authenticatedContext(uid, { role: "worker" }).firestore();
+  it("担当の従業員だけ警報を見て「止めた」を入れられる。担当は管理者だけが決める", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w7"), { memberId: "m7", loginId: "hirayama", active: true });
+      await setDoc(doc(db, "workers/w8"), { memberId: "m8", loginId: "other", active: true });
+      await setDoc(doc(db, "config/tempWatch"), { watchers: ["m7"] });
+      await setDoc(doc(db, "alerts/temp"), { items: [{ house: "6", kind: "low", temp: 3.5, since: 1 }], startedAt: 1, ackBy: null, ackAt: null, checkedAt: 1 });
+    });
+    await assertSucceeds(getDoc(doc(worker("w7"), "config/tempWatch")));
+    await assertSucceeds(getDoc(doc(worker("w7"), "alerts/temp")));
+    await assertFails(getDoc(doc(worker("w8"), "alerts/temp")));
+    await assertFails(getDoc(doc(staff(), "alerts/temp")));
+    await assertSucceeds(getDoc(doc(admin(), "alerts/temp")));
+    await assertSucceeds(updateDoc(doc(worker("w7"), "alerts/temp"), { ackBy: "平山", ackAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(worker("w8"), "alerts/temp"), { ackBy: "x", ackAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), { items: [] }));
+    await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), { ackBy: "平山", ackAt: new Date(0) }));
+    await assertFails(setDoc(doc(worker("w7"), "config/tempWatch"), { watchers: ["m7", "m8"] }));
+    await assertSucceeds(setDoc(doc(admin(), "config/tempWatch"), { watchers: ["m7", "m8", "m9"] }));
+    await assertFails(setDoc(doc(admin(), "config/tempWatch"), { watchers: ["a", "b", "c", "d"] }));
+  });
+});
+
 describe("収穫終了の予測（forecast・株数・速さ）", () => {
   const today = new Date().toISOString().slice(0, 10);
   it("朝の予測と株数を保存でき、速さはサーバーだけが書ける", async () => {

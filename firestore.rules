@@ -32,6 +32,13 @@ service cloud.firestore {
         && request.auth.token.role == 'accounting'
         && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active == true;
     }
+    // 温度の見張り担当の従業員か
+    function isTempWatcher() {
+      return isWorker()
+        && exists(/databases/$(database)/documents/config/tempWatch)
+        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId
+          in get(/databases/$(database)/documents/config/tempWatch).data.watchers;
+    }
     // 勤務管理表で「収穫管理を毎日使える」にした従業員（社員など）か
     function isHarvestWorker() {
       return isWorker()
@@ -399,6 +406,22 @@ service cloud.firestore {
         && request.resource.data.get('devices', []) == resource.data.get('devices', [])
         && request.resource.data.get('keySet', false) == resource.data.get('keySet', false)
         && (!('houseOf' in request.resource.data) || (request.resource.data.houseOf is map && request.resource.data.houseOf.size() <= 40));
+    }
+    // 温度の見張り担当（①②③の順。従業員リストの id）：従業員の携帯に「見張り画面を開く」を出すため、従業員も読める
+    match /config/tempWatch {
+      allow read: if isStaff() || isWorker();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['watchers', 'updatedAt'])
+        && request.resource.data.watchers is list && request.resource.data.watchers.size() <= 3;
+    }
+    // いま出ている温度の警報（サーバーが20分ごとに入れる）。見られるのは管理者と見張り担当だけ。
+    // 担当ができるのは「止めた」（だれが・いつ）を入れることだけ
+    match /alerts/temp {
+      allow read: if isAdmin() || isTempWatcher();
+      allow update: if (isAdmin() || isTempWatcher())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ackBy', 'ackAt'])
+        && request.resource.data.ackAt == request.time
+        && request.resource.data.ackBy is string && request.resource.data.ackBy.size() <= 40;
     }
     // ハウスの中の夜の温度（houseTemp/{その夜が明けた日}）：サーバーが20分ごとに入れる。見られるのは管理者だけ
     match /houseTemp/{date} {

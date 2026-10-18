@@ -101,6 +101,7 @@ export async function pollGoveeOnce(nowMs = Date.now()) {
   const devices = (cfg.get("devices") as GoveeDevice[] | undefined) ?? [];
   const houseOf = (cfg.get("houseOf") as Record<string, string> | undefined) ?? {};
   const readings: Record<string, unknown> = {};
+  const temps: Record<string, number> = {};
   for (const d of devices) {
     const house = houseOf[d.device];
     if (!house) continue;
@@ -112,9 +113,74 @@ export async function pollGoveeOnce(nowMs = Date.now()) {
     }
     if (temp == null) continue; // 通信がうまくいかない温湿度計は、その回は飛ばす
     readings[house] = FieldValue.arrayUnion({ t: slot.time, temp });
+    temps[house] = temp;
   }
   if (Object.keys(readings).length) await db.doc(`houseTemp/${slot.date}`).set({ readings, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  const alertTemp = typeof cfg.get("alertTemp") === "number" ? (cfg.get("alertTemp") as number) : DEFAULT_ALERT_TEMP;
+  await updateAlert(nowMs, temps, [...new Set(Object.values(houseOf).filter(Boolean))], alertTemp);
   return { saved: Object.keys(readings).length, date: slot.date };
+}
+
+// ---------- 温度の見張り（警報） ----------
+// alerts/temp に「いま出ている警報」を入れる。見張り担当の携帯（見張り画面）がこれを見て、①→②→③の順に鳴らす。
+// だれかが「止める」を押すと ackBy・ackAt が入り、全員の音が止まる。新しい警報が出たら、止めた印を消して①から鳴らし直す
+
+/** 知らせる温度（画面で変えていなければ） */
+const DEFAULT_ALERT_TEMP = 4;
+/** 温度計がこれより長く読めないと警報（分） */
+const STALE_MIN = 60;
+
+export type AlertItem = { house: string; kind: "low" | "stale"; temp?: number; since: number };
+
+/** 読んだ結果から、警報の中身を決める（lastOk＝ハウスごとに最後に読めた時刻） */
+export function alertItems(
+  nowMs: number,
+  temps: Record<string, number>,
+  houses: string[],
+  lastOk: Record<string, number>,
+  alertTemp: number,
+  prev: AlertItem[],
+) {
+  const items: AlertItem[] = [];
+  const sinceOf = (key: string) => prev.find((x) => `${x.kind}-${x.house}` === key)?.since ?? nowMs;
+  for (const h of houses) {
+    if (temps[h] != null) {
+      if (temps[h] < alertTemp) items.push({ house: h, kind: "low", temp: temps[h], since: sinceOf(`low-${h}`) });
+      continue;
+    }
+    // 一度も読めていない温度計（つながっていない）は見張らない。1日以上読めていないものも、もう知らせない
+    const age = lastOk[h] != null ? (nowMs - lastOk[h]) / 60_000 : null;
+    if (age != null && age > STALE_MIN && age < 24 * 60) items.push({ house: h, kind: "stale", since: sinceOf(`stale-${h}`) });
+  }
+  return items;
+}
+
+async function updateAlert(nowMs: number, temps: Record<string, number>, houses: string[], alertTemp: number) {
+  const ref = db.doc("alerts/temp");
+  const prev = (await ref.get()).data() ?? {};
+  const lastOk: Record<string, number> = { ...(prev.lastOk ?? {}) };
+  const latest: Record<string, { temp: number; at: number }> = { ...(prev.latest ?? {}) };
+  for (const [h, t] of Object.entries(temps)) {
+    lastOk[h] = nowMs;
+    latest[h] = { temp: t, at: nowMs };
+  }
+  // 温度計の割り当てを外したハウスは消す
+  for (const h of Object.keys(latest)) if (!houses.includes(h)) delete latest[h];
+  const prevItems = (prev.items ?? []) as AlertItem[];
+  const items = alertItems(nowMs, temps, houses, lastOk, alertTemp, prevItems);
+  const prevKeys = new Set(prevItems.map((x) => `${x.kind}-${x.house}`));
+  const fresh = items.some((x) => !prevKeys.has(`${x.kind}-${x.house}`));
+  const reset = items.length === 0 || fresh;
+  await ref.set({
+    items,
+    startedAt: items.length === 0 ? null : fresh || !prev.startedAt ? nowMs : prev.startedAt,
+    ackBy: reset ? null : (prev.ackBy ?? null),
+    ackAt: reset ? null : (prev.ackAt ?? null),
+    lastOk,
+    latest,
+    alertTemp,
+    checkedAt: nowMs,
+  });
 }
 
 /** 1日じゅう、20分ごとに読む */

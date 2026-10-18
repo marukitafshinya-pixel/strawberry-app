@@ -3,7 +3,7 @@
 // ハウスの中の温度（Govee の温湿度計）。サーバーが1日じゅう20分ごとに読んで houseTemp/{日付} に残す。
 // 1つの日付には「前の日の9時すぎ〜その日の9時」の24時間分が入る（その日の収穫の前の24時間）。
 // API キーはサーバーだけが持つ（画面からは登録するだけで、読み出せない）。見られるのは管理者だけ
-import { collection, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, documentId, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
@@ -138,4 +138,85 @@ export function sensorFor(house: string, sensors: string[], groupOfHouse: (h: st
     }, null);
   const g = groupOfHouse(house);
   return near(sensors.filter((s) => groupOfHouse(s) === g)) ?? near(sensors);
+}
+
+// ---------- 温度の見張り（担当①②③と、いま出ている警報） ----------
+
+/** 見張り担当（従業員リストの id。①②③の順） */
+export function useTempWatchers(): string[] | null {
+  const [v, setV] = useState<string[] | null>(null);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "config/tempWatch"),
+        (s) => setV(Array.isArray(s.get("watchers")) ? (s.get("watchers") as string[]) : []),
+        () => setV([]),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return v;
+}
+
+export async function saveTempWatchers(watchers: string[]) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/tempWatch"), { watchers, updatedAt: serverTimestamp() });
+}
+
+export type TempAlertItem = { house: string; kind: "low" | "stale"; temp?: number; since: number };
+/** いま出ている警報（サーバーが20分ごとに入れる）。時刻はミリ秒 */
+export type TempAlert = {
+  items: TempAlertItem[];
+  startedAt: number | null;
+  ackBy: string | null;
+  ackAt: number | null;
+  latest: Record<string, { temp: number; at: number }>;
+  alertTemp: number;
+  checkedAt: number | null;
+};
+
+/** undefined＝読み込み中、null＝まだない・読めない */
+export function useTempAlert(): TempAlert | null | undefined {
+  const [v, setV] = useState<TempAlert | null | undefined>(undefined);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "alerts/temp"),
+        (s) => {
+          if (!s.exists()) return setV(null);
+          const ack = s.get("ackAt") as { toMillis?: () => number } | null;
+          setV({
+            items: (s.get("items") as TempAlertItem[]) ?? [],
+            startedAt: s.get("startedAt") ?? null,
+            ackBy: s.get("ackBy") ?? null,
+            ackAt: ack?.toMillis ? ack.toMillis() : null,
+            latest: s.get("latest") ?? {},
+            alertTemp: typeof s.get("alertTemp") === "number" ? s.get("alertTemp") : DEFAULT_ALERT_TEMP,
+            checkedAt: s.get("checkedAt") ?? null,
+          });
+        },
+        () => setV(null),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return v;
+}
+
+/** 「止める」：だれが止めたかを入れる（全員の音が止まる） */
+export async function ackTempAlert(name: string) {
+  const { db } = await getFirebase();
+  await updateDoc(doc(db, "alerts/temp"), { ackBy: name.slice(0, 40), ackAt: serverTimestamp() });
 }
