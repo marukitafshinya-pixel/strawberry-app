@@ -411,8 +411,9 @@ service cloud.firestore {
     match /config/tempWatch {
       allow read: if isStaff() || isWorker();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['watchers', 'updatedAt'])
-        && request.resource.data.watchers is list && request.resource.data.watchers.size() <= 3;
+        && request.resource.data.keys().hasOnly(['watchers', 'owner', 'updatedAt'])
+        && request.resource.data.watchers is list && request.resource.data.watchers.size() <= 3
+        && (!('owner' in request.resource.data) || (request.resource.data.owner is string && request.resource.data.owner.size() <= 40));
     }
     // いま出ている温度の警報（サーバーが20分ごとに入れる）。見られるのは管理者と見張り担当だけ。
     // 担当ができるのは「止めた」（だれが・いつ）を入れることだけ

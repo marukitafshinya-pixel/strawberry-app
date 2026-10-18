@@ -3,10 +3,12 @@
 // 従業員の画面の中身：自分の勤務・休みの希望・全員の勤務表（見るだけ）。
 // 従業員が自分の携帯で見る画面と、管理者の「携帯画面」タブ（確認用・送信はしない）の両方で使う
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST, weekday } from "@/lib/date";
 import { useHaichiDay } from "@/lib/haichi";
+import { useAuth } from "@/lib/auth";
 import { useTempWatchers } from "@/lib/govee";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
@@ -64,8 +66,16 @@ export function WorkerScreen({
   // 今日の作業配置表で「集荷係」に入っているか、「収穫管理 毎日使える」の人なら、収穫管理（＋1で数える画面）を開けるボタンを出す
   const harvest = me.harvestEntry === true || !!haichi?.cells.pickup?.members.includes(me.id);
   // 温度の見張り担当なら、見張り画面を開くボタンを出す
-  const watchers = useTempWatchers();
-  const watcherNo = preview ? -1 : (watchers?.indexOf(me.id) ?? -1);
+  const tw = useTempWatchers();
+  const watcherNo = preview ? -1 : (tw?.watchers.indexOf(me.id) ?? -1);
+  // 管理者（平山さん）本人なら、管理者のログインに切り替えるボタンを出す
+  const isOwner = !preview && !!tw?.owner && tw.owner === me.id;
+  const { logout } = useAuth();
+  const router = useRouter();
+  async function toAdmin() {
+    await logout();
+    router.replace("/staff/login/");
+  }
 
   return (
     <div className="space-y-5">
@@ -73,6 +83,11 @@ export function WorkerScreen({
         <Link href="/staff/harvest/" className="block rounded-2xl bg-berry p-4 text-center text-xl font-bold text-white shadow">
           🍓 収穫管理（今日の集荷）を開く
         </Link>
+      )}
+      {isOwner && (
+        <button onClick={() => void toAdmin()} className="block w-full rounded-2xl border-2 border-gray-700 bg-white p-3 text-center font-bold text-gray-800">
+          🔑 管理者のログインに切り替える
+        </button>
       )}
       {watcherNo >= 0 && (
         <Link href="/staff/harvest/watch/" className="block rounded-2xl bg-indigo-700 p-4 text-center text-xl font-bold text-white shadow">

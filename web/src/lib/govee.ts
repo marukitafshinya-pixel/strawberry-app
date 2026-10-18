@@ -142,9 +142,10 @@ export function sensorFor(house: string, sensors: string[], groupOfHouse: (h: st
 
 // ---------- 温度の見張り（担当①②③と、いま出ている警報） ----------
 
-/** 見張り担当（従業員リストの id。①②③の順） */
-export function useTempWatchers(): string[] | null {
-  const [v, setV] = useState<string[] | null>(null);
+/** 見張り担当（従業員リストの id。①②③の順）と、管理者（平山さん）の従業員の id（ログインを切り替えるボタンに使う） */
+export type TempWatch = { watchers: string[]; owner: string | null };
+export function useTempWatchers(): TempWatch | null {
+  const [v, setV] = useState<TempWatch | null>(null);
   useEffect(() => {
     let unsub = () => {};
     let cancelled = false;
@@ -152,8 +153,8 @@ export function useTempWatchers(): string[] | null {
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "config/tempWatch"),
-        (s) => setV(Array.isArray(s.get("watchers")) ? (s.get("watchers") as string[]) : []),
-        () => setV([]),
+        (s) => setV({ watchers: Array.isArray(s.get("watchers")) ? (s.get("watchers") as string[]) : [], owner: s.get("owner") ?? null }),
+        () => setV({ watchers: [], owner: null }),
       );
     });
     return () => {
@@ -164,9 +165,9 @@ export function useTempWatchers(): string[] | null {
   return v;
 }
 
-export async function saveTempWatchers(watchers: string[]) {
+export async function saveTempWatchers(watchers: string[], owner: string | null) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "config/tempWatch"), { watchers, updatedAt: serverTimestamp() });
+  await setDoc(doc(db, "config/tempWatch"), { watchers, ...(owner ? { owner } : {}), updatedAt: serverTimestamp() });
 }
 
 export type TempAlertItem = { house: string; kind: "low" | "stale"; temp?: number; since: number };

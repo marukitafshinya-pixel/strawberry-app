@@ -6,10 +6,13 @@
 // だれかが「止める」を押せば全員の音が止まる。30分たっても直らなければ、また①から鳴らす。
 // 音は <audio> で鳴らす（iPhone の消音スイッチやマナーモードでも鳴る。大きさはメディアの音量）。画面が消えないようにする
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { ackTempAlert, resetTempAlert, saveAlertTemp, saveTempWatchers, useGoveeConfig, useTempAlert, useTempWatchers } from "@/lib/govee";
-import { useShiftMembers } from "@/lib/shift";
+import { doc, getDoc } from "firebase/firestore";
+import { getFirebase } from "@/lib/firebase";
+import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 
 /** 「止める」を押したあと、まだ直っていなければ、もう一度鳴らすまでの分 */
 const REMIND_MIN = 30;
@@ -58,7 +61,8 @@ export default function WatchPage() {
   const { role, user } = useAuth();
   const isAdmin = role === "admin";
   const members = useShiftMembers();
-  const watchers = useTempWatchers();
+  const tw = useTempWatchers();
+  const watchers = tw?.watchers ?? null;
   const alert = useTempAlert();
   const [started, setStarted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -239,7 +243,8 @@ export default function WatchPage() {
         </Link>
       </p>
       <h1 className="mt-2 text-xl font-bold">🌡 温度の見張り</h1>
-      {isAdmin && <AdminSettings watchers={watchers} members={members} />}
+      {isAdmin && <SwitchToWorker owner={members.find((m) => m.id === (tw?.owner ?? ""))} />}
+      {isAdmin && <AdminSettings watchers={watchers} owner={tw?.owner ?? null} members={members} />}
       <div className="mt-4">{order}</div>
       {tempList}
       {myNo >= 0 && (
@@ -297,10 +302,43 @@ export default function WatchPage() {
 }
 
 /** 管理者だけ：知らせる温度と、見張り担当①②③ */
-function AdminSettings({ watchers, members }: { watchers: string[]; members: { id: string; name: string; active: boolean; order: number }[] }) {
+/** 管理者のログインから、平山さん（管理者本人）の従業員のログインに切り替える（ログインIDを入れたログイン画面へ。パスワードは携帯が覚えていれば自動で入る） */
+function SwitchToWorker({ owner }: { owner: ShiftMember | undefined }) {
+  const { logout } = useAuth();
+  const router = useRouter();
+  if (!owner?.uid) return null;
+  async function go() {
+    let id = "";
+    try {
+      const { db } = await getFirebase();
+      id = ((await getDoc(doc(db, "workers", owner!.uid!))).get("loginId") as string | undefined) ?? "";
+    } catch {
+      // ログインIDが読めなくても、ログイン画面へは行く
+    }
+    try {
+      if (id) sessionStorage.setItem("loginId", id);
+    } catch {
+      // 入れられなくても、ログイン画面へは行く
+    }
+    await logout();
+    router.replace("/staff/login/");
+    router.replace(`/staff/login/${id ? `?id=${encodeURIComponent(id)}` : ""}`);
+  }
+  return (
+    <button onClick={() => void go()} className="mt-3 w-full rounded-xl border-2 border-gray-700 bg-white py-3 font-bold text-gray-800">
+      👤 {owner.name}さん（従業員）のログインに切り替える
+    </button>
+  );
+}
+
+/** 管理者だけ：知らせる温度と、見張り担当①②③と、管理者本人の従業員の名前 */
+function AdminSettings({ watchers, owner, members }: { watchers: string[]; owner: string | null; members: ShiftMember[] }) {
   const cfg = useGoveeConfig();
   const [temp, setTemp] = useState<string | null>(null);
   const [pick, setPick] = useState<string[] | null>(null);
+  // 管理者本人（平山さん）の従業員の名前。まだ決めていなければ「平山」で始まる人
+  const [ownerPick, setOwnerPick] = useState<string | null>(null);
+  const curOwner = ownerPick ?? owner ?? members.find((m) => m.active && m.name.startsWith("平山"))?.id ?? "";
   const [msg, setMsg] = useState("");
   const cur = pick ?? [0, 1, 2].map((i) => watchers[i] ?? "");
   const alertTemp = cfg?.alertTemp ?? 4;
@@ -312,13 +350,14 @@ function AdminSettings({ watchers, members }: { watchers: string[]; members: { i
         if (!Number.isFinite(v) || v < -10 || v > 20) return setMsg("知らせる温度は −10〜20 の数字を入れてください");
         await saveAlertTemp(Math.round(v * 10) / 10);
       }
-      if (pick) {
+      if (pick || ownerPick != null || (!owner && curOwner)) {
         const list = cur.filter(Boolean);
         if (new Set(list).size !== list.length) return setMsg("同じ人が2回入っています");
-        await saveTempWatchers(list);
+        await saveTempWatchers(list, curOwner || null);
       }
       setTemp(null);
       setPick(null);
+      setOwnerPick(null);
       setMsg("保存しました");
     } catch {
       setMsg("保存できませんでした");
@@ -352,8 +391,20 @@ function AdminSettings({ watchers, members }: { watchers: string[]; members: { i
           </label>
         ))}
       </div>
+      <label className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="font-bold">管理者（このログインの人）の従業員の名前</span>
+        <select value={curOwner} onChange={(e) => setOwnerPick(e.target.value)} className="rounded border px-2 py-2">
+          <option value="">（なし）</option>
+          {active.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-500">従業員のログインとの切り替えボタンに使います</span>
+      </label>
       <div className="mt-3 flex items-center gap-3">
-        {(temp != null || pick != null) && (
+        {(temp != null || pick != null || ownerPick != null || (!owner && !!curOwner)) && (
           <button onClick={() => void save()} className="rounded-lg bg-berry px-4 py-2 font-bold text-white">
             保存
           </button>

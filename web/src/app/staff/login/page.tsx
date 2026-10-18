@@ -19,7 +19,16 @@ function errorMessage(e: unknown): string {
 export default function LoginPage() {
   const { user, login } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  // ログインを切り替えるボタンから来たときは、そこで入れたログインIDを入れておく
+  const [email, setEmail] = useState(() => {
+    try {
+      const id = sessionStorage.getItem("loginId") ?? "";
+      sessionStorage.removeItem("loginId");
+      return id;
+    } catch {
+      return "";
+    }
+  });
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -71,11 +80,7 @@ export default function LoginPage() {
           />
         </label>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={sending}
-          className="w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50"
-        >
+        <button type="submit" disabled={sending} className="w-full rounded-lg bg-berry py-3 font-bold text-white disabled:opacity-50">
           {sending ? "ログイン中…" : "ログイン"}
         </button>
       </form>
