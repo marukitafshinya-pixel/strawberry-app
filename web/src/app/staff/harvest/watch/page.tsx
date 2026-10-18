@@ -1,8 +1,8 @@
 "use client";
 
-// 温度の見張り：見張り担当①②③（と管理者）が、寝る前に携帯でこの画面を開いて「見張りを始める」を押し、そのまま枕元に置いておく。
+// 温度の見張り：見張り担当①②③が、寝る前に携帯でこの画面を開いて「見張りを始める」を押し、そのまま枕元に置いておく。
 // 警報（どこかのハウスが知らせる温度より下がった・温度計が1時間読めない）はサーバーが20分ごとに alerts/temp に入れる。
-// 警報が出たら、まず①（と管理者のログインで開いた画面）が鳴り、5分たっても誰も止めなければ②、さらに5分で③も鳴る。
+// 警報が出たら、まず①が鳴り、5分たっても誰も止めなければ②、さらに5分で③も鳴る（管理者のログインで開いた画面は鳴らない。見るだけ）。
 // だれかが「止める」を押せば全員の音が止まる。30分たっても直らなければ、また①から鳴らす。
 // 音は <audio> で鳴らす（iPhone の消音スイッチやマナーモードでも鳴る。大きさはメディアの音量）。画面が消えないようにする
 import Link from "next/link";
@@ -93,8 +93,8 @@ export default function WatchPage() {
   }, [started]);
 
   const me = members?.find((m) => m.uid === user?.uid) ?? null;
-  // 自分の順番（0＝①）。管理者のログインで開いた画面は①と同じく最初から鳴る
-  const myNo = isAdmin ? 0 : me && watchers ? watchers.indexOf(me.id) : -1;
+  // 自分の順番（0＝①）。担当でなければ -1（鳴らない）
+  const myNo = me && watchers ? watchers.indexOf(me.id) : -1;
   const down = !!alert?.checkedAt && now - alert.checkedAt > DOWN_MIN * 60_000;
   const active = !!alert && (alert.items.length > 0 || down);
   const quiet = !!alert?.ackAt && now - alert.ackAt < REMIND_MIN * 60_000;
@@ -176,7 +176,11 @@ export default function WatchPage() {
   const order = (
     <p className="text-sm">
       見張り担当：{watchers.length ? watchers.map((id, i) => `${NO[i]} ${nameOf(id)}`).join("　") : "まだ決まっていません"}
-      {myNo >= 0 && <span className="ml-2 font-bold">（あなたは{isAdmin && !watchers.includes(me?.id ?? "") ? "管理者として①と同じ" : NO[myNo]}）</span>}
+      {myNo >= 0 ? (
+        <span className="ml-2 font-bold">（あなたは{NO[myNo]}）</span>
+      ) : (
+        <span className="ml-2 text-gray-500">（このログインでは鳴りません。担当の人は、自分の従業員のログインで開いてください）</span>
+      )}
     </p>
   );
 
@@ -238,12 +242,22 @@ export default function WatchPage() {
       {isAdmin && <AdminSettings watchers={watchers} members={members} />}
       <div className="mt-4">{order}</div>
       {tempList}
-      <button onClick={() => void start()} className="mt-5 w-full rounded-2xl bg-indigo-700 py-5 text-2xl font-bold text-white">
-        🌙 見張りを始める
-      </button>
-      <button onClick={testSound} className="mt-2 w-full rounded-xl border bg-white py-3 font-bold">
-        🔊 音のテスト（2秒）
-      </button>
+      {myNo >= 0 && (
+        <>
+          <button onClick={() => void start()} className="mt-5 w-full rounded-2xl bg-indigo-700 py-5 text-2xl font-bold text-white">
+            🌙 見張りを始める
+          </button>
+          <button onClick={testSound} className="mt-2 w-full rounded-xl border bg-white py-3 font-bold">
+            🔊 音のテスト（2秒）
+          </button>
+        </>
+      )}
+      {alert && alert.items.length > 0 && (
+        <p className="mt-4 rounded-xl bg-red-700 p-3 font-bold text-white">
+          ⚠ 警報が出ています：{alert.items.map((a) => `No.${a.house} ${a.kind === "low" ? `${a.temp!.toFixed(1)}℃` : "温度計が読めません"}`).join("、")}
+          {alert.ackBy && alert.ackAt ? `（${alert.ackBy}さんが ${clockOf(alert.ackAt)} に止めました）` : ""}
+        </p>
+      )}
       <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-gray-700">
         <p className="font-bold">しくみ</p>
         <p className="mt-1">
