@@ -507,3 +507,39 @@ export function addHouse(t: Tally, h: HouseHarvest, date: string, cases = h.case
 }
 /** 1ケースあたりの分（計算できなければ null） */
 export const perCase = (t: Tally) => (t.timedCases > 0 ? t.minutes / t.timedCases : null);
+
+/** 入力の記録の1行（読んだもの）。at＝入れた時刻（ミリ秒） */
+export type HarvestLogRow = HarvestLogEntry & { id: string; at: number; by: string };
+
+/** その日の入力の記録（管理者だけ。時刻の順） */
+export function useHarvestLog(date: string | null): HarvestLogRow[] | null {
+  const [state, setState] = useState<{ date: string; v: HarvestLogRow[] } | null>(null);
+  useEffect(() => {
+    if (!date || !DATE_RE.test(date)) return;
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        collection(db, "harvest", date, "log"),
+        (snap) =>
+          setState({
+            date,
+            v: snap.docs
+              .map((d) => {
+                const at = d.get("at") as { toMillis?: () => number } | null;
+                return { ...(d.data() as HarvestLogEntry), id: d.id, at: at?.toMillis ? at.toMillis() : 0, by: (d.get("by") as string) ?? "" };
+              })
+              .filter((x) => x.at > 0)
+              .sort((a, b) => a.at - b.at),
+          }),
+        () => setState({ date, v: [] }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [date]);
+  return date && state && state.date === date ? state.v : null;
+}

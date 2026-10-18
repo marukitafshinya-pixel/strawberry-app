@@ -32,6 +32,7 @@ import {
 } from "@/lib/harvest";
 import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harvestForecast";
 import { useShiftMembers } from "@/lib/shift";
+import { ReviewTab } from "./Review";
 import { callFunction } from "@/lib/callFunction";
 import { useWeatherMonths, type WeatherDay } from "@/lib/weather";
 import {
@@ -49,7 +50,7 @@ import {
 import { LineChart, NEUTRAL, SERIES_COLORS, Legend } from "@/components/charts";
 import { errorText } from "@/lib/callFunction";
 
-type Tab = "people" | "houses" | "calendar" | "forecast" | "temp";
+type Tab = "people" | "houses" | "calendar" | "forecast" | "temp" | "review";
 
 const monthStart = (d: string) => `${d.slice(0, 7)}-01`;
 const monthEnd = (d: string) => addDays(`${addDays(`${d.slice(0, 7)}-28`, 4).slice(0, 7)}-01`, -1);
@@ -116,6 +117,7 @@ export default function HarvestReportPage() {
             ["calendar", "ハウスの使い方カレンダー"],
             ["forecast", "予測と実際"],
             ["temp", "ハウスの温度"],
+            ["review", "振り返り"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -135,6 +137,8 @@ export default function HarvestReportPage() {
         <People data={data} breaks={breaks} names={new Map(members.map((m) => [m.id, m.name]))} groups={groups} />
       ) : tab === "forecast" ? (
         <ForecastTab from={from} to={to} data={data} houses={harvestHouses(template)} names={new Map(members.map((m) => [m.id, m.name]))} />
+      ) : tab === "review" ? (
+        <ReviewTab data={data} meta={meta} houses={harvestHouses(template)} groups={groups} members={members} />
       ) : tab === "temp" ? (
         <HouseTempTab from={from} to={to} houses={harvestHouses(template)} groups={groups} />
       ) : tab === "houses" ? (
