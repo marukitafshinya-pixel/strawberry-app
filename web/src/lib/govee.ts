@@ -9,7 +9,9 @@ import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
 
 export type GoveeDevice = { device: string; sku: string; name: string };
-export type GoveeConfig = { devices: GoveeDevice[]; houseOf: Record<string, string>; keySet: boolean };
+/** alertTemp＝温度の見張りで知らせる温度（℃。これより下がったら警報） */
+export type GoveeConfig = { devices: GoveeDevice[]; houseOf: Record<string, string>; keySet: boolean; alertTemp: number };
+export const DEFAULT_ALERT_TEMP = 4;
 /** ハウス → その日の分の温度（t＝"HH:MM"、temp＝℃） */
 export type HouseTempNight = Record<string, { t: string; temp: number }[]>;
 
@@ -22,7 +24,17 @@ export function useGoveeConfig(): GoveeConfig | null | undefined {
       if (cancelled) return;
       unsub = onSnapshot(
         doc(db, "config/govee"),
-        (s) => setV(s.exists() ? { devices: s.get("devices") ?? [], houseOf: s.get("houseOf") ?? {}, keySet: s.get("keySet") === true } : null),
+        (s) =>
+          setV(
+            s.exists()
+              ? {
+                  devices: s.get("devices") ?? [],
+                  houseOf: s.get("houseOf") ?? {},
+                  keySet: s.get("keySet") === true,
+                  alertTemp: typeof s.get("alertTemp") === "number" ? s.get("alertTemp") : DEFAULT_ALERT_TEMP,
+                }
+              : null,
+          ),
         () => setV(null),
       );
     });
@@ -38,6 +50,18 @@ export function useGoveeConfig(): GoveeConfig | null | undefined {
 export async function saveGoveeHouses(houseOf: Record<string, string>) {
   const { db } = await getFirebase();
   await setDoc(doc(db, "config/govee"), { houseOf, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** 温度の見張りで知らせる温度を保存する */
+export async function saveAlertTemp(alertTemp: number) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/govee"), { alertTemp, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** 読んだ値の日本時間の時刻（ミリ秒）。date の分には「前の日の9時すぎ〜その日の9時」が入っている */
+export function readingAt(date: string, t: string): number {
+  const day = t > "09:00" ? new Date(Date.parse(`${date}T00:00:00Z`) - 86400_000).toISOString().slice(0, 10) : date;
+  return Date.parse(`${day}T${t}:00+09:00`);
 }
 
 /** API キーを登録して、温度計の一覧と今の温度を受け取る（キーを空で送ると、登録してあるキーで確かめ直す） */

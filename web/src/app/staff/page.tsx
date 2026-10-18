@@ -7,7 +7,16 @@ import { assignMenuSlots, cellsOf, fitSlot, MENU_COLS, saveMenuLayout, useMenuLa
 import { useAuth } from "@/lib/auth";
 import { formatJa, todayJST } from "@/lib/date";
 import { callFunction } from "@/lib/callFunction";
-import { countsTowardCapacity, STATUS_LABEL, STATUS_STYLE, usePendingRequests, useReservations, useUnseenReservations, yen, type Reservation } from "@/lib/reservations";
+import {
+  countsTowardCapacity,
+  STATUS_LABEL,
+  STATUS_STYLE,
+  usePendingRequests,
+  useReservations,
+  useUnseenReservations,
+  yen,
+  type Reservation,
+} from "@/lib/reservations";
 import { useSales } from "@/lib/sales";
 
 type MenuItem = { label: string; href: string; adminOnly?: boolean; big?: boolean; color?: string };
@@ -21,6 +30,7 @@ const MENU: MenuItem[] = [
   { label: "予約の集計", href: "/staff/report/reservations/" },
   { label: "勤務管理表", href: "/staff/shift/" },
   { label: "収穫管理", href: "/staff/harvest/" },
+  { label: "温度の見張り", href: "/staff/harvest/watch/", adminOnly: true },
   { label: "出荷実績", href: "/staff/shipping/" },
   { label: "店舗実績", href: "/staff/store/" },
   { label: "トータル実績", href: "/staff/total/", adminOnly: true },
@@ -135,8 +145,12 @@ export default function StaffHome() {
       <div className={m.href === "/staff/checkout/" ? "text-3xl font-bold" : m.big ? "text-2xl font-bold" : "text-lg font-semibold"}>{m.label}</div>
       {m.href === "/staff/reservations/" && (
         <div className="mt-1 flex flex-wrap justify-center gap-1">
-          {unseen && unseen.length > 0 && <span className="rounded-full bg-amber-300 px-2 py-0.5 text-xs font-bold text-amber-950">未確認 {unseen.length}件</span>}
-          {requests && requests.length > 0 && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-purple-700">リクエスト {requests.length}件</span>}
+          {unseen && unseen.length > 0 && (
+            <span className="rounded-full bg-amber-300 px-2 py-0.5 text-xs font-bold text-amber-950">未確認 {unseen.length}件</span>
+          )}
+          {requests && requests.length > 0 && (
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-purple-700">リクエスト {requests.length}件</span>
+          )}
         </div>
       )}
     </>
@@ -167,7 +181,11 @@ export default function StaffHome() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-gray-600">横のマス</span>
             {MENU_COLS.map((n) => (
-              <button key={n} onClick={() => changeCols(n)} className={`rounded-lg border px-3 py-1 ${n === arrange.cols ? "border-sky-700 bg-sky-700 font-bold text-white" : "bg-white"}`}>
+              <button
+                key={n}
+                onClick={() => changeCols(n)}
+                className={`rounded-lg border px-3 py-1 ${n === arrange.cols ? "border-sky-700 bg-sky-700 font-bold text-white" : "bg-white"}`}
+              >
                 {n}
               </button>
             ))}
@@ -175,7 +193,13 @@ export default function StaffHome() {
             <button onClick={reset} className="rounded-lg border bg-white px-3 py-1.5">
               最初の並びに戻す
             </button>
-            <button onClick={() => { setArrange(null); setPicked(null); }} className="rounded-lg border bg-white px-3 py-1.5">
+            <button
+              onClick={() => {
+                setArrange(null);
+                setPicked(null);
+              }}
+              className="rounded-lg border bg-white px-3 py-1.5"
+            >
               やめる
             </button>
             <button onClick={save} disabled={saving} className="rounded-lg bg-sky-700 px-4 py-1.5 font-bold text-white disabled:opacity-50">
@@ -276,7 +300,11 @@ function UnseenNotice({ list }: { list: Reservation[] }) {
     <section className="mb-6 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold text-amber-950">🔔 新しい予約があります（未確認 {list.length}件）</h2>
-        <button onClick={() => mark("all")} disabled={!!busy} className="rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-sm font-bold text-amber-900 disabled:opacity-50">
+        <button
+          onClick={() => mark("all")}
+          disabled={!!busy}
+          className="rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-sm font-bold text-amber-900 disabled:opacity-50"
+        >
           {busy === "all" ? "…" : "すべて確認した"}
         </button>
       </div>
@@ -292,7 +320,11 @@ function UnseenNotice({ list }: { list: Reservation[] }) {
             </span>
             <span className="text-sm text-gray-600">{r.planName}</span>
             <span className="text-xs text-gray-500">{received(r)}</span>
-            <button onClick={() => mark([r.id])} disabled={!!busy} className="ml-auto rounded-lg bg-amber-600 px-3 py-1 text-sm font-bold text-white disabled:opacity-50">
+            <button
+              onClick={() => mark([r.id])}
+              disabled={!!busy}
+              className="ml-auto rounded-lg bg-amber-600 px-3 py-1 text-sm font-bold text-white disabled:opacity-50"
+            >
               {busy === r.id ? "…" : "確認した"}
             </button>
           </li>
@@ -332,11 +364,15 @@ function Today({ requestCount }: { requestCount: number }) {
 
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile href={link} label="今日の予約" value={reservations ? `${active.length}件` : "…"} sub={reservations ? `${people}人` : undefined} strong />
-        <Tile href={link} label="来店済" value={reservations ? `${visitedPeople}人` : "…"} sub={reservations ? `残り ${people - visitedPeople}人` : undefined} />
+        <Tile
+          href={link}
+          label="来店済"
+          value={reservations ? `${visitedPeople}人` : "…"}
+          sub={reservations ? `残り ${people - visitedPeople}人` : undefined}
+        />
         <Tile href={`/staff/sales/?date=${today}`} label="今日の売上" value={sales ? yen(salesTotal) : "…"} />
         <Tile href={link} label="承認待ちのリクエスト" value={`${requestCount}件`} alert={requestCount > 0} />
       </div>
-
     </section>
   );
 }

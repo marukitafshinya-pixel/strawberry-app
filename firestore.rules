@@ -394,7 +394,8 @@ service cloud.firestore {
     match /config/govee {
       allow read: if isAdmin();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['devices', 'houseOf', 'keySet', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['devices', 'houseOf', 'keySet', 'alertTemp', 'updatedAt'])
+        && (!('alertTemp' in request.resource.data) || (request.resource.data.alertTemp is number && request.resource.data.alertTemp >= -10 && request.resource.data.alertTemp <= 20))
         && request.resource.data.get('devices', []) == resource.data.get('devices', [])
         && request.resource.data.get('keySet', false) == resource.data.get('keySet', false)
         && (!('houseOf' in request.resource.data) || (request.resource.data.houseOf is map && request.resource.data.houseOf.size() <= 40));
