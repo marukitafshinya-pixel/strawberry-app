@@ -99,6 +99,8 @@ export default function WatchPage() {
   const me = members?.find((m) => m.uid === user?.uid) ?? null;
   // 自分の順番（0＝①）。担当でなければ -1（鳴らない）
   const myNo = me && watchers ? watchers.indexOf(me.id) : -1;
+  // 警報をリセットできるのは、管理者と、管理者本人（平山さん）の従業員のログインだけ
+  const canReset = isAdmin || (!!me && !!tw?.owner && tw.owner === me.id);
   const down = !!alert?.checkedAt && now - alert.checkedAt > DOWN_MIN * 60_000;
   const active = !!alert && (alert.items.length > 0 || down);
   const quiet = !!alert?.ackAt && now - alert.ackAt < REMIND_MIN * 60_000;
@@ -122,7 +124,7 @@ export default function WatchPage() {
 
   if (role !== "admin" && role !== "worker") return <p>この画面は、管理者と見張り担当の従業員が使います。</p>;
   if (members === null || watchers === null || alert === undefined) return <p className="text-gray-500">読み込み中…</p>;
-  if (!isAdmin && myNo < 0)
+  if (!isAdmin && myNo < 0 && !canReset)
     return <p className="rounded-xl bg-white p-4 text-gray-700">あなたは温度の見張り担当になっていません。管理者に確認してください。</p>;
   const nameOf = (id: string) => members.find((m) => m.id === id)?.name ?? "（いない人）";
   const myName = me?.name ?? (isAdmin ? "管理者" : "");
@@ -161,6 +163,17 @@ export default function WatchPage() {
     audio.current?.pause();
   }
 
+  const resetButton = canReset && (
+    <button
+      onClick={() => {
+        if (window.confirm("いまの警報を消して、全員の音を止めますか？（まだ温度が低ければ、次の確認（20分以内）でまた①から鳴ります）"))
+          void resetTempAlert().catch(() => window.alert("リセットできませんでした"));
+      }}
+      className="mt-3 block w-full rounded-lg border-2 border-white bg-red-800 py-3 text-lg font-bold text-white"
+    >
+      警報をリセット（全員の音を止める）
+    </button>
+  );
   const houses = Object.keys(alert?.latest ?? {}).sort((a, b) => Number(a) - Number(b));
   const tempList = (
     <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -203,6 +216,7 @@ export default function WatchPage() {
               ))}
               {down && <li>見張りのしくみから連絡がありません（{clockOf(alert!.checkedAt!)}から）。携帯の電波か、温度計の登録を確かめてください</li>}
             </ul>
+            {resetButton}
             {quiet ? (
               <p className="mt-3 text-sm">
                 {alert!.ackBy}さんが {clockOf(alert!.ackAt!)} に止めました。直らなければ {clockOf(alert!.ackAt! + REMIND_MIN * 60_000)} にまた①から鳴らします。
@@ -261,17 +275,7 @@ export default function WatchPage() {
         <p className="mt-4 rounded-xl bg-red-700 p-3 font-bold text-white">
           ⚠ 警報が出ています：{alert.items.map((a) => `No.${a.house} ${a.kind === "low" ? `${a.temp!.toFixed(1)}℃` : "温度計が読めません"}`).join("、")}
           {alert.ackBy && alert.ackAt ? `（${alert.ackBy}さんが ${clockOf(alert.ackAt)} に止めました）` : ""}
-          {isAdmin && (
-            <button
-              onClick={() => {
-                if (window.confirm("いまの警報を消して、全員の音を止めますか？（まだ温度が低ければ、次の確認（20分以内）でまた①から鳴ります）"))
-                  void resetTempAlert().catch(() => window.alert("リセットできませんでした"));
-              }}
-              className="mt-2 block w-full rounded-lg bg-white py-3 text-lg font-bold text-red-700"
-            >
-              警報をリセット
-            </button>
-          )}
+          {resetButton}
         </p>
       )}
       <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-gray-700">

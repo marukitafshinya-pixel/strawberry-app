@@ -89,9 +89,9 @@ export function WorkerScreen({
           🔑 管理者のログインに切り替える
         </button>
       )}
-      {watcherNo >= 0 && (
+      {(watcherNo >= 0 || isOwner) && (
         <Link href="/staff/harvest/watch/" className="block rounded-2xl bg-indigo-700 p-4 text-center text-xl font-bold text-white shadow">
-          🌙 温度の見張りを開く（担当{"①②③"[watcherNo]}）
+          🌙 温度の見張りを開く{watcherNo >= 0 ? `（担当${"①②③"[watcherNo]}）` : ""}
         </Link>
       )}
       <h1 className="text-xl font-bold">{me.name} さんの勤務</h1>

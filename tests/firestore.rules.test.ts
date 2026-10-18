@@ -637,6 +637,11 @@ describe("温度の見張り（担当・警報）", () => {
     // 警報のリセットは管理者だけ（消すことだけできる）
     const cleared = { items: [], startedAt: null, ackBy: null, ackAt: null };
     await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), cleared));
+    // 管理者本人（owner）の従業員のログインはリセットできる（担当でなくても警報を見られる）
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), "config/tempWatch"), { watchers: ["m7"], owner: "m8" }));
+    await assertSucceeds(getDoc(doc(worker("w8"), "alerts/temp")));
+    await assertSucceeds(updateDoc(doc(worker("w8"), "alerts/temp"), cleared));
+    await assertFails(updateDoc(doc(worker("w8"), "alerts/temp"), { items: [{ house: "1" }] }));
     await assertFails(updateDoc(doc(admin(), "alerts/temp"), { ...cleared, items: [{ house: "1", kind: "low" }] }));
     await assertSucceeds(updateDoc(doc(admin(), "alerts/temp"), cleared));
     await assertFails(setDoc(doc(worker("w7"), "config/tempWatch"), { watchers: ["m7", "m8"] }));
