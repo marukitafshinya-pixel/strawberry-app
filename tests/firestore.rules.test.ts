@@ -634,6 +634,11 @@ describe("温度の見張り（担当・警報）", () => {
     await assertFails(updateDoc(doc(worker("w8"), "alerts/temp"), { ackBy: "x", ackAt: serverTimestamp() }));
     await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), { items: [] }));
     await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), { ackBy: "平山", ackAt: new Date(0) }));
+    // 警報のリセットは管理者だけ（消すことだけできる）
+    const cleared = { items: [], startedAt: null, ackBy: null, ackAt: null };
+    await assertFails(updateDoc(doc(worker("w7"), "alerts/temp"), cleared));
+    await assertFails(updateDoc(doc(admin(), "alerts/temp"), { ...cleared, items: [{ house: "1", kind: "low" }] }));
+    await assertSucceeds(updateDoc(doc(admin(), "alerts/temp"), cleared));
     await assertFails(setDoc(doc(worker("w7"), "config/tempWatch"), { watchers: ["m7", "m8"] }));
     await assertSucceeds(setDoc(doc(admin(), "config/tempWatch"), { watchers: ["m7", "m8", "m9"] }));
     await assertFails(setDoc(doc(admin(), "config/tempWatch"), { watchers: ["a", "b", "c", "d"] }));

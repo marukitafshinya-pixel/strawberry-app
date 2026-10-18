@@ -220,3 +220,9 @@ export async function ackTempAlert(name: string) {
   const { db } = await getFirebase();
   await updateDoc(doc(db, "alerts/temp"), { ackBy: name.slice(0, 40), ackAt: serverTimestamp() });
 }
+
+/** 管理者の「警報をリセット」：いまの警報を消す（全員の音が止まる。まだ下がっていれば、次の確認でまた①から鳴る） */
+export async function resetTempAlert() {
+  const { db } = await getFirebase();
+  await updateDoc(doc(db, "alerts/temp"), { items: [], startedAt: null, ackBy: null, ackAt: null });
+}

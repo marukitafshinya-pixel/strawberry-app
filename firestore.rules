@@ -418,10 +418,15 @@ service cloud.firestore {
     // 担当ができるのは「止めた」（だれが・いつ）を入れることだけ
     match /alerts/temp {
       allow read: if isAdmin() || isTempWatcher();
-      allow update: if (isAdmin() || isTempWatcher())
+      allow update: if ((isAdmin() || isTempWatcher())
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ackBy', 'ackAt'])
         && request.resource.data.ackAt == request.time
-        && request.resource.data.ackBy is string && request.resource.data.ackBy.size() <= 40;
+        && request.resource.data.ackBy is string && request.resource.data.ackBy.size() <= 40)
+        // 管理者の「警報をリセット」：いまの警報を消すだけ（まだ下がっていれば、次の確認でまた①から鳴る）
+        || (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['items', 'startedAt', 'ackBy', 'ackAt'])
+          && request.resource.data.items.size() == 0 && request.resource.data.startedAt == null
+          && request.resource.data.ackBy == null && request.resource.data.ackAt == null);
     }
     // ハウスの中の夜の温度（houseTemp/{その夜が明けた日}）：サーバーが20分ごとに入れる。見られるのは管理者だけ
     match /houseTemp/{date} {

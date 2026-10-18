@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { ackTempAlert, saveAlertTemp, saveTempWatchers, useGoveeConfig, useTempAlert, useTempWatchers } from "@/lib/govee";
+import { ackTempAlert, resetTempAlert, saveAlertTemp, saveTempWatchers, useGoveeConfig, useTempAlert, useTempWatchers } from "@/lib/govee";
 import { useShiftMembers } from "@/lib/shift";
 
 /** 「止める」を押したあと、まだ直っていなければ、もう一度鳴らすまでの分 */
@@ -256,6 +256,17 @@ export default function WatchPage() {
         <p className="mt-4 rounded-xl bg-red-700 p-3 font-bold text-white">
           ⚠ 警報が出ています：{alert.items.map((a) => `No.${a.house} ${a.kind === "low" ? `${a.temp!.toFixed(1)}℃` : "温度計が読めません"}`).join("、")}
           {alert.ackBy && alert.ackAt ? `（${alert.ackBy}さんが ${clockOf(alert.ackAt)} に止めました）` : ""}
+          {isAdmin && (
+            <button
+              onClick={() => {
+                if (window.confirm("いまの警報を消して、全員の音を止めますか？（まだ温度が低ければ、次の確認（20分以内）でまた①から鳴ります）"))
+                  void resetTempAlert().catch(() => window.alert("リセットできませんでした"));
+              }}
+              className="mt-2 block w-full rounded-lg bg-white py-3 text-lg font-bold text-red-700"
+            >
+              警報をリセット
+            </button>
+          )}
         </p>
       )}
       <div className="mt-5 rounded-xl border bg-white p-4 text-sm text-gray-700">
