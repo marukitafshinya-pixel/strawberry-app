@@ -76,6 +76,8 @@ export default function HarvestPage() {
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const haichi = useHaichiDay(date);
+  /** その日の集荷係 */
+  const pickup = haichi?.cells[PICKUP_SLOT]?.members ?? [];
   const day = useHarvestDay(date);
   const rec = day?.houses;
   /** その日の休憩（保存していなければ、ふだんの 9:00〜15分） */
@@ -116,6 +118,8 @@ export default function HarvestPage() {
             startOf: h.startOf,
             now: date === todayJST() ? nowMin : null,
             brk,
+            // その日の集荷係が収穫にも入ったハウスは、集荷をしながらなので速さの実績に入れない
+            skipRate: (x) => (h.who(x) ?? []).some((m) => pickup.includes(m)),
           });
         })()
       : null;

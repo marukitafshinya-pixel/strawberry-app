@@ -1,6 +1,7 @@
 // 収穫管理：人ごとの収穫の速さ（1,000株あたりの分）を、最近の記録から計算して stats/harvestSpeed に保存する。
 // スタッフや集荷係は過去の記録を読めないので、予測に使う速さだけをサーバーで計算して渡す。
 // 使う記録：1人だけで収穫したハウスで、入った・終わった時刻があるもの（株数はハウスの大きさ。いちご狩り前・後ろは半分）
+// その日の集荷係（作業配置表の「集荷係」の枠）が収穫にも入ったハウスは、集荷をしながらなので速さには入れない
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
@@ -14,9 +15,24 @@ const DAYS = 45;
 
 /** 画面側（web/src/lib/harvest.ts）と同じ、はじめの株数 */
 const DEFAULT_PLANTS: Record<string, number> = {
-  "21": 3448, "22": 3424, "23": 3424, "24": 3424, "25": 3424, "26": 3424, "27": 3424,
-  "1": 2048, "6": 2048, "8": 2048, "4": 1296, "5": 1296, "9": 1296, "10": 1296,
-  "17": 2352, "18": 2544, "19": 2544, "20": 1344,
+  "21": 3448,
+  "22": 3424,
+  "23": 3424,
+  "24": 3424,
+  "25": 3424,
+  "26": 3424,
+  "27": 3424,
+  "1": 2048,
+  "6": 2048,
+  "8": 2048,
+  "4": 1296,
+  "5": 1296,
+  "9": 1296,
+  "10": 1296,
+  "17": 2352,
+  "18": 2544,
+  "19": 2544,
+  "20": 1344,
 };
 
 type House = { members?: string[]; start?: number | null; end?: number | null };
@@ -53,13 +69,22 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
 
   const today = ymd(new Date());
   const from = ymd(new Date(Date.now() - DAYS * 86400e3));
-  const [cfg, harvest, uses, before] = await Promise.all([
+  const [cfg, harvest, uses, before, haichi] = await Promise.all([
     db.doc("config/harvest").get(),
     db.collection("harvest").where(FieldPath.documentId(), ">=", from).where(FieldPath.documentId(), "<=", today).get(),
     db.collection("houseUse").where(FieldPath.documentId(), ">=", from).where(FieldPath.documentId(), "<=", today).get(),
     // 期間の前の、いちばん近い記録（90日前まで。新しい順に読む方法は使えないので、まとめて読んで最後を使う）
-    db.collection("houseUse").where(FieldPath.documentId(), ">=", ymd(new Date(Date.now() - (DAYS + 90) * 86400e3))).where(FieldPath.documentId(), "<", from).get(),
+    db
+      .collection("houseUse")
+      .where(FieldPath.documentId(), ">=", ymd(new Date(Date.now() - (DAYS + 90) * 86400e3)))
+      .where(FieldPath.documentId(), "<", from)
+      .get(),
+    db.collection("haichi").where(FieldPath.documentId(), ">=", from).where(FieldPath.documentId(), "<=", today).get(),
   ]);
+  // 日付 → その日の集荷係
+  const pickupOf = new Map(
+    haichi.docs.map((d) => [d.id, new Set(((d.get("cells") as Record<string, { members?: string[] }> | undefined)?.pickup?.members ?? []) as string[])]),
+  );
   const plants = (cfg.get("plants") as Record<string, number> | undefined) ?? DEFAULT_PLANTS;
   const useByDate = new Map(uses.docs.map((d) => [d.id, (d.get("houses") as Record<string, string>) ?? {}]));
   let cur: Record<string, string> = (before.docs[before.docs.length - 1]?.get("houses") as Record<string, string>) ?? {};
@@ -72,6 +97,7 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
     const brk = d.get("break") as { start?: number; minutes?: number } | undefined;
     for (const [h, r] of Object.entries(houses)) {
       if (r.members?.length !== 1 || r.start == null || r.end == null || r.end <= r.start) continue;
+      if (pickupOf.get(d.id)?.has(r.members[0])) continue; // その日の集荷係は入れない
       const use = cur[h] ?? "harvest";
       const p = (plants[h] ?? 0) * (use === "harvest" ? 1 : use === "half" || use === "halfBack" ? 0.5 : 0);
       // 休憩の時間は抜く（その日の休憩。なければふだんの 9:00〜15分）

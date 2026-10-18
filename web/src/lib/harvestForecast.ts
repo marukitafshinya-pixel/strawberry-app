@@ -49,6 +49,8 @@ export type ForecastInput = {
   now: number | null;
   /** その日の休憩（この時間は収穫しない） */
   brk: HarvestBreak;
+  /** その日の速さの実績に入れないハウス（集荷係が収穫にも入ったハウスなど） */
+  skipRate?: (h: string) => boolean;
 };
 
 export type Forecast = {
@@ -74,7 +76,7 @@ export function forecastHarvest(f: ForecastInput): Forecast {
   // その日に終わったハウスから、まとまりごと・全体の「のべ分 ÷ 株数」と「実際 ÷ 過去の速さからの予測」を出す
   const done = f.houses.filter((h) => {
     const r = f.rec[h];
-    return r?.start != null && r.end != null && r.end > r.start && eff(h) > 0 && f.who(h).length > 0;
+    return r?.start != null && r.end != null && r.end > r.start && eff(h) > 0 && f.who(h).length > 0 && !f.skipRate?.(h);
   });
   type Acc = { personMin: number; plants: number };
   const byGroup = new Map<string, Acc>();
