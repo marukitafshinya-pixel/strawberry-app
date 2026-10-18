@@ -117,7 +117,9 @@ export async function pollGoveeOnce(nowMs = Date.now()) {
   }
   if (Object.keys(readings).length) await db.doc(`houseTemp/${slot.date}`).set({ readings, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   const alertTemp = typeof cfg.get("alertTemp") === "number" ? (cfg.get("alertTemp") as number) : DEFAULT_ALERT_TEMP;
-  await updateAlert(nowMs, temps, [...new Set(Object.values(houseOf).filter(Boolean))], alertTemp);
+  // 上がったら鳴らす温度（決めていなければ鳴らさない）
+  const alertHigh = typeof cfg.get("alertHigh") === "number" ? (cfg.get("alertHigh") as number) : null;
+  await updateAlert(nowMs, temps, [...new Set(Object.values(houseOf).filter(Boolean))], alertTemp, alertHigh);
   return { saved: Object.keys(readings).length, date: slot.date };
 }
 
@@ -130,7 +132,7 @@ const DEFAULT_ALERT_TEMP = 4;
 /** 温度計がこれより長く読めないと警報（分） */
 const STALE_MIN = 60;
 
-export type AlertItem = { house: string; kind: "low" | "stale"; temp?: number; since: number };
+export type AlertItem = { house: string; kind: "low" | "high" | "stale"; temp?: number; since: number };
 
 /** 読んだ結果から、警報の中身を決める（lastOk＝ハウスごとに最後に読めた時刻） */
 export function alertItems(
@@ -139,6 +141,7 @@ export function alertItems(
   houses: string[],
   lastOk: Record<string, number>,
   alertTemp: number,
+  alertHigh: number | null,
   prev: AlertItem[],
 ) {
   const items: AlertItem[] = [];
@@ -146,6 +149,7 @@ export function alertItems(
   for (const h of houses) {
     if (temps[h] != null) {
       if (temps[h] < alertTemp) items.push({ house: h, kind: "low", temp: temps[h], since: sinceOf(`low-${h}`) });
+      else if (alertHigh != null && temps[h] > alertHigh) items.push({ house: h, kind: "high", temp: temps[h], since: sinceOf(`high-${h}`) });
       continue;
     }
     // 一度も読めていない温度計（つながっていない）は見張らない。1日以上読めていないものも、もう知らせない
@@ -155,7 +159,7 @@ export function alertItems(
   return items;
 }
 
-async function updateAlert(nowMs: number, temps: Record<string, number>, houses: string[], alertTemp: number) {
+async function updateAlert(nowMs: number, temps: Record<string, number>, houses: string[], alertTemp: number, alertHigh: number | null) {
   const ref = db.doc("alerts/temp");
   const prev = (await ref.get()).data() ?? {};
   const lastOk: Record<string, number> = { ...(prev.lastOk ?? {}) };
@@ -167,7 +171,7 @@ async function updateAlert(nowMs: number, temps: Record<string, number>, houses:
   // 温度計の割り当てを外したハウスは消す
   for (const h of Object.keys(latest)) if (!houses.includes(h)) delete latest[h];
   const prevItems = (prev.items ?? []) as AlertItem[];
-  const items = alertItems(nowMs, temps, houses, lastOk, alertTemp, prevItems);
+  const items = alertItems(nowMs, temps, houses, lastOk, alertTemp, alertHigh, prevItems);
   const prevKeys = new Set(prevItems.map((x) => `${x.kind}-${x.house}`));
   const fresh = items.some((x) => !prevKeys.has(`${x.kind}-${x.house}`));
   const reset = items.length === 0 || fresh;
@@ -179,6 +183,7 @@ async function updateAlert(nowMs: number, temps: Record<string, number>, houses:
     lastOk,
     latest,
     alertTemp,
+    alertHigh,
     checkedAt: nowMs,
   });
 }

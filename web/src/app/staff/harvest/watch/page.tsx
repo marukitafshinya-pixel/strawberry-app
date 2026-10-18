@@ -211,7 +211,11 @@ export default function WatchPage() {
               {alert!.items.map((a) => (
                 <li key={`${a.kind}-${a.house}`}>
                   No.{a.house}{" "}
-                  {a.kind === "low" ? `${a.temp!.toFixed(1)}℃（${alert!.alertTemp}℃より低い）` : `温度計が読めません（${clockOf(a.since)}ごろから）`}
+                  {a.kind === "low"
+                    ? `${a.temp!.toFixed(1)}℃（${alert!.alertTemp}℃より低い）`
+                    : a.kind === "high"
+                      ? `${a.temp!.toFixed(1)}℃（${alert!.alertHigh}℃より高い）`
+                      : `温度計が読めません（${clockOf(a.since)}ごろから）`}
                 </li>
               ))}
               {down && <li>見張りのしくみから連絡がありません（{clockOf(alert!.checkedAt!)}から）。携帯の電波か、温度計の登録を確かめてください</li>}
@@ -236,7 +240,7 @@ export default function WatchPage() {
             <p className="text-lg">🌙 見張り中</p>
             <p className="mt-1 text-sm text-gray-500">
               {alert
-                ? `${alert.alertTemp}℃より下がったら鳴ります（最後の確認 ${alert.checkedAt ? clockOf(alert.checkedAt) : "－"}）`
+                ? `${alert.alertTemp}℃より下がったら${alert.alertHigh != null ? `、${alert.alertHigh}℃より上がったら` : ""}鳴ります（最後の確認 ${alert.checkedAt ? clockOf(alert.checkedAt) : "－"}）`
                 : "温度の記録がまだありません"}
             </p>
           </div>
@@ -273,7 +277,7 @@ export default function WatchPage() {
       )}
       {alert && alert.items.length > 0 && (
         <p className="mt-4 rounded-xl bg-red-700 p-3 font-bold text-white">
-          ⚠ 警報が出ています：{alert.items.map((a) => `No.${a.house} ${a.kind === "low" ? `${a.temp!.toFixed(1)}℃` : "温度計が読めません"}`).join("、")}
+          ⚠ 警報が出ています：{alert.items.map((a) => `No.${a.house} ${a.kind === "stale" ? "温度計が読めません" : `${a.temp!.toFixed(1)}℃`}`).join("、")}
           {alert.ackBy && alert.ackAt ? `（${alert.ackBy}さんが ${clockOf(alert.ackAt)} に止めました）` : ""}
           {resetButton}
         </p>
@@ -346,13 +350,20 @@ function AdminSettings({ watchers, owner, members }: { watchers: string[]; owner
   const [msg, setMsg] = useState("");
   const cur = pick ?? [0, 1, 2].map((i) => watchers[i] ?? "");
   const alertTemp = cfg?.alertTemp ?? 4;
+  const alertHigh = cfg?.alertHigh ?? null;
+  const [high, setHigh] = useState<string | null>(null);
   const active = members.filter((m) => m.active).sort((a, b) => a.order - b.order);
   async function save() {
     try {
-      if (temp != null) {
-        const v = Number(temp.replace(/[^0-9.\-]/g, ""));
-        if (!Number.isFinite(v) || v < -10 || v > 20) return setMsg("知らせる温度は −10〜20 の数字を入れてください");
-        await saveAlertTemp(Math.round(v * 10) / 10);
+      if (temp != null || high != null) {
+        const v = Number((temp ?? String(alertTemp)).replace(/[^0-9.\-]/g, ""));
+        if (!Number.isFinite(v) || v < -10 || v > 20) return setMsg("下がったら鳴らす温度は −10〜20 の数字を入れてください");
+        // 上がったら鳴らす温度：空なら鳴らさない
+        const hs = (high ?? (alertHigh == null ? "" : String(alertHigh))).replace(/[^0-9.\-]/g, "");
+        const h = hs === "" ? null : Number(hs);
+        if (h != null && (!Number.isFinite(h) || h < 0 || h > 60)) return setMsg("上がったら鳴らす温度は 0〜60 の数字を入れてください（鳴らさないなら空に）");
+        if (h != null && h <= v) return setMsg("上がったら鳴らす温度は、下がったら鳴らす温度より高くしてください");
+        await saveAlertTemp(Math.round(v * 10) / 10, h == null ? null : Math.round(h * 10) / 10);
       }
       if (pick || ownerPick != null || (!owner && curOwner)) {
         const list = cur.filter(Boolean);
@@ -360,6 +371,7 @@ function AdminSettings({ watchers, owner, members }: { watchers: string[]; owner
         await saveTempWatchers(list, curOwner || null);
       }
       setTemp(null);
+      setHigh(null);
       setPick(null);
       setOwnerPick(null);
       setMsg("保存しました");
@@ -379,6 +391,18 @@ function AdminSettings({ watchers, owner, members }: { watchers: string[]; owner
           className="w-20 rounded border px-2 py-2 text-right text-lg tabular-nums"
         />
         <span>℃ より下がったら鳴らす</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span>知らせる温度</span>
+        <input
+          value={high ?? (alertHigh == null ? "" : String(alertHigh))}
+          onChange={(e) => setHigh(e.target.value)}
+          inputMode="decimal"
+          placeholder="なし"
+          className="w-20 rounded border px-2 py-2 text-right text-lg tabular-nums"
+        />
+        <span>℃ より上がったら鳴らす</span>
+        <span className="text-xs text-gray-500">（空にすると鳴らしません）</span>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
         {[0, 1, 2].map((i) => (
@@ -408,7 +432,7 @@ function AdminSettings({ watchers, owner, members }: { watchers: string[]; owner
         <span className="text-xs text-gray-500">従業員のログインとの切り替えボタンに使います</span>
       </label>
       <div className="mt-3 flex items-center gap-3">
-        {(temp != null || pick != null || ownerPick != null || (!owner && !!curOwner)) && (
+        {(temp != null || high != null || pick != null || ownerPick != null || (!owner && !!curOwner)) && (
           <button onClick={() => void save()} className="rounded-lg bg-berry px-4 py-2 font-bold text-white">
             保存
           </button>

@@ -9,8 +9,8 @@ import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
 
 export type GoveeDevice = { device: string; sku: string; name: string };
-/** alertTemp＝温度の見張りで知らせる温度（℃。これより下がったら警報） */
-export type GoveeConfig = { devices: GoveeDevice[]; houseOf: Record<string, string>; keySet: boolean; alertTemp: number };
+/** alertTemp＝温度の見張りで知らせる温度（℃。これより下がったら警報）、alertHigh＝これより上がったら警報（null＝鳴らさない） */
+export type GoveeConfig = { devices: GoveeDevice[]; houseOf: Record<string, string>; keySet: boolean; alertTemp: number; alertHigh: number | null };
 export const DEFAULT_ALERT_TEMP = 4;
 /** ハウス → その日の分の温度（t＝"HH:MM"、temp＝℃） */
 export type HouseTempNight = Record<string, { t: string; temp: number }[]>;
@@ -32,6 +32,7 @@ export function useGoveeConfig(): GoveeConfig | null | undefined {
                   houseOf: s.get("houseOf") ?? {},
                   keySet: s.get("keySet") === true,
                   alertTemp: typeof s.get("alertTemp") === "number" ? s.get("alertTemp") : DEFAULT_ALERT_TEMP,
+                  alertHigh: typeof s.get("alertHigh") === "number" ? s.get("alertHigh") : null,
                 }
               : null,
           ),
@@ -53,9 +54,9 @@ export async function saveGoveeHouses(houseOf: Record<string, string>) {
 }
 
 /** 温度の見張りで知らせる温度を保存する */
-export async function saveAlertTemp(alertTemp: number) {
+export async function saveAlertTemp(alertTemp: number, alertHigh: number | null) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "config/govee"), { alertTemp, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc(doc(db, "config/govee"), { alertTemp, alertHigh, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** 読んだ値の日本時間の時刻（ミリ秒）。date の分には「前の日の9時すぎ〜その日の9時」が入っている */
@@ -170,7 +171,7 @@ export async function saveTempWatchers(watchers: string[], owner: string | null)
   await setDoc(doc(db, "config/tempWatch"), { watchers, ...(owner ? { owner } : {}), updatedAt: serverTimestamp() });
 }
 
-export type TempAlertItem = { house: string; kind: "low" | "stale"; temp?: number; since: number };
+export type TempAlertItem = { house: string; kind: "low" | "high" | "stale"; temp?: number; since: number };
 /** いま出ている警報（サーバーが20分ごとに入れる）。時刻はミリ秒 */
 export type TempAlert = {
   items: TempAlertItem[];
@@ -179,6 +180,7 @@ export type TempAlert = {
   ackAt: number | null;
   latest: Record<string, { temp: number; at: number }>;
   alertTemp: number;
+  alertHigh: number | null;
   checkedAt: number | null;
 };
 
@@ -202,6 +204,7 @@ export function useTempAlert(): TempAlert | null | undefined {
             ackAt: ack?.toMillis ? ack.toMillis() : null,
             latest: s.get("latest") ?? {},
             alertTemp: typeof s.get("alertTemp") === "number" ? s.get("alertTemp") : DEFAULT_ALERT_TEMP,
+            alertHigh: typeof s.get("alertHigh") === "number" ? s.get("alertHigh") : null,
             checkedAt: s.get("checkedAt") ?? null,
           });
         },

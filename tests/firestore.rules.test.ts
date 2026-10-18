@@ -604,6 +604,9 @@ describe("ハウスの中の温度（Govee）", () => {
     await assertFails(getDoc(doc(staff(), "config/govee")));
     await assertSucceeds(setDoc(doc(admin(), "config/govee"), { houseOf: { "AA:01": "6" } }, { merge: true }));
     await assertSucceeds(setDoc(doc(admin(), "config/govee"), { alertTemp: 4.5 }, { merge: true }));
+    await assertSucceeds(setDoc(doc(admin(), "config/govee"), { alertHigh: 30 }, { merge: true }));
+    await assertSucceeds(setDoc(doc(admin(), "config/govee"), { alertHigh: null }, { merge: true }));
+    await assertFails(setDoc(doc(admin(), "config/govee"), { alertHigh: "30" }, { merge: true }));
     await assertFails(setDoc(doc(admin(), "config/govee"), { alertTemp: "4" }, { merge: true }));
     await assertFails(setDoc(doc(staff(), "config/govee"), { alertTemp: 3 }, { merge: true }));
     await assertFails(setDoc(doc(staff(), "config/govee"), { houseOf: { "AA:01": "6" } }, { merge: true }));
