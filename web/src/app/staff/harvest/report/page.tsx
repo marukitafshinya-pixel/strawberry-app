@@ -39,6 +39,7 @@ import {
   dayStats,
   nightLow,
   pollGoveeNow,
+  readingAt,
   READS_PER_DAY,
   saveGoveeHouses,
   saveGoveeKey,
@@ -47,7 +48,7 @@ import {
   useHouseTemps,
   type GoveeConfig,
 } from "@/lib/govee";
-import { LineChart, NEUTRAL, SERIES_COLORS, Legend } from "@/components/charts";
+import { LineChart, NEUTRAL, SERIES_COLORS, Legend, TimeScrollChart } from "@/components/charts";
 import { errorText } from "@/lib/callFunction";
 
 type Tab = "people" | "houses" | "calendar" | "forecast" | "temp" | "review";
@@ -649,14 +650,79 @@ function SpeedTable({ speeds, names }: { speeds: HarvestSpeeds; names: Map<strin
 }
 
 /** ハウスの株数（ハウスの大きさ。予測に使う） */
-/** その日の分の24時間（前の日の9:20〜その日の9:00）を20分ごとに */
-const DAY_SLOTS = Array.from({ length: READS_PER_DAY }, (_, i) => (9 * 60 + 20 + i * 20) % 1440);
-const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-/** 読んだ時刻（"18:01" など）を、いちばん近い20分の区切りにする */
-const slotOf = (t: string) => {
-  const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-  return (Math.round(m / 20) * 20) % 1440;
-};
+/** 温度の動き：1画面の長さ・まとめる間隔・読む日数・目盛りの間隔 */
+const TREND = {
+  day: { label: "24時間", windowMs: 24 * 3600_000, bucketMs: 20 * 60_000, days: 14, tickMs: 3 * 3600_000 },
+  week: { label: "1週間", windowMs: 7 * 86400_000, bucketMs: 3600_000, days: 56, tickMs: 86400_000 },
+  month: { label: "1か月", windowMs: 30 * 86400_000, bucketMs: 6 * 3600_000, days: 120, tickMs: 5 * 86400_000 },
+} as const;
+type TrendMode = keyof typeof TREND;
+const jstOf = (t: number) => new Date(t + 9 * 3600_000);
+const md = (t: number) => `${jstOf(t).getUTCMonth() + 1}/${jstOf(t).getUTCDate()}`;
+const hm = (t: number) => jstOf(t).toISOString().slice(11, 16);
+
+/** 温度の動き（右はしが今。左へ動かすと過去）。24時間・1週間・1か月を切り替える。長い表示はまとめて平均する */
+function TempTrend({ series }: { series: { key: string; label: string; color: string }[] }) {
+  const [mode, setMode] = useState<TrendMode>("day");
+  const m = TREND[mode];
+  const today = todayJST();
+  const temps = useHouseTemps(addDays(today, -m.days), addDays(today, 1));
+  const [now] = useState(() => Date.now());
+  const from = now - m.days * 86400_000;
+  // 温度計ごとに、まとめる間隔で平均する
+  const buckets = new Map<number, Record<string, { sum: number; n: number }>>();
+  for (const [date, doc] of Object.entries(temps ?? {}))
+    for (const s of series)
+      for (const x of doc[s.key] ?? []) {
+        const at = readingAt(date, x.t);
+        if (at < from) continue;
+        const b = Math.floor(at / m.bucketMs) * m.bucketMs + (m.bucketMs > 20 * 60_000 ? m.bucketMs / 2 : 0);
+        const cell = (buckets.get(b) ?? buckets.set(b, {}).get(b)!)[s.key] ?? { sum: 0, n: 0 };
+        cell.sum += x.temp;
+        cell.n += 1;
+        buckets.get(b)![s.key] = cell;
+      }
+  const rows = [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, v]) => ({ t, values: Object.fromEntries(Object.entries(v).map(([k, c]) => [k, Math.round((c.sum / c.n) * 10) / 10])) }));
+  return (
+    <section className="mt-3 rounded-xl border bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="font-bold">温度の動き</h2>
+        <div className="flex overflow-hidden rounded-lg border text-sm">
+          {(Object.keys(TREND) as TrendMode[]).map((k) => (
+            <button key={k} onClick={() => setMode(k)} className={`px-3 py-1 ${mode === k ? "bg-berry font-bold text-white" : "bg-white"}`}>
+              {TREND[k].label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-gray-500">
+          右はしが今です。左へ動かすと前の日が見られます{mode !== "day" ? `（${mode === "week" ? "1時間" : "6時間"}ごとの平均）` : ""}。
+        </span>
+      </div>
+      <div className="mt-1">
+        <Legend series={series} />
+      </div>
+      {temps === null ? (
+        <p className="py-10 text-center text-gray-500">読み込み中…</p>
+      ) : (
+        <TimeScrollChart
+          rows={rows}
+          series={series}
+          from={from}
+          to={now}
+          windowMs={m.windowMs}
+          bucketMs={m.bucketMs}
+          tickMs={m.tickMs}
+          tickLabel={(t) => (mode === "day" ? (hm(t) === "00:00" ? md(t) : hm(t)) : md(t))}
+          pointLabel={(t) => (mode === "month" ? `${md(t)} ${hm(t - m.bucketMs / 2)}〜${hm(t + m.bucketMs / 2)}` : `${md(t)} ${hm(t)}`)}
+          unit="℃"
+        />
+      )}
+    </section>
+  );
+}
+
 type TempKind = "min" | "avg" | "max";
 const TEMP_KINDS: { key: TempKind; label: string }[] = [
   { key: "min", label: "最低" },
@@ -698,11 +764,6 @@ function HouseTempTab({ from, to, houses, groups }: { from: string; to: string; 
     label: `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`,
     values: { ...Object.fromEntries(series.map((s) => [s.key, pickOf(dayStats(temps[d][s.key]))])), out: outOf(d) },
   }));
-  const dayRows = DAY_SLOTS.map((m) => ({
-    key: String(m),
-    label: hhmm(m),
-    values: Object.fromEntries(series.map((s) => [s.key, (temps[day][s.key] ?? []).find((x) => slotOf(x.t) === m)?.temp ?? null])),
-  }));
   const available = Object.keys(temps[day]).filter((h) => (temps[day][h] ?? []).length > 0);
   return (
     <>
@@ -729,24 +790,18 @@ function HouseTempTab({ from, to, houses, groups }: { from: string; to: string; 
           <p className="text-xs text-gray-500">平均・最高は、24時間のうち4分の3以上読めた日だけ出します（読めない時間が長いと、平均・最高がずれるため）。</p>
         )}
       </section>
-      <section className="mt-3 rounded-xl border bg-white p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-bold">温度の動き（24時間）</h2>
+      <TempTrend series={series} />
+      <section className="mt-3 overflow-x-auto rounded-xl border bg-white">
+        <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
+          <h2 className="font-bold">ハウスごとの温度</h2>
           <select value={day} onChange={(e) => setPick(e.target.value)} className="rounded border px-2 py-1 text-sm">
             {[...days].reverse().map((d) => (
               <option key={d} value={d}>
-                {formatJa(d)} の朝まで
+                {formatJa(d)} の朝までの24時間
               </option>
             ))}
           </select>
         </div>
-        <div className="mt-1">
-          <Legend series={series} />
-        </div>
-        <LineChart rows={dayRows} series={series} unit="℃" />
-      </section>
-      <section className="mt-3 overflow-x-auto rounded-xl border bg-white">
-        <h2 className="px-3 pt-3 font-bold">ハウスごとの温度（{formatJa(day)} の朝までの24時間）</h2>
         <table className="mt-2 w-full min-w-max text-sm tabular-nums">
           <thead className="bg-gray-50 text-left text-xs text-gray-600">
             <tr>

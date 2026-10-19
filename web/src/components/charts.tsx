@@ -780,3 +780,151 @@ export function LineChart({
     </div>
   );
 }
+
+/**
+ * 時間の折れ線（右はしが今。左へ動かすと過去が見られる）。window＝1画面に入れる長さ（ミリ秒）。
+ * 値のない時間（bucket の2倍よりあいたところ）は線を切る。縦の目盛りは左に固定して、グラフだけを横に動かす
+ */
+export function TimeScrollChart({
+  rows,
+  series,
+  from,
+  to,
+  windowMs,
+  bucketMs,
+  tickMs,
+  tickLabel,
+  pointLabel,
+  unit,
+  height = 240,
+}: {
+  rows: { t: number; values: Record<string, number | null | undefined> }[];
+  series: Series[];
+  from: number;
+  to: number;
+  windowMs: number;
+  bucketMs: number;
+  tickMs: number;
+  tickLabel: (t: number) => string;
+  pointLabel: (t: number) => string;
+  unit: string;
+  height?: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [box, W] = useWidth<HTMLDivElement>(640);
+  const scroller = useRef<HTMLDivElement>(null);
+  const axisW = 40;
+  const viewW = Math.max(200, W - axisW);
+  const span = Math.max(windowMs, to - from);
+  const contentW = Math.round((viewW * span) / windowMs);
+  const pad = { t: 10, b: 24 };
+  const plotH = height - pad.t - pad.b;
+  const vals = rows.flatMap((r) => series.map((s) => r.values[s.key])).filter((v): v is number => typeof v === "number");
+  const lo = vals.length ? Math.floor(Math.min(...vals) / 2) * 2 : 0;
+  const hi = vals.length ? Math.max(lo + 2, Math.ceil(Math.max(...vals) / 2) * 2) : 10;
+  const step = hi - lo > 20 ? 5 : 2;
+  const ticksY: number[] = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) ticksY.push(v);
+  const x = (t: number) => ((t - (to - span)) / span) * contentW;
+  const y = (v: number) => pad.t + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
+  // 横の目盛り：日本時間の区切り（0時・3時など）にそろえる
+  const jst = 9 * 3600_000;
+  const ticksX: number[] = [];
+  for (let t = Math.ceil((to - span + jst) / tickMs) * tickMs - jst; t <= to; t += tickMs) ticksX.push(t);
+  const pathOf = (k: string) => {
+    let d = "";
+    let prev: number | null = null;
+    for (const r of rows) {
+      const v = r.values[k];
+      if (typeof v !== "number") continue;
+      d += `${prev != null && r.t - prev <= bucketMs * 2 ? "L" : "M"}${x(r.t).toFixed(1)},${y(v).toFixed(1)}`;
+      prev = r.t;
+    }
+    return d;
+  };
+  // 開いたとき・切り替えたときは、右はし（今）を見せる
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [contentW, windowMs]);
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const t = to - span + ((e.clientX - rect.left) / rect.width) * span;
+    let best: number | null = null;
+    rows.forEach((r, i) => {
+      if (best == null || Math.abs(r.t - t) < Math.abs(rows[best].t - t)) best = i;
+    });
+    setHover(best != null && Math.abs(rows[best].t - t) <= bucketMs * 2 ? best : null);
+  };
+  const num = (v: number) => v.toLocaleString("ja-JP", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const hx = hover != null ? x(rows[hover].t) : 0;
+  return (
+    <div className="relative" ref={box}>
+      <svg className="absolute left-0 top-0" width={axisW} height={height} aria-hidden>
+        {ticksY.map((v) => (
+          <text key={v} x={axisW - 6} y={y(v) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
+            {v}
+            {v === ticksY[ticksY.length - 1] ? unit : ""}
+          </text>
+        ))}
+      </svg>
+      <div ref={scroller} className="overflow-x-auto" style={{ marginLeft: axisW }}>
+        <div className="relative" style={{ width: contentW }}>
+          <svg
+            width={contentW}
+            height={height}
+            className="touch-pan-x"
+            role="img"
+            aria-label="時間の折れ線グラフ"
+            onPointerMove={onMove}
+            onPointerDown={onMove}
+            onPointerLeave={() => setHover(null)}
+          >
+            {ticksY.map((v) => (
+              <line key={v} x1={0} x2={contentW} y1={y(v)} y2={y(v)} stroke={GRID} strokeWidth={1} />
+            ))}
+            {ticksX.map((t) => (
+              <g key={t}>
+                <line x1={x(t)} x2={x(t)} y1={pad.t} y2={pad.t + plotH} stroke={GRID} strokeWidth={1} />
+                <text x={x(t)} y={height - 6} textAnchor="middle" fontSize={11} fill={TEXT_MUTED}>
+                  {tickLabel(t)}
+                </text>
+              </g>
+            ))}
+            {/* 今 */}
+            <line x1={contentW - 1} x2={contentW - 1} y1={pad.t} y2={pad.t + plotH} stroke={TEXT_MUTED} strokeWidth={1} strokeDasharray="3 3" />
+            {hover != null && <line x1={hx} x2={hx} y1={pad.t} y2={pad.t + plotH} stroke={TEXT_MUTED} strokeWidth={1} strokeDasharray="3 3" />}
+            {series.map((s) => (
+              <path key={s.key} d={pathOf(s.key)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            ))}
+            {hover != null &&
+              series.map((s) => {
+                const v = rows[hover].values[s.key];
+                return typeof v === "number" ? <circle key={s.key} cx={hx} cy={y(v)} r={4} fill={s.color} stroke={SURFACE} strokeWidth={2} /> : null;
+              })}
+          </svg>
+          {hover != null && (
+            <div
+              className="pointer-events-none absolute top-0 z-10 min-w-36 rounded-lg border bg-white px-3 py-2 text-sm shadow-lg"
+              style={{ left: Math.min(Math.max(0, hx - 72), contentW - 150) }}
+            >
+              <div className="font-bold">{pointLabel(rows[hover].t)}</div>
+              <ul className="mt-1 space-y-0.5">
+                {series.map((s) => {
+                  const v = rows[hover].values[s.key];
+                  return (
+                    <li key={s.key} className="flex items-center gap-2 text-xs">
+                      <span className="inline-block h-2 w-2 rounded-sm" style={{ background: s.color }} />
+                      <span className="font-semibold tabular-nums">{typeof v === "number" ? `${num(v)}${unit}` : "－"}</span>
+                      <span className="text-gray-500">{s.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
