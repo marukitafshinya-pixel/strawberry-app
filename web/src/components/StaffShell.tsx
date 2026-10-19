@@ -97,9 +97,13 @@ function Guard({ children }: { children: ReactNode }) {
     if (!loading && !user && !isLoginPage) router.replace(LOGIN_PATH);
   }, [loading, user, isLoginPage, router]);
   // 従業員は勤務の画面だけ。ただし収穫管理の入力（その日の集荷係のとき使える）は開ける
-  // 温度の見張り（見張り担当の従業員が使う）も開ける
+  // 温度の見張り（見張り担当の従業員が使う）と、収穫報告（収穫する人が「入った・終わった」を押す）も開ける
   const workerPage =
-    !!pathname?.startsWith(WORKER_PATH) || pathname === HARVEST_PATH || pathname === "/staff/harvest" || !!pathname?.startsWith("/staff/harvest/watch");
+    !!pathname?.startsWith(WORKER_PATH) ||
+    pathname === HARVEST_PATH ||
+    pathname === "/staff/harvest" ||
+    !!pathname?.startsWith("/staff/harvest/watch") ||
+    !!pathname?.startsWith("/staff/harvest/tap");
   const workerAway = role === "worker" && !isLoginPage && !workerPage;
   // 経理担当は、現金出納帳だけ
   const accountingAway = role === "accounting" && !isLoginPage && !pathname?.startsWith(CASHBOOK_PATH);

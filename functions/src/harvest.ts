@@ -111,3 +111,54 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
   await db.doc("stats/harvestSpeed").set({ speeds, counts, avg, records: records.length, updatedAt: FieldValue.serverTimestamp() });
   return { ok: true };
 });
+
+/** 収穫しない使い方（応援の行き先にしない） */
+const NO_HARVEST = ["picking", "reserve", "off"];
+type ForecastHouse = { start?: number | null; end?: number | null };
+type Taps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
+
+/**
+ * 応援の行き先：まだ誰も入っていないハウスのうち、朝の予測でいちばん遅く終わるハウス。
+ * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウスは除く
+ */
+export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<string, House>, taps: Taps, usage: Record<string, string>): string | null {
+  const tapped = new Set(
+    Object.values(taps).flatMap((t) =>
+      Object.entries(t)
+        .filter(([, v]) => v?.start != null || v?.end != null)
+        .map(([h]) => h),
+    ),
+  );
+  let best: string | null = null;
+  for (const [h, f] of Object.entries(fh)) {
+    if (f?.end == null || NO_HARVEST.includes(usage[h] ?? "harvest") || tapped.has(h)) continue;
+    if (houses[h]?.start != null || houses[h]?.end != null) continue;
+    const b = best == null ? null : fh[best];
+    if (b == null || f.end! > b.end! || (f.end === b.end && (f.start ?? 0) > (b.start ?? 0))) best = h;
+  }
+  return best;
+}
+
+/** 収穫報告：自分の予定が全部終わった人に、応援に行くハウスを返す（収穫者は収穫管理の記録を読めないので、番号だけ渡す） */
+export const harvestHelpHouse = onCall(async (req) => {
+  const uid = req.auth?.uid;
+  if (!uid || req.auth?.token.role !== "worker") throw new HttpsError("permission-denied", "使えません");
+  const w = await db.doc(`workers/${uid}`).get();
+  if (w.get("active") !== true) throw new HttpsError("permission-denied", "使えません");
+  const date = ymd(new Date());
+  const [day, taps, use] = await Promise.all([
+    db.doc(`harvest/${date}`).get(),
+    db.collection(`harvest/${date}/taps`).get(),
+    // ハウスの使い方は、その日の記録がなければ前の日（いちばん近い記録。60日前まで）を引きつぐ
+    db
+      .collection("houseUse")
+      .where(FieldPath.documentId(), ">=", ymd(new Date(Date.now() - 60 * 86400e3)))
+      .where(FieldPath.documentId(), "<=", date)
+      .get(),
+  ]);
+  const fh = (day.get("forecastHouses") as Record<string, ForecastHouse> | undefined) ?? {};
+  const houses = (day.get("houses") as Record<string, House> | undefined) ?? {};
+  const t: Taps = Object.fromEntries(taps.docs.map((d) => [d.id, d.get("houses") ?? {}]));
+  const usage = (use.docs[use.docs.length - 1]?.get("houses") as Record<string, string> | undefined) ?? {};
+  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0 };
+});

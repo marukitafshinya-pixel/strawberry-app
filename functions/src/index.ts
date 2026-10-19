@@ -13,7 +13,7 @@ export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidS
 export { importWeatherMonth, refreshHarvestWeather } from "./weather.js";
 export { saveGoveeKey, pollGovee, pollGoveeNow } from "./govee.js";
 export { refreshForecast } from "./forecast.js";
-export { refreshHarvestSpeeds } from "./harvest.js";
+export { refreshHarvestSpeeds, harvestHelpHouse } from "./harvest.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

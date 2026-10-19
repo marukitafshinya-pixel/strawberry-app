@@ -300,6 +300,8 @@ export type HarvestLogEntry = {
   dayEnd?: number | null;
   break?: HarvestBreak;
   auto?: boolean;
+  /** 収穫者が収穫報告で押した（in＝入った、out＝終わった、undo〜＝取り消し） */
+  tap?: "in" | "out" | "undoIn" | "undoOut";
 };
 
 /** 入力の記録を1行足す。記録できなくても入力はそのまま（失敗しても知らせない） */

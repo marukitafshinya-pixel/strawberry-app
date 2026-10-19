@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, isValidYmd, todayJST, weekday } from "@/lib/date";
-import { useHaichiDay } from "@/lib/haichi";
+import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
+import { planHarvest } from "@/lib/harvest";
 import { useAuth } from "@/lib/auth";
 import { useTempWatchers } from "@/lib/govee";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
@@ -65,6 +66,10 @@ export function WorkerScreen({
   const haichi = useHaichiDay(today);
   // 今日の作業配置表で「集荷係」に入っているか、「収穫管理 毎日使える」の人なら、収穫管理（＋1で数える画面）を開けるボタンを出す
   const harvest = me.harvestEntry === true || !!haichi?.cells.pickup?.members.includes(me.id);
+  // 今日の作業配置表で収穫に名前が入っていれば、収穫報告（入った・終わった）のボタンを出す
+  const template = useHaichiTemplate();
+  const plan = template && haichi ? planHarvest(template, haichi) : null;
+  const picking = !preview && !!plan && Object.values(plan.members).some((ms) => ms.includes(me.id));
   // 温度の見張り担当なら、見張り画面を開くボタンを出す
   const tw = useTempWatchers();
   const watcherNo = preview ? -1 : (tw?.watchers.indexOf(me.id) ?? -1);
@@ -79,6 +84,11 @@ export function WorkerScreen({
 
   return (
     <div className="space-y-5">
+      {picking && (
+        <Link href="/staff/harvest/tap/" className="block rounded-2xl bg-sky-600 p-4 text-center text-xl font-bold text-white shadow">
+          🍓 収穫報告（入った・終わった）
+        </Link>
+      )}
       {harvest && (
         <Link href="/staff/harvest/" className="block rounded-2xl bg-berry p-4 text-center text-xl font-bold text-white shadow">
           🍓 収穫管理（今日の集荷）を開く

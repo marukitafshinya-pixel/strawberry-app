@@ -57,6 +57,34 @@ service cloud.firestore {
         && timestamp.date(int(date[0:4]), int(date[5:7]), int(date[8:10])) > request.time - duration.value(9, 'd')
         && timestamp.date(int(date[0:4]), int(date[5:7]), int(date[8:10])) < request.time + duration.value(2, 'd');
     }
+    // 日付（YYYY-MM-DD）が、今日あたり（日本の今日と、その前後の日）か
+    function nearToday(date) {
+      return date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && timestamp.date(int(date[0:4]), int(date[5:7]), int(date[8:10])) > request.time - duration.value(1, 'd')
+        && timestamp.date(int(date[0:4]), int(date[5:7]), int(date[8:10])) < request.time + duration.value(1, 'd');
+    }
+    // 収穫者が「入った・終わった」を押したときの書き込みか：今日の分の、1つのハウス（tapHouse）の「入った・終わった」の時刻だけ。
+    // ケース数や収穫者、ほかのハウスは変えられない
+    function tapWrite(date) {
+      let before = resource == null ? {} : resource.data;
+      let hb = before.get('houses', {});
+      let ha = request.resource.data.get('houses', {});
+      let k = request.resource.data.get('tapHouse', '');
+      return isWorker() && nearToday(date)
+        && request.resource.data.diff(before).affectedKeys().hasOnly(['houses', 'tapHouse', 'updatedAt'])
+        && k is string && k in ha
+        && ha.diff(hb).affectedKeys().hasOnly([k])
+        && tapHouse(hb, ha, k);
+    }
+    function tapHouse(hb, ha, k) {
+      return ha[k] is map
+        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end'])
+        && minuteOrNull(ha[k], 'start') && minuteOrNull(ha[k], 'end');
+    }
+    // 時刻（0時からの分）か、空か、入っていない
+    function minuteOrNull(m, k) {
+      return !(k in m) || m[k] == null || (m[k] is int && m[k] >= 0 && m[k] < 1440);
+    }
     // 従業員（勤務管理表を見る・休みの希望を出すだけの人）。ログインはサーバー側で作る
     function isWorker() {
       return signedIn()
@@ -354,9 +382,10 @@ service cloud.firestore {
     // 収穫の記録（だれがどのハウスで何ケース取ったか）：管理者は全部、スタッフは最近の日（8日前〜明日）、集荷係の従業員はその日だけ読み書きできる。集計は管理者だけ
     match /harvest/{date} {
       allow read: if isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
+      // 収穫する従業員（収穫報告）は、読めずに、今日のハウスの「入った・終わった」の時刻だけ書ける（tapWrite）
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
-        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'break', 'updatedAt'])
+        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || tapWrite(date))
+        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'break', 'tapHouse', 'updatedAt'])
         && (!('forecastHouses' in request.resource.data) || (request.resource.data.forecastHouses is map && request.resource.data.forecastHouses.size() <= 80))
         && (!('break' in request.resource.data) || (request.resource.data.break is map
           && request.resource.data.break.keys().hasOnly(['start', 'minutes'])
@@ -371,8 +400,8 @@ service cloud.firestore {
     // 入れられるのは収穫管理を使える人、見られるのは管理者だけ。あとから直したり消したりはできない
     match /harvest/{date}/log/{id} {
       allow read: if isAdmin();
-      allow create: if (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
-        && request.resource.data.keys().hasOnly(['at', 'by', 'house', 'delta', 'cases', 'start', 'end', 'members', 'use', 'dayEnd', 'break', 'auto'])
+      allow create: if (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || (isWorker() && nearToday(date)))
+        && request.resource.data.keys().hasOnly(['at', 'by', 'house', 'delta', 'cases', 'start', 'end', 'members', 'use', 'dayEnd', 'break', 'auto', 'tap'])
         && request.resource.data.at == request.time
         && request.resource.data.by == request.auth.uid
         && (!('house' in request.resource.data) || (request.resource.data.house is string && request.resource.data.house.size() <= 10))
@@ -384,7 +413,17 @@ service cloud.firestore {
         && (!('members' in request.resource.data) || (request.resource.data.members is list && request.resource.data.members.size() <= 20))
         && (!('use' in request.resource.data) || (request.resource.data.use is string && request.resource.data.use.size() <= 10))
         && (!('break' in request.resource.data) || (request.resource.data.break is map && request.resource.data.break.keys().hasOnly(['start', 'minutes'])))
-        && (!('auto' in request.resource.data) || request.resource.data.auto is bool);
+        && (!('auto' in request.resource.data) || request.resource.data.auto is bool)
+        && (!('tap' in request.resource.data) || request.resource.data.tap in ['in', 'out', 'undoIn', 'undoOut']);
+    }
+    // 収穫者が自分で押した「入った・終わった」（ハウス → 時刻）。書けるのは本人だけ（今日の分）。
+    // 同じハウスの人が全員「終わった」を押したかを見るため、今日の分は従業員どうしで見られる（時刻だけで、個人情報は入れない）
+    match /harvest/{date}/taps/{memberId} {
+      allow read: if isStaff() || (isWorker() && nearToday(date));
+      allow write: if isWorker() && nearToday(date)
+        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId
+        && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
+        && request.resource.data.houses is map && request.resource.data.houses.size() <= 40;
     }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {

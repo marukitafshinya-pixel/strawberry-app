@@ -589,6 +589,54 @@ describe("収穫管理の入力の記録 (harvest/{date}/log)", () => {
   });
 });
 
+describe("収穫管理：収穫者の「入った・終わった」", () => {
+  // 日本の今日（テストはいつ動かしても今日の分）
+  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const w = (uid: string) => env.authenticatedContext(uid, { role: "worker" }).firestore();
+  const seed = () =>
+    env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w7"), { memberId: "m7", loginId: "murakami", active: true });
+      await setDoc(doc(db, "workers/w8"), { memberId: "m8", loginId: "ozaki", active: true });
+      await setDoc(doc(db, `harvest/${today}`), { houses: { "17": { members: ["m7", "m8"], cases: 3 } } });
+      await setDoc(doc(db, "harvest/2020-01-01"), { houses: {} });
+    });
+
+  it("今日の分の、1つのハウスの時刻だけ書ける。読めない。ケース数・収穫者・ほかの項目は変えられない", async () => {
+    await seed();
+    const put = (data: object) => setDoc(doc(w("w7"), `harvest/${today}`), data, { merge: true });
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { start: 400 } } }));
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { end: 450 } } }));
+    await assertSucceeds(put({ tapHouse: "19", houses: { "19": { start: 450 } } }));
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { end: null } } }));
+    // 収穫管理のデータは読めない
+    await assertFails(getDoc(doc(w("w7"), `harvest/${today}`)));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { cases: 9 } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { members: ["m7"] } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { start: 2000 } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { start: 401 }, "19": { start: 401 } } }));
+    await assertFails(put({ tapHouse: "19", houses: { "17": { start: 402 } } }));
+    await assertFails(put({ tapHouse: "17", endTime: 600, houses: { "17": { start: 404 } } }));
+    // 今日でない日は書けない
+    await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01"), { tapHouse: "17", houses: { "17": { start: 400 } } }, { merge: true }));
+  });
+
+  it("自分の押した記録は本人だけ書ける。今日の分は従業員どうしで見られる", async () => {
+    await seed();
+    const tap = { houses: { "17": { start: 400 } } };
+    await assertSucceeds(setDoc(doc(w("w7"), `harvest/${today}/taps/m7`), tap));
+    await assertFails(setDoc(doc(w("w7"), `harvest/${today}/taps/m8`), tap));
+    await assertFails(setDoc(doc(w("w7"), `harvest/${today}/taps/m7`), { ...tap, memo: "x" }));
+    await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01/taps/m7"), tap));
+    await assertSucceeds(getDoc(doc(w("w8"), `harvest/${today}/taps/m7`)));
+    await assertSucceeds(getDoc(doc(admin(), `harvest/${today}/taps/m7`)));
+    await assertFails(getDoc(doc(guest(), `harvest/${today}/taps/m7`)));
+    // 入力の記録（管理者だけが見る）にも残せる
+    await assertSucceeds(setDoc(doc(w("w7"), `harvest/${today}/log/t1`), { house: "17", start: 400, tap: "in", at: serverTimestamp(), by: "w7" }));
+    await assertFails(setDoc(doc(w("w7"), `harvest/${today}/log/t2`), { house: "17", tap: "x", at: serverTimestamp(), by: "w7" }));
+  });
+});
+
 describe("ハウスの中の温度（Govee）", () => {
   it("API キーは誰も読めない。温度計のハウス決めと温度は管理者だけ", async () => {
     const devices = [{ device: "AA:01", sku: "H5179", name: "1" }];
