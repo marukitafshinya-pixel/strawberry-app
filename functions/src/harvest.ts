@@ -139,7 +139,7 @@ export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<
   return best;
 }
 
-/** 収穫報告：自分の予定が全部終わった人に、応援に行くハウスを返す（収穫者は収穫管理の記録を読めないので、番号だけ渡す） */
+/** 収穫報告：自分の予定が全部終わった人に、応援に行くハウスと、もう終わったハウスを返す（収穫者は収穫管理の記録を読めないので、番号だけ渡す） */
 export const harvestHelpHouse = onCall(async (req) => {
   const uid = req.auth?.uid;
   if (!uid || req.auth?.token.role !== "worker") throw new HttpsError("permission-denied", "使えません");
@@ -160,5 +160,9 @@ export const harvestHelpHouse = onCall(async (req) => {
   const houses = (day.get("houses") as Record<string, House> | undefined) ?? {};
   const t: Taps = Object.fromEntries(taps.docs.map((d) => [d.id, d.get("houses") ?? {}]));
   const usage = (use.docs[use.docs.length - 1]?.get("houses") as Record<string, string> | undefined) ?? {};
-  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0 };
+  // done＝もう終わったハウス（「ほかのハウスに行く」の一覧から外す）
+  const done = Object.entries(houses)
+    .filter(([, v]) => v?.end != null)
+    .map(([h]) => h);
+  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0, done };
 });
