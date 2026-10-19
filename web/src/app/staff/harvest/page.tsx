@@ -497,31 +497,12 @@ function Sheet({
   // 作業配置表の収穫の枠と同じ並び（1・6・8・4・5・9・10・17〜27）
   const rows = houses;
 
-  /** いま収穫しているハウスか（「入った」があって「終わった」がまだ） */
-  const inProgress = (h: string) => startOf(h) != null && rec[h]?.end == null && !NO_HARVEST.includes(usageOf(h));
-  /**
-   * 収穫しているハウスに人を入れたら、その人をほかの「収穫している」ハウスから外す（同じ人が2つのハウスに同時にいることにしない）。
-   * 終わったハウスの名前は、だれが収穫したかの記録なので残す
-   */
-  async function leaveOthers(id: string, to: string) {
-    if (!inProgress(to)) return;
-    for (const h of rows) if (h !== to && inProgress(h) && who(h).includes(id)) await save(h, { members: who(h).filter((x) => x !== id), membersEdited: true });
-  }
-  /**
-   * 名前を別のハウスへ入れる。元のハウスが終わっていれば元にも残し（だれが収穫したかの記録）、まだなら元から外す（入れ替え）。
-   * 入ったが空なら、元のハウスの終わった時刻を入れる
-   */
+  /** 名前を別のハウスへ入れる（元のハウスにも残す）。入ったが空なら、元のハウスの終わった時刻を入れる */
   function dropTo(id: string, from: string, to: string) {
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
     const cur = who(to);
     const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
-    run(
-      (async () => {
-        if (rec[from]?.end == null) await save(from, { members: who(from).filter((x) => x !== id), membersEdited: true });
-        await save(to, { members: cur.includes(id) ? cur : [...cur, id], membersEdited: true, ...startAt });
-        await leaveOthers(id, to);
-      })(),
-    );
+    run(save(to, { members: cur.includes(id) ? cur : [...cur, id], membersEdited: true, ...startAt }));
   }
   /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
   function onPick(id: string, from: string, e: React.PointerEvent) {
@@ -566,18 +547,11 @@ function Sheet({
     <Members
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
-      here={inProgress(h)}
+      here={startOf(h) != null && rec[h]?.end == null && !NO_HARVEST.includes(usageOf(h))}
       finished={rec[h]?.end != null}
       names={names}
       members={members}
-      onChange={(next) =>
-        run(
-          (async () => {
-            await save(h, { members: next, membersEdited: true });
-            for (const id of next.filter((x) => !who(h).includes(x))) await leaveOthers(id, h);
-          })(),
-        )
-      }
+      onChange={(next) => run(save(h, { members: next, membersEdited: true }))}
       onPick={(id, e) => onPick(id, h, e)}
     />
   );
@@ -672,7 +646,7 @@ function Sheet({
 
   const help = (
     <>
-      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって別のハウスに落とすと、そのハウスに移ります（終わったハウスからは、だれが収穫したかの記録として元にも残ります。名前を押すだけなら外れます）。同じ人が2つの収穫中のハウスに重ならないよう、収穫中のハウスに入れると、ほかの収穫中のハウスからは外れます。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
+      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
       <b className="text-emerald-700">緑</b>、終わったハウスの名前は<b className="text-gray-500">灰色（✓）</b>になります。時刻は「710」で
       7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
       {use.from !== date &&
@@ -799,7 +773,7 @@ function Sheet({
 }
 
 /**
- * 収穫者：名前を押すと外せる。名前を引っぱって別のハウスの行に落とすと、そのハウスに移る（終わったハウスからは元にも残す）。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない）。
+ * 収穫者：名前を押すと外せる。名前を引っぱって別のハウスの行に落とすと、そのハウスにも入る。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない）。
  * here＝いま収穫しているハウス（「入った」があって「終わった」がまだ）。名前を緑にして、だれがどこにいるかを一目でわかるようにする
  * finished＝もう終わったハウス。名前を灰色にして「✓」を付ける（これから入るハウスの名前と見分けるため）
  */
@@ -830,7 +804,7 @@ function Members({
         <button
           key={id}
           onPointerDown={(e) => onPick(id, e)}
-          title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスに移ります（終わったハウスからは、元にも残ります）"
+          title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
           className={`touch-none select-none rounded-full border px-2 py-1 ${
             here
               ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
