@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
-import { clock, harvestHouses, logHarvest, planHarvest, type HouseUseMap } from "@/lib/harvest";
+import { clock, harvestHouses, logHarvest, planHarvest, type HarvestDoc, type HouseUseMap } from "@/lib/harvest";
 import { refreshHarvestSpeeds } from "@/lib/harvestForecast";
-import { fetchDayTaps, fetchHelpHouse, NO_HARVEST, nowMinJST, saveTap, saveTapToHouse, useDayTaps, type DayTaps } from "@/lib/harvestTap";
+import { fetchDayTaps, fetchHelpHouse, NO_HARVEST, nowMinJST, saveTap, saveTapToHouse, useDayTaps, type DayTaps, type HelpInfo } from "@/lib/harvestTap";
 import type { ShiftMember } from "@/lib/shift";
 
 export const back = (
@@ -38,20 +38,24 @@ export function TapScreen({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [help, setHelp] = useState<{ house: string | null; forecast: boolean; n: number } | null>(null);
+  /** サーバーから聞いたこと（応援の行き先・入れ直した収穫者など）。n＝聞いたときの「終わった」の数 */
+  const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
   const [chosen, setChosen] = useState<string | null>(null);
   /** 「ほかのハウスに行く」の一覧（null＝閉じている、done＝もう終わったハウス。読み込み中は undefined） */
   const [others, setOthers] = useState<{ done: string[] | undefined } | null>(null);
 
   const plan = planHarvest(template, haichi);
+  /** そのハウスの収穫者：集荷係が収穫管理で入れ直したハウスはその人、それ以外は作業配置表の人 */
+  const who = (h: string) => help?.members[h] ?? plan.members[h] ?? [];
   const usageOf = (h: string) => use[h] ?? "harvest";
   const mine = taps[me.id] ?? {};
   /** そのハウスで「入った」を押した人 */
   const tappedIn = (h: string) => Object.keys(taps).filter((id) => taps[id]?.[h]?.start != null);
-  // 自分の回るハウス：配置表の矢印の順。そのあとに、名前だけ入っているハウス（配置表の並び）
-  const route = plan.routes[me.id] ?? [];
-  const named = harvestHouses(template).filter((h) => plan.members[h]?.includes(me.id) && !route.includes(h));
+  // 自分の回るハウス：配置表の矢印の順。そのあとに、名前だけ入っているハウス（配置表の並び）。
+  // 集荷係が収穫管理で名前を足したハウスも入れ、外したハウスは入れない
+  const route = (plan.routes[me.id] ?? []).filter((h) => who(h).includes(me.id));
+  const named = harvestHouses(template).filter((h) => who(h).includes(me.id) && !route.includes(h));
   const planned = [...route, ...named].filter((h) => !NO_HARVEST.includes(usageOf(h)));
   // 応援で入ったハウス（押した順）
   const helped = Object.keys(mine)
@@ -59,7 +63,7 @@ export function TapScreen({
     .sort((a, b) => mine[a].start! - mine[b].start!);
   const seq = [...planned, ...helped];
   /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす） */
-  const takenByHelper = (h: string) => mine[h]?.start == null && tappedIn(h).some((id) => !(plan.members[h] ?? []).includes(id));
+  const takenByHelper = (h: string) => mine[h]?.start == null && tappedIn(h).some((id) => !who(h).includes(id));
   // 今のハウス：「入った」を押してまだ「終わった」がないハウス。なければ、予定の順で次のハウス
   const current = seq.find((h) => mine[h]?.start != null && mine[h]?.end == null) ?? seq.find((h) => mine[h]?.end == null && !takenByHelper(h)) ?? null;
   const pos = current ? seq.indexOf(current) : seq.length;
@@ -73,26 +77,26 @@ export function TapScreen({
     .sort((a, b) => mine[b].end! - mine[a].end!)[0];
   const last = inNow ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
 
-  // 予定が終わったら、応援のハウスを聞く（1分ごとに聞き直す）
+  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）
+  const tapKey = JSON.stringify(mine);
   useEffect(() => {
-    if (!free) return;
     let alive = true;
     const ask = () =>
       fetchHelpHouse()
         .then((r) => alive && setHelp({ ...r, n: doneCount }))
-        .catch(() => alive && setHelp({ house: null, forecast: true, n: doneCount }));
+        .catch(() => alive && setHelp((h) => ({ house: null, forecast: true, done: [], members: h?.members ?? {}, n: doneCount })));
     void ask();
     const t = setInterval(ask, 60_000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [free, doneCount]);
+  }, [doneCount, tapKey]);
 
   /** そのハウスが終わるのに「終わった」が要る人：予定の収穫者（ログインのある人）と、入ったを押した人。応援で入ったハウスは、入った人だけ */
   const crewOf = (h: string, all: DayTaps) => {
     const ins = Object.keys(all).filter((id) => all[id]?.[h]?.start != null);
-    const planCrew = (plan.members[h] ?? []).filter((id) => members.some((m) => m.id === id && m.uid));
+    const planCrew = who(h).filter((id) => members.some((m) => m.id === id && m.uid));
     return [...new Set([...(planCrew.includes(me.id) ? planCrew : []), ...ins, me.id])];
   };
 
@@ -215,7 +219,9 @@ export function TapScreen({
       )}
       <h1 className="text-xl font-bold">🍓 収穫報告</h1>
 
-      {planned.length === 0 && helped.length === 0 ? (
+      {help == null ? (
+        <p className="rounded-2xl bg-white p-5 text-center text-lg text-gray-500">読み込み中…</p>
+      ) : planned.length === 0 && helped.length === 0 ? (
         <p className="rounded-2xl bg-white p-5 text-lg text-gray-700">今日の収穫の予定はまだありません。作業配置表に名前が入ると、ここに出ます。</p>
       ) : target == null ? (
         <>
@@ -292,17 +298,22 @@ export function TapPreview({
   haichi,
   use,
   members,
+  rec,
 }: {
   date: string;
   template: HaichiTemplate;
   haichi: HaichiDay;
   use: HouseUseMap;
   members: ShiftMember[];
+  /** 収穫管理の記録（集荷係が名前を足した人も選べるように） */
+  rec?: HarvestDoc;
 }) {
   const taps = useDayTaps(date);
   const plan = planHarvest(template, haichi);
   // 選べるのは、その日の作業配置表で収穫に名前が入っている人（勤務管理表の順）
-  const people = members.filter((m) => Object.values(plan.members).some((ms) => ms.includes(m.id))).sort((a, b) => a.order - b.order);
+  const people = members
+    .filter((m) => Object.values(plan.members).some((ms) => ms.includes(m.id)) || Object.values(rec ?? {}).some((r) => r.members?.includes(m.id)))
+    .sort((a, b) => a.order - b.order);
   const [pick, setPick] = useState("");
   const me = people.find((m) => m.id === pick) ?? people[0];
   if (!taps) return <p className="mt-4 text-gray-500">読み込み中…</p>;

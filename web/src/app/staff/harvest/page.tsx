@@ -387,7 +387,7 @@ export default function HarvestPage() {
           </div>
         </div>
         {tapView && template && haichi && use && members ? (
-          <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} />
+          <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec} />
         ) : (
           content
         )}

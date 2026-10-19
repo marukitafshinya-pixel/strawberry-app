@@ -36,7 +36,7 @@ const DEFAULT_PLANTS: Record<string, number> = {
   "20": 1344,
 };
 
-type House = { members?: string[]; start?: number | null; end?: number | null; cases?: number };
+type House = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number };
 
 /** 画面側（web/src/lib/harvest.ts）と同じ、はじめのハウスのまとまり */
 const DEFAULT_GROUPS: { name: string; houses: string[] }[] = [
@@ -157,7 +157,7 @@ type Taps = Record<string, Record<string, { start?: number | null; end?: number 
 
 /**
  * 応援の行き先：まだ誰も入っていないハウスのうち、朝の予測でいちばん遅く終わるハウス。
- * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウスは除く
+ * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウス、集荷係が収穫管理で人を入れ直したハウスは除く
  */
 export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<string, House>, taps: Taps, usage: Record<string, string>): string | null {
   const tapped = new Set(
@@ -170,14 +170,14 @@ export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<
   let best: string | null = null;
   for (const [h, f] of Object.entries(fh)) {
     if (f?.end == null || NO_HARVEST.includes(usage[h] ?? "harvest") || tapped.has(h)) continue;
-    if (houses[h]?.start != null || houses[h]?.end != null) continue;
+    if (houses[h]?.start != null || houses[h]?.end != null || houses[h]?.membersEdited) continue;
     const b = best == null ? null : fh[best];
     if (b == null || f.end! > b.end! || (f.end === b.end && (f.start ?? 0) > (b.start ?? 0))) best = h;
   }
   return best;
 }
 
-/** 収穫報告：自分の予定が全部終わった人に、応援に行くハウスと、もう終わったハウスを返す（収穫者は収穫管理の記録を読めないので、番号だけ渡す） */
+/** 収穫報告：応援に行くハウス、もう終わったハウス、集荷係が入れ直した収穫者を返す（収穫者は収穫管理の記録を読めないので、必要なものだけ渡す） */
 export const harvestHelpHouse = onCall(async (req) => {
   const uid = req.auth?.uid;
   const role = req.auth?.token.role;
@@ -204,5 +204,11 @@ export const harvestHelpHouse = onCall(async (req) => {
   const done = Object.entries(houses)
     .filter(([, v]) => v?.end != null)
     .map(([h]) => h);
-  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0, done };
+  // 集荷係が収穫管理で人を入れ直したハウスの収穫者（作業配置表より優先する。名前の id だけ渡す）
+  const members = Object.fromEntries(
+    Object.entries(houses)
+      .filter(([, v]) => v?.membersEdited && Array.isArray(v.members))
+      .map(([h, v]) => [h, v.members!]),
+  );
+  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0, done, members };
 });

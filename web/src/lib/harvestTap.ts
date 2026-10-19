@@ -64,5 +64,9 @@ export function nowMinJST() {
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
-/** 応援の行き先（まだ誰も入っていないハウスのうち、いちばん遅く終わりそうなハウス）をサーバーに聞く。forecast＝朝の予測があるか、done＝もう終わったハウス */
-export const fetchHelpHouse = () => callFunction<Record<string, never>, { house: string | null; forecast: boolean; done: string[] }>("harvestHelpHouse", {});
+/**
+ * サーバーに聞く：house＝応援の行き先（まだ誰も入っていないハウスのうち、いちばん遅く終わりそうなハウス）、forecast＝朝の予測があるか、
+ * done＝もう終わったハウス、members＝集荷係が収穫管理で入れ直したハウスの収穫者（作業配置表より優先する）
+ */
+export type HelpInfo = { house: string | null; forecast: boolean; done: string[]; members: Record<string, string[]> };
+export const fetchHelpHouse = () => callFunction<Record<string, never>, HelpInfo>("harvestHelpHouse", {});
