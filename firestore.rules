@@ -438,7 +438,8 @@ service cloud.firestore {
     match /config/harvest {
       allow read: if isStaff() || isWorker();
       allow write: if isAdmin()
-        && request.resource.data.keys().hasOnly(['groups', 'startTime', 'plants', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['groups', 'startTime', 'plants', 'noHelp', 'updatedAt'])
+        && (!('noHelp' in request.resource.data) || (request.resource.data.noHelp is list && request.resource.data.noHelp.size() <= 40))
         && (!('plants' in request.resource.data) || (request.resource.data.plants is map && request.resource.data.plants.size() <= 80))
         && (!('groups' in request.resource.data) || (request.resource.data.groups is list && request.resource.data.groups.size() <= 20))
         && (!('startTime' in request.resource.data) || (request.resource.data.startTime is int && request.resource.data.startTime >= 0 && request.resource.data.startTime < 1440));

@@ -52,6 +52,8 @@ export type ForecastInput = {
   brk: HarvestBreak;
   /** その日の速さの実績に入れないハウス（集荷係が収穫にも入ったハウスなど） */
   skipRate?: (h: string) => boolean;
+  /** 応援を入れないハウス（病気などで、決めた人しか入れない） */
+  noHelp?: (h: string) => boolean;
 };
 
 export type Forecast = {
@@ -160,7 +162,7 @@ export function forecastHarvest(f: ForecastInput): Forecast {
           // 応援：収穫中のハウスのうち、いまのままだといちばん終わるのがおそいところ
           let worst = -1;
           for (const [h, x] of hs) {
-            if (x.fin != null || x.team.size === 0 || minPerPlant(p.id, h) == null) continue;
+            if (x.fin != null || x.team.size === 0 || minPerPlant(p.id, h) == null || f.noHelp?.(h)) continue;
             const rate = [...x.team].reduce((n, m) => n + 1 / minPerPlant(m, h)!, 0);
             const left = x.remaining / rate;
             if (left > worst) [worst, target] = [left, h];

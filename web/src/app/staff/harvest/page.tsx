@@ -26,6 +26,7 @@ import {
   perCaseText,
   round1,
   saveHarvestStart,
+  saveHarvestNoHelp,
   saveHouseHarvest,
   saveHouseUse,
   solePerCase,
@@ -136,6 +137,8 @@ export default function HarvestPage() {
             brk,
             // その日の集荷係が収穫にも入ったハウスは、集荷をしながらなので速さの実績に入れない
             skipRate: (x) => (h.who(x) ?? []).some((m) => pickup.includes(m)),
+            // 応援を入れないハウス（病気など）には、予測でも応援を入れない
+            noHelp: (x) => cfg.noHelp.includes(x),
           });
         })()
       : null;
@@ -317,6 +320,7 @@ export default function HarvestPage() {
       members={members}
       isAdmin={isAdmin}
       phone={phone}
+      noHelp={cfg.noHelp}
     />
   );
 
@@ -467,6 +471,7 @@ function Sheet({
   members,
   isAdmin,
   phone,
+  noHelp,
 }: {
   date: string;
   /** 携帯の画面（ハウスをカードで縦に並べる） */
@@ -487,6 +492,8 @@ function Sheet({
   use: { houses: HouseUseMap; from: string | null };
   members: ShiftMember[];
   isAdmin: boolean;
+  /** 応援を入れないハウス（病気などで、決めた人しか入れない） */
+  noHelp: string[];
 }) {
   const [error, setError] = useState("");
   /** ドラッグ中の名前と指の位置 */
@@ -552,6 +559,31 @@ function Sheet({
 
   // 作業配置表の収穫の枠と同じ並び（1・6・8・4・5・9・10・17〜27）
   const rows = houses;
+  /**
+   * 応援なしの印：病気などで決めた人しか入れないハウス。応援の指示・収穫報告の「ほかのハウスに行く」に出さない。
+   * 管理者は押して付け外しする（外すまで続く）。ほかの人には、付いているときだけ出す
+   */
+  const noHelpMark = (h: string) => {
+    const on = noHelp.includes(h);
+    if (!isAdmin) return on ? <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold whitespace-nowrap text-white">🚫応援なし</span> : null;
+    return (
+      <button
+        onClick={() => {
+          if (
+            !confirm(
+              on ? `No.${h} の「応援なし」を外しますか？` : `No.${h} を「応援なし」にしますか？（病気などで、決めた人しか入れないハウス。外すまで続きます）`,
+            )
+          )
+            return;
+          run(saveHarvestNoHelp(on ? noHelp.filter((x) => x !== h) : [...noHelp, h]));
+        }}
+        title="応援なし：応援の指示や「ほかのハウスに行く」に出さない（外すまで続く）"
+        className={`rounded-full px-2 py-0.5 text-xs whitespace-nowrap ${on ? "bg-red-600 font-bold text-white" : "border border-gray-300 text-gray-400"}`}
+      >
+        🚫{on ? "応援なし" : ""}
+      </button>
+    );
+  };
 
   /** 名前を別のハウスへ入れる（元のハウスにも残す）。入ったが空なら、元のハウスの終わった時刻を入れる */
   function dropTo(id: string, from: string, to: string) {
@@ -742,7 +774,7 @@ function Sheet({
 
   const help = (
     <>
-      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。収穫中のハウスへ入れると、元のハウスの名前は灰色の✓（移った）になり、緑（今いる場所）は1人1か所になります。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
+      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。収穫中のハウスへ入れると、元のハウスの名前は灰色の✓（移った）になり、緑（今いる場所）は1人1か所になります。「🚫応援なし」のハウス（病気などで決めた人しか入れないハウス。管理者がハウス名の横の🚫で付け外し、外すまで続きます）は、応援の指示や収穫報告の「ほかのハウスに行く」に出ません。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
       <b className="text-emerald-700">緑</b>、終わったハウスの名前は<b className="text-gray-500">灰色（✓）</b>になります。時刻は「710」で
       7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
       {use.from !== date &&
@@ -789,6 +821,7 @@ function Sheet({
                 <div className="flex items-center gap-2">
                   <span className="w-14 text-lg font-bold">No.{h}</span>
                   {usageSelect(h, "py-1 text-sm")}
+                  {noHelpMark(h)}
                   {isAdmin && <span className="text-xs text-sky-800">{rateOf(h)}</span>}
                   {/* 確定数：押すと直接打てる（5.3 など） */}
                   <span className="ml-auto">{casesCell(h)}</span>
@@ -835,7 +868,10 @@ function Sheet({
           <tbody>
             {rows.map((h) => (
               <tr key={h} data-drop={h} className={`border-t ${isOff(h) ? "bg-gray-50" : ""}`}>
-                <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">No.{h}</td>
+                <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">
+                  No.{h}
+                  <span className="ml-1 align-middle">{noHelpMark(h)}</span>
+                </td>
                 <td className="px-2 py-1.5">{usageSelect(h)}</td>
                 {isOff(h) ? (
                   <td colSpan={isAdmin ? 6 : 5} className="px-2 py-1.5 text-gray-500">

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
-import { clock, harvestHouses, logHarvest, planHarvest, type HarvestDoc, type HouseUseMap } from "@/lib/harvest";
+import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HouseUseMap } from "@/lib/harvest";
 import { refreshHarvestSpeeds } from "@/lib/harvestForecast";
 import { fetchDayTaps, fetchHelpHouse, NO_HARVEST, nowMinJST, saveTap, saveTapToHouse, useDayTaps, type DayTaps, type HelpInfo } from "@/lib/harvestTap";
 import type { ShiftMember } from "@/lib/shift";
@@ -46,6 +46,7 @@ export function TapScreen({
   const [others, setOthers] = useState<{ done: string[] | undefined } | null>(null);
 
   const plan = planHarvest(template, haichi);
+  const cfg = useHarvestConfig();
   /** そのハウスの収穫者：集荷係が収穫管理で入れ直したハウスはその人、それ以外は作業配置表の人 */
   const who = (h: string) => help?.members[h] ?? plan.members[h] ?? [];
   const usageOf = (h: string) => use[h] ?? "harvest";
@@ -165,9 +166,14 @@ export function TapScreen({
       .then((r) => setOthers((o) => (o ? { done: r.done } : o)))
       .catch(() => setOthers((o) => (o ? { done: [] } : o)));
   }
-  /** 選べるハウス：収穫するハウスのうち、まだ終わっていないハウス（今の指示のハウスは除く） */
+  /** 選べるハウス：収穫するハウスのうち、まだ終わっていないハウス（今の指示のハウスと、自分の入っていない「応援なし」のハウスは除く） */
   const choices = harvestHouses(template).filter(
-    (h) => !NO_HARVEST.includes(usageOf(h)) && h !== target && mine[h]?.end == null && !(others?.done ?? []).includes(h),
+    (h) =>
+      !NO_HARVEST.includes(usageOf(h)) &&
+      h !== target &&
+      mine[h]?.end == null &&
+      !(others?.done ?? []).includes(h) &&
+      !((cfg?.noHelp ?? []).includes(h) && !who(h).includes(me.id)),
   );
   const othersBox = !inNow && (planned.length > 0 || helped.length > 0) && (
     <div className="text-center">

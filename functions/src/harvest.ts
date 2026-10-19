@@ -157,9 +157,16 @@ type Taps = Record<string, Record<string, { start?: number | null; end?: number 
 
 /**
  * 応援の行き先：まだ誰も入っていないハウスのうち、朝の予測でいちばん遅く終わるハウス。
- * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウス、集荷係が収穫管理で人を入れ直したハウスは除く
+ * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウス、集荷係が収穫管理で人を入れ直したハウス、
+ * 管理者が「応援なし」にしたハウス（病気などで決めた人しか入れない）は除く
  */
-export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<string, House>, taps: Taps, usage: Record<string, string>): string | null {
+export function pickHelpHouse(
+  fh: Record<string, ForecastHouse>,
+  houses: Record<string, House>,
+  taps: Taps,
+  usage: Record<string, string>,
+  noHelp: string[] = [],
+): string | null {
   const tapped = new Set(
     Object.values(taps).flatMap((t) =>
       Object.entries(t)
@@ -169,7 +176,7 @@ export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<
   );
   let best: string | null = null;
   for (const [h, f] of Object.entries(fh)) {
-    if (f?.end == null || NO_HARVEST.includes(usage[h] ?? "harvest") || tapped.has(h)) continue;
+    if (f?.end == null || NO_HARVEST.includes(usage[h] ?? "harvest") || tapped.has(h) || noHelp.includes(h)) continue;
     if (houses[h]?.start != null || houses[h]?.end != null || houses[h]?.membersEdited) continue;
     const b = best == null ? null : fh[best];
     if (b == null || f.end! > b.end! || (f.end === b.end && (f.start ?? 0) > (b.start ?? 0))) best = h;
@@ -186,7 +193,7 @@ export const harvestHelpHouse = onCall(async (req) => {
   const w = await db.doc(role === "worker" ? `workers/${uid}` : `staff/${uid}`).get();
   if (w.get("active") !== true) throw new HttpsError("permission-denied", "使えません");
   const date = ymd(new Date());
-  const [day, taps, use] = await Promise.all([
+  const [day, taps, use, cfg] = await Promise.all([
     db.doc(`harvest/${date}`).get(),
     db.collection(`harvest/${date}/taps`).get(),
     // ハウスの使い方は、その日の記録がなければ前の日（いちばん近い記録。60日前まで）を引きつぐ
@@ -195,7 +202,9 @@ export const harvestHelpHouse = onCall(async (req) => {
       .where(FieldPath.documentId(), ">=", ymd(new Date(Date.now() - 60 * 86400e3)))
       .where(FieldPath.documentId(), "<=", date)
       .get(),
+    db.doc("config/harvest").get(),
   ]);
+  const noHelp = (cfg.get("noHelp") as string[] | undefined) ?? [];
   const fh = (day.get("forecastHouses") as Record<string, ForecastHouse> | undefined) ?? {};
   const houses = (day.get("houses") as Record<string, House> | undefined) ?? {};
   const t: Taps = Object.fromEntries(taps.docs.map((d) => [d.id, d.get("houses") ?? {}]));
@@ -210,5 +219,5 @@ export const harvestHelpHouse = onCall(async (req) => {
       .filter(([, v]) => v?.membersEdited && Array.isArray(v.members))
       .map(([h, v]) => [h, v.members!]),
   );
-  return { house: pickHelpHouse(fh, houses, t, usage), forecast: Object.keys(fh).length > 0, done, members };
+  return { house: pickHelpHouse(fh, houses, t, usage, noHelp), forecast: Object.keys(fh).length > 0, done, members };
 });

@@ -725,6 +725,9 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
     await assertFails(setDoc(doc(staff(), `harvest/${today}`), { break: { start: 540, minutes: 15, memo: "x" } }));
     await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { plants: { "21": 3448 } }));
     await assertFails(setDoc(doc(staff(), "config/harvest"), { plants: { "21": 1 } }));
+    await assertSucceeds(setDoc(doc(admin(), "config/harvest"), { noHelp: ["22"] }, { merge: true }));
+    await assertFails(setDoc(doc(staff(), "config/harvest"), { noHelp: [] }, { merge: true }));
+    await assertFails(setDoc(doc(admin(), "config/harvest"), { noHelp: "22" }, { merge: true }));
     await assertSucceeds(getDoc(doc(staff(), "stats/harvestSpeed")));
     await assertFails(setDoc(doc(admin(), "stats/harvestSpeed"), { speeds: {} }));
     await assertFails(getDoc(doc(guest(), "stats/harvestSpeed")));

@@ -452,7 +452,8 @@ export function useHouseGroups(): HouseGroup[] | null {
 }
 
 /** 収穫の設定：ハウスのまとまりと、収穫の開始時刻（最初のハウスの「入った」に入れる） */
-export type HarvestConfig = { groups: HouseGroup[]; startTime: number; plants: Record<string, number> };
+/** noHelp＝応援を入れないハウス（病気などで、決めた人しか入れない。管理者が外すまで続く） */
+export type HarvestConfig = { groups: HouseGroup[]; startTime: number; plants: Record<string, number>; noHelp: string[] };
 export function useHarvestConfig(): HarvestConfig | null {
   const [v, setV] = useState<HarvestConfig | null>(null);
   useEffect(() => {
@@ -467,8 +468,9 @@ export function useHarvestConfig(): HarvestConfig | null {
             groups: Array.isArray(s.get("groups")) ? (s.get("groups") as HouseGroup[]) : DEFAULT_GROUPS,
             startTime: typeof s.get("startTime") === "number" ? (s.get("startTime") as number) : DEFAULT_START,
             plants: s.get("plants") && typeof s.get("plants") === "object" ? (s.get("plants") as Record<string, number>) : DEFAULT_PLANTS,
+            noHelp: Array.isArray(s.get("noHelp")) ? (s.get("noHelp") as string[]) : [],
           }),
-        () => setV({ groups: DEFAULT_GROUPS, startTime: DEFAULT_START, plants: DEFAULT_PLANTS }),
+        () => setV({ groups: DEFAULT_GROUPS, startTime: DEFAULT_START, plants: DEFAULT_PLANTS, noHelp: [] }),
       );
     });
     return () => {
@@ -487,6 +489,12 @@ export async function saveHouseGroups(groups: HouseGroup[]) {
 export async function saveHarvestPlants(plants: Record<string, number>) {
   const { db } = await getFirebase();
   await setDoc(doc(db, "config/harvest"), { plants, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** 応援を入れないハウスを保存する（管理者） */
+export async function saveHarvestNoHelp(noHelp: string[]) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config/harvest"), { noHelp, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function saveHarvestStart(startTime: number) {
