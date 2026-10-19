@@ -142,8 +142,10 @@ export function pickHelpHouse(fh: Record<string, ForecastHouse>, houses: Record<
 /** 収穫報告：自分の予定が全部終わった人に、応援に行くハウスと、もう終わったハウスを返す（収穫者は収穫管理の記録を読めないので、番号だけ渡す） */
 export const harvestHelpHouse = onCall(async (req) => {
   const uid = req.auth?.uid;
-  if (!uid || req.auth?.token.role !== "worker") throw new HttpsError("permission-denied", "使えません");
-  const w = await db.doc(`workers/${uid}`).get();
+  const role = req.auth?.token.role;
+  // 収穫する従業員と、収穫管理から収穫報告の画面を見るスタッフ・管理者
+  if (!uid || (role !== "worker" && role !== "admin" && role !== "staff")) throw new HttpsError("permission-denied", "使えません");
+  const w = await db.doc(role === "worker" ? `workers/${uid}` : `staff/${uid}`).get();
   if (w.get("active") !== true) throw new HttpsError("permission-denied", "使えません");
   const date = ymd(new Date());
   const [day, taps, use] = await Promise.all([

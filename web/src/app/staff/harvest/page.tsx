@@ -44,6 +44,7 @@ import {
 } from "@/lib/harvest";
 import { forecastHarvest, refreshHarvestSpeeds, saveHarvestForecast, useHarvestSpeeds, type Forecast } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
+import { TapPreview } from "./tap/TapScreen";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
 function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
@@ -146,6 +147,8 @@ export default function HarvestPage() {
   }, [date, fcEnd, fcKey, anyEnded, beforeStart, day?.forecast]);
   /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
   const [phoneView, setPhoneView] = useState<boolean | null>(null);
+  /** 携帯の画面で、収穫する人の「収穫報告」の画面を見ているか */
+  const [tapView, setTapView] = useState(false);
   const isWorker = role === "worker";
   // 従業員（勤務の画面のログイン）は、今日の作業配置表で「集荷係」に入っている日だけ、今日の分を使える。いつも携帯の画面。
   // 勤務管理表で「収穫管理を毎日使える」にした人（社員など）は、スタッフと同じく毎日（8日前〜明日の分）使える
@@ -334,8 +337,24 @@ export default function HarvestPage() {
               </>
             )}
           </div>
+          {/* 収穫管理の入力と、収穫する人それぞれの「収穫報告」の画面を切り替える */}
+          <div className="mt-1 grid grid-cols-2 gap-1 border-t pt-1 text-sm">
+            {[false, true].map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => setTapView(v)}
+                className={`rounded-lg px-2 py-1.5 font-bold ${tapView === v ? "bg-berry text-white" : "border bg-white text-gray-700"}`}
+              >
+                {v ? "📱 収穫報告の画面" : "🍓 収穫管理"}
+              </button>
+            ))}
+          </div>
         </div>
-        {content}
+        {tapView && template && haichi && use && members ? (
+          <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} />
+        ) : (
+          content
+        )}
       </div>
     );
     if (narrow || isWorker) return screen;
