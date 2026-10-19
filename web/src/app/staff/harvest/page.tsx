@@ -502,8 +502,39 @@ function Sheet({
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
     const cur = who(to);
     const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
-    run(save(to, { members: cur.includes(id) ? cur : [...cur, id], membersEdited: true, ...startAt }));
+    run(
+      (async () => {
+        await save(to, {
+          members: cur.includes(id) ? cur : [...cur, id],
+          membersEdited: true,
+          left: (rec[to]?.left ?? []).filter((x) => x !== id),
+          ...startAt,
+        });
+        await moveHere(id, to, startAt.start ?? startOf(to));
+      })(),
+    );
   }
+  /** いま収穫しているハウスか（「入った」があって「終わった」がまだ） */
+  const inProgress = (h: string) => startOf(h) != null && rec[h]?.end == null && !NO_HARVEST.includes(usageOf(h));
+  /**
+   * 収穫しているハウスに人を入れたら、その人がいるほかの「収穫中」のハウスでは「移った人」にする（名前は記録として残す）。
+   * 今いる場所（緑）が1人1か所になるように
+   */
+  async function moveHere(id: string, to: string, toStart: number | null | undefined) {
+    if (toStart == null || rec[to]?.end != null) return;
+    for (const h of rows)
+      if (h !== to && inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id)) await save(h, { left: [...(rec[h]?.left ?? []), id] });
+  }
+  /**
+   * その人が今いるハウスか：収穫中のハウスのうち、移った人になっていなくて、いちばんあとに入ったハウス（同じ時刻なら表の下のほう）。
+   * 同じ人が2つのハウスで同時に緑にならないようにする
+   */
+  const hereOf = (id: string): string | null => {
+    let best: string | null = null;
+    for (const h of rows)
+      if (inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id) && (best == null || startOf(h)! >= startOf(best)!)) best = h;
+    return best;
+  };
   /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
   function onPick(id: string, from: string, e: React.PointerEvent) {
     e.preventDefault();
@@ -547,11 +578,20 @@ function Sheet({
     <Members
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
-      here={startOf(h) != null && rec[h]?.end == null && !NO_HARVEST.includes(usageOf(h))}
+      here={(id) => hereOf(id) === h}
+      moved={(id) => rec[h]?.end == null && (rec[h]?.left ?? []).includes(id)}
       finished={rec[h]?.end != null}
       names={names}
       members={members}
-      onChange={(next) => run(save(h, { members: next, membersEdited: true }))}
+      onChange={(next) =>
+        run(
+          (async () => {
+            const added = next.filter((x) => !who(h).includes(x));
+            await save(h, { members: next, membersEdited: true, ...(added.length ? { left: (rec[h]?.left ?? []).filter((x) => !added.includes(x)) } : {}) });
+            for (const id of added) await moveHere(id, h, startOf(h));
+          })(),
+        )
+      }
       onPick={(id, e) => onPick(id, h, e)}
     />
   );
@@ -646,7 +686,7 @@ function Sheet({
 
   const help = (
     <>
-      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
+      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。収穫中のハウスへ入れると、元のハウスの名前は灰色の✓（移った）になり、緑（今いる場所）は1人1か所になります。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
       <b className="text-emerald-700">緑</b>、終わったハウスの名前は<b className="text-gray-500">灰色（✓）</b>になります。時刻は「710」で
       7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
       {use.from !== date &&
@@ -774,13 +814,14 @@ function Sheet({
 
 /**
  * 収穫者：名前を押すと外せる。名前を引っぱって別のハウスの行に落とすと、そのハウスにも入る。「＋」で足す。配置表から入れた人は点線で出す（まだ保存していない）。
- * here＝いま収穫しているハウス（「入った」があって「終わった」がまだ）。名前を緑にして、だれがどこにいるかを一目でわかるようにする
- * finished＝もう終わったハウス。名前を灰色にして「✓」を付ける（これから入るハウスの名前と見分けるため）
+ * here＝その人がいま収穫しているハウス（「入った」があって「終わった」がまだ。1人1か所）。名前を緑にして、だれがどこにいるかを一目でわかるようにする
+ * finished＝もう終わったハウス、moved＝終わる前にほかのハウスへ移った人。名前を灰色にして「✓」を付ける（これから入るハウスの名前と見分けるため）
  */
 function Members({
   ids,
   planned,
   here,
+  moved,
   finished,
   names,
   members,
@@ -789,7 +830,8 @@ function Members({
 }: {
   ids: string[];
   planned: boolean;
-  here: boolean;
+  here: (id: string) => boolean;
+  moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
   members: ShiftMember[];
@@ -806,16 +848,16 @@ function Members({
           onPointerDown={(e) => onPick(id, e)}
           title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
           className={`touch-none select-none rounded-full border px-2 py-1 ${
-            here
+            here(id)
               ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
-              : finished
+              : finished || moved(id)
                 ? "border-gray-400 bg-gray-300 text-gray-600"
                 : planned
                   ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
                   : "bg-amber-50"
           }`}
         >
-          {finished && !here ? "✓ " : ""}
+          {(finished || moved(id)) && !here(id) ? "✓ " : ""}
           {names.get(id) ?? "（いない人）"} ×
         </button>
       ))}
