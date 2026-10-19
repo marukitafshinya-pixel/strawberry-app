@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { errorText } from "@/lib/callFunction";
+import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import {
@@ -42,7 +42,16 @@ import {
   type HouseUse,
   type HouseUseMap,
 } from "@/lib/harvest";
-import { forecastHarvest, refreshHarvestSpeeds, saveHarvestForecast, useHarvestSpeeds, type Forecast } from "@/lib/harvestForecast";
+import {
+  forecastCases,
+  forecastHarvest,
+  refreshHarvestSpeeds,
+  saveCasesForecast,
+  saveHarvestForecast,
+  useHarvestSpeeds,
+  useHarvestYield,
+  type Forecast,
+} from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { TapPreview } from "./tap/TapScreen";
 
@@ -94,10 +103,16 @@ export default function HarvestPage() {
     const t = setInterval(() => setTick(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
-  // 開いたときに、人ごとの速さを最近の記録から計算し直してもらう
+  // 開いたときに、人ごとの速さとケース数の見込みを最近の記録から計算し直してもらう。
+  // 管理者・スタッフは、その前に夜温・日照（気象庁）を集めてもらう（ケース数の見込みの天気の影響に使う）
   useEffect(() => {
-    void refreshHarvestSpeeds();
-  }, []);
+    if (role === "admin" || role === "staff")
+      void callFunction("refreshHarvestWeather", {})
+        .catch(() => {})
+        .finally(() => void refreshHarvestSpeeds());
+    else void refreshHarvestSpeeds();
+  }, [role]);
+  const yld = useHarvestYield();
   const plan = template && haichi ? planHarvest(template, haichi) : null;
   const houses = template ? harvestHouses(template) : [];
   const jst = new Date(tick + 9 * 3600e3);
@@ -145,6 +160,26 @@ export default function HarvestPage() {
     // fcKey が変わったときだけ書く
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, fcEnd, fcKey, anyEnded, beforeStart, day?.forecast]);
+  // 収穫ケース数の予測（朝の見込みと、終わったハウスの実際で直した予測）
+  const cf =
+    rec && use && cfg && yld !== undefined
+      ? forecastCases({ houses, rec, usage: (x) => use.houses[x] ?? "harvest", plants: cfg.plants, groups: cfg.groups, yield: yld })
+      : null;
+  // 朝の見込みを残す（収穫の開始時刻までは更新し、それを過ぎたら固定。どこかのハウスが終わったあとは残さない）
+  const cfMorning = cf?.morning ?? null;
+  useEffect(() => {
+    if (date !== todayJST() || cfMorning == null || !day || anyEnded) return;
+    if (!beforeStart && day.casesForecast != null) return;
+    if (day.casesForecast === cfMorning) return;
+    saveCasesForecast(date, cfMorning).catch(() => {});
+  }, [date, cfMorning, anyEnded, beforeStart, day]);
+  /** 合計の横に出す、収穫ケース数の予測 */
+  const casesBox = cf?.total != null && (
+    <span className="text-xs leading-tight text-sky-800">
+      予測
+      <b className="block text-base">{fmtCases(cf.total)}</b>
+    </span>
+  );
   /** 携帯の画面で見るか（null＝画面の幅で決める）。パソコン・iPadでは携帯の大きさの枠に入れて見せる */
   const [phoneView, setPhoneView] = useState<boolean | null>(null);
   /** 携帯の画面で、収穫する人の「収穫報告」の画面を見ているか */
@@ -313,6 +348,7 @@ export default function HarvestPage() {
             <span className="tabular-nums">
               合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
             </span>
+            {casesBox}
             {endBox}
           </div>
           {unassignedNote}
@@ -400,6 +436,7 @@ export default function HarvestPage() {
         <span className="ml-auto rounded-lg bg-rose-50 px-3 py-2 text-lg tabular-nums">
           合計 <b className="text-2xl text-berry">{fmtCases(total)}</b> ケース
         </span>
+        {casesBox}
         {endBox}
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {breakBox}

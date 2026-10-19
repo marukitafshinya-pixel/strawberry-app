@@ -385,7 +385,8 @@ service cloud.firestore {
       // 収穫する従業員（収穫報告）は、読めずに、今日のハウスの「入った・終わった」の時刻だけ書ける（tapWrite）
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || tapWrite(date))
-        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'break', 'tapHouse', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'casesForecast', 'break', 'tapHouse', 'updatedAt'])
+        && (!('casesForecast' in request.resource.data) || (request.resource.data.casesForecast is number && request.resource.data.casesForecast >= 0 && request.resource.data.casesForecast < 100000))
         && (!('forecastHouses' in request.resource.data) || (request.resource.data.forecastHouses is map && request.resource.data.forecastHouses.size() <= 80))
         && (!('break' in request.resource.data) || (request.resource.data.break is map
           && request.resource.data.break.keys().hasOnly(['start', 'minutes'])
@@ -493,6 +494,10 @@ service cloud.firestore {
     }
     // 人ごとの収穫の速さ（1,000株あたりの分。収穫終了の予測に使う）：サーバーが毎日の記録から計算する。書き込みはサーバーだけ
     match /stats/harvestSpeed {
+      allow read: if isStaff() || isWorker();
+    }
+    // 収穫ケース数の見込みに使う数字（まとまりごとの 1,000株あたりのケース数・天気の影響）。サーバーだけが書く
+    match /stats/harvestYield {
       allow read: if isStaff() || isWorker();
     }
     match /config/shift {

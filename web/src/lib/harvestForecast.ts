@@ -11,6 +11,7 @@ import { getFirebase } from "./firebase";
 import {
   groupOf,
   houseMinutes,
+  round1,
   readBreak,
   readForecastHouses,
   type ForecastHouses,
@@ -234,8 +235,127 @@ export function useHarvestSpeeds(): HarvestSpeeds | null {
   return v;
 }
 
-/** 人ごとの速さを、毎日の記録から計算し直してもらう（サーバー） */
+/** 人ごとの速さと、収穫ケース数の見込みに使う数字を、毎日の記録から計算し直してもらう（サーバー） */
 export const refreshHarvestSpeeds = () => callFunction("refreshHarvestSpeeds", {}).catch(() => {});
+
+// ---------- 収穫ケース数の予測 ----------
+// 朝（B）：まとまりごとの「1,000株あたりのケース数」（最近7日。サーバーが計算）× 株数 × 天気の影響（夜温・前の日の日照）。
+// 収穫が始まったら（A）：終わったハウスの実際のケース数で直す。終わったハウスのあるまとまりはその日の実際の率、
+// ないまとまりは朝の見込みに「その日の実の多さ」（終わったハウスの実際 ÷ 朝の見込み）をかける
+
+/** サーバーが計算した、収穫ケース数の見込みに使う数字（stats/harvestYield） */
+export type HarvestYield = {
+  groups: Record<string, number>;
+  all: number | null;
+  days: number;
+  factor: number;
+  model: { n: number; a: number; b: number; c: number } | null;
+  nightMin: number | null;
+  sun: number | null;
+};
+export function useHarvestYield(): HarvestYield | null | undefined {
+  const [v, setV] = useState<HarvestYield | null | undefined>(undefined);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "stats/harvestYield"),
+        (s) =>
+          setV(
+            s.exists()
+              ? {
+                  groups: (s.get("groups") as Record<string, number>) ?? {},
+                  all: typeof s.get("all") === "number" ? (s.get("all") as number) : null,
+                  days: (s.get("days") as number) ?? 0,
+                  factor: typeof s.get("factor") === "number" ? (s.get("factor") as number) : 1,
+                  model: (s.get("model") as HarvestYield["model"]) ?? null,
+                  nightMin: typeof s.get("nightMin") === "number" ? (s.get("nightMin") as number) : null,
+                  sun: typeof s.get("sun") === "number" ? (s.get("sun") as number) : null,
+                }
+              : null,
+          ),
+        () => setV(null),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return v;
+}
+
+export type CasesForecast = {
+  /** 朝の見込み（記録がまだなければ null） */
+  morning: number | null;
+  /** 今の予測（終わったハウスの実際で直したもの。出せなければ null） */
+  total: number | null;
+  /** 終わったハウスの数 */
+  ended: number;
+};
+
+/** 収穫ケース数の予測（朝の見込みと、終わったハウスの実際で直した予測） */
+export function forecastCases(f: {
+  houses: string[];
+  rec: HarvestDoc;
+  usage: (h: string) => HouseUse;
+  plants: Record<string, number>;
+  groups: HouseGroup[];
+  yield: HarvestYield | null;
+}): CasesForecast {
+  const list = f.houses.map((h) => ({ h, p: harvestPlants(f.plants, h, f.usage(h)), g: groupOf(f.groups, h) })).filter((x) => x.p > 0);
+  const y = f.yield;
+  /** 朝の見込みの、1,000株あたりのケース数 */
+  const morningRate = (g: string) => {
+    const r = y?.groups[g] ?? y?.all;
+    return r == null ? null : r * (y?.factor ?? 1);
+  };
+  const morningParts = list.map((x) => (morningRate(x.g) == null ? null : (x.p / 1000) * morningRate(x.g)!));
+  const morning = y && morningParts.every((m) => m != null) ? round1(morningParts.reduce((n, m) => n! + m!, 0)!) : null;
+  // 終わったハウスの実際
+  const done = list.filter((x) => f.rec[x.h]?.end != null && (f.rec[x.h]?.cases ?? 0) > 0);
+  const todayGroup = new Map<string, { cases: number; plants: number }>();
+  for (const x of done) {
+    const t = todayGroup.get(x.g) ?? { cases: 0, plants: 0 };
+    todayGroup.set(x.g, { cases: t.cases + f.rec[x.h].cases!, plants: t.plants + x.p });
+  }
+  const doneCases = done.reduce((n, x) => n + f.rec[x.h].cases!, 0);
+  const donePlants = done.reduce((n, x) => n + x.p, 0);
+  const doneMorning = done.reduce((n, x) => n + (morningRate(x.g) == null ? 0 : (x.p / 1000) * morningRate(x.g)!), 0);
+  /** その日の実の多さ（朝の見込みに対して） */
+  const dayFactor = doneMorning > 0 ? doneCases / doneMorning : null;
+  const rateNow = (g: string) => {
+    const t = todayGroup.get(g);
+    if (t && t.plants > 0) return (t.cases / t.plants) * 1000;
+    const m = morningRate(g);
+    if (m != null) return m * (dayFactor ?? 1);
+    return donePlants > 0 ? (doneCases / donePlants) * 1000 : null;
+  };
+  let total: number | null = 0;
+  for (const x of list) {
+    const cases = f.rec[x.h]?.cases ?? 0;
+    if (f.rec[x.h]?.end != null) {
+      total += cases;
+      continue;
+    }
+    const r = rateNow(x.g);
+    if (r == null) {
+      total = null;
+      break;
+    }
+    // 収穫中のハウスは、もう数えた分より少なくはしない
+    total += Math.max(cases, (x.p / 1000) * r);
+  }
+  return { morning, total: total == null ? null : round1(total), ended: done.length };
+}
+
+/** 朝の収穫ケース数の見込みを残す（実際と比べるため） */
+export async function saveCasesForecast(date: string, casesForecast: number) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "harvest", date), { casesForecast, updatedAt: serverTimestamp() }, { mergeFields: ["casesForecast", "updatedAt"] });
+}
 
 /** 朝の予測を残す（実際の収穫終了と比べるため） */
 export async function saveHarvestForecast(date: string, forecast: number, forecastHouses: ForecastHouses) {
@@ -249,7 +369,14 @@ export async function saveHarvestForecast(date: string, forecast: number, foreca
 }
 
 /** 期間の、日ごとの朝の予測と実際の収穫終了（管理者だけ）。日付 → { forecast, endTime } */
-export type HarvestDayMeta = { forecast: number | null; endTime: number | null; brk: HarvestBreak | null; forecastHouses: ForecastHouses | null };
+export type HarvestDayMeta = {
+  forecast: number | null;
+  endTime: number | null;
+  brk: HarvestBreak | null;
+  forecastHouses: ForecastHouses | null;
+  /** 朝の収穫ケース数の見込み */
+  casesForecast: number | null;
+};
 export function useHarvestEnds(from: string, to: string): Record<string, HarvestDayMeta> | null {
   const key = `${from}_${to}`;
   const [state, setState] = useState<{ key: string; v: Record<string, HarvestDayMeta> } | null>(null);
@@ -271,6 +398,7 @@ export function useHarvestEnds(from: string, to: string): Record<string, Harvest
                   endTime: typeof d.get("endTime") === "number" ? (d.get("endTime") as number) : null,
                   brk: readBreak(d.get("break")),
                   forecastHouses: readForecastHouses(d.get("forecastHouses")),
+                  casesForecast: typeof d.get("casesForecast") === "number" ? (d.get("casesForecast") as number) : null,
                 },
               ]),
             ),

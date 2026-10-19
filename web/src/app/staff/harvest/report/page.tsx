@@ -30,7 +30,7 @@ import {
   type HouseUseMap,
   type Tally,
 } from "@/lib/harvest";
-import { useHarvestEnds, useHarvestSpeeds, type HarvestSpeeds } from "@/lib/harvestForecast";
+import { useHarvestEnds, useHarvestSpeeds, useHarvestYield, type HarvestSpeeds } from "@/lib/harvestForecast";
 import { useShiftMembers } from "@/lib/shift";
 import { ReviewTab } from "./Review";
 import { callFunction } from "@/lib/callFunction";
@@ -463,6 +463,7 @@ function ForecastTab({
   const ends = useHarvestEnds(from, to);
   const [open, setOpen] = useState<string | null>(null);
   const speeds = useHarvestSpeeds();
+  const yld = useHarvestYield();
   // 振り返りに使う気象データ（日照時間・夜温）を集めてもらう（足りない分だけ。気象庁のサイトに負担をかけないよう少しずつ）
   useEffect(() => {
     callFunction("refreshHarvestWeather", {}).catch(() => {});
@@ -482,15 +483,25 @@ function ForecastTab({
   const wOf = (d: string): WeatherDay | undefined => weather?.find((m) => m.month === d.slice(0, 7))?.days[d.slice(8, 10)];
   const total = (d: string) => Object.values(data[d] ?? {}).reduce((n, h) => n + (h.cases ?? 0), 0);
   const days = Object.entries(ends)
-    .filter(([d, v]) => v.forecast != null || v.endTime != null || total(d) > 0)
+    .filter(([d, v]) => v.forecast != null || v.endTime != null || v.casesForecast != null || total(d) > 0)
     .sort((a, b) => b[0].localeCompare(a[0]));
   const diffs = days.filter(([, v]) => v.forecast != null && v.endTime != null).map(([, v]) => v.endTime! - v.forecast!);
   const avgAbs = diffs.length ? diffs.reduce((n, d) => n + Math.abs(d), 0) / diffs.length : null;
   const sign = (d: number) => (d === 0 ? "ぴったり" : d > 0 ? `${d}分おそい` : `${-d}分はやい`);
+  // 収穫ケース数：朝の見込みと実際の差（割合）
+  /** 収穫が終わった日か（今日は収穫終了を入れるまで、ケース数がまだ増える） */
+  const closed = (d: string, v: { endTime: number | null }) => d < todayJST() || v.endTime != null;
+  const caseDiffs = days.filter(([d, v]) => v.casesForecast != null && total(d) > 0 && closed(d, v)).map(([d, v]) => (total(d) - v.casesForecast!) / total(d));
+  const caseAvg = caseDiffs.length ? (caseDiffs.reduce((n, d) => n + Math.abs(d), 0) / caseDiffs.length) * 100 : null;
+  const caseSign = (d: string, f: number) => {
+    const x = Math.round(total(d) - f);
+    return x === 0 ? "ぴったり" : x > 0 ? `${x}ケース多い` : `${-x}ケース少ない`;
+  };
   return (
     <>
       <p className="mt-3 text-sm text-gray-600">
-        「夜温（外）」は、その日の朝までの夜（前の日の18時〜9時）でいちばん低かった外の気温、「夜温（ハウス）」は温度計（Govee）のあるハウスでいちばん低かった温度、「前日の日照」は前の日の日照時間です（気象庁のアメダス「美瑛」）。収穫ケースの総数との関係は、データがたまってから振り返りで調べます。
+        「夜温（外）」は、その日の朝までの夜（前の日の18時〜9時）でいちばん低かった外の気温、「夜温（ハウス）」は温度計（Govee）のあるハウスでいちばん低かった温度、「前日の日照」は前の日の日照時間です（気象庁のアメダス「美瑛」）。
+        「ケースの朝の見込み」は、最近7日のまとまりごとの「1,000株あたりのケース数」×その日に収穫する株数です。記録が14日分たまると、夜温と前の日の日照の影響（ふだんより多い・少ない）も計算に入ります。収穫が始まると、収穫管理の画面の予測は、終わったハウスの実際のケース数で直していきます。
       </p>
       <p className="mt-1 text-sm text-gray-600">
         「朝の予測」は、収穫の開始時刻までの予測です（開始時刻を過ぎてから開いた日は、最初の予測）。日付を押すと、ハウスごとの予測と実際が見られます。人ごとの速さは、最近の記録（1人で収穫したハウス）から毎日計算し直すので、記録がたまるほど予測が合ってきます。
@@ -501,6 +512,28 @@ function ForecastTab({
           <p className="text-2xl font-bold text-sky-800">{avgAbs == null ? "－" : `${Math.round(avgAbs)}分`}</p>
           <p className="text-xs text-gray-500">{diffs.length}日分</p>
         </div>
+        <div className="rounded-xl border bg-white p-3">
+          <p className="text-xs text-gray-500">ケース数の朝の見込みと実際の差（平均）</p>
+          <p className="text-2xl font-bold text-sky-800">{caseAvg == null ? "－" : `${Math.round(caseAvg)}%`}</p>
+          <p className="text-xs text-gray-500">{caseDiffs.length}日分</p>
+        </div>
+        <div className="rounded-xl border bg-white p-3">
+          <p className="text-xs text-gray-500">今日の見込みの天気の影響</p>
+          {yld?.model ? (
+            <>
+              <p className="text-2xl font-bold text-sky-800">ふだんの×{yld.factor.toFixed(2)}</p>
+              <p className="text-xs text-gray-500">
+                夜温 {yld.nightMin != null ? `${yld.nightMin.toFixed(1)}℃` : "－"}・前日の日照 {yld.sun != null ? `${yld.sun.toFixed(1)}時間` : "－"}（
+                {yld.model.n}日分の記録から）
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-bold text-gray-400">まだ計算していません</p>
+              <p className="text-xs text-gray-500">夜温・日照のそろった収穫の記録が14日分たまると入ります</p>
+            </>
+          )}
+        </div>
       </div>
       <div className="mt-3 overflow-x-auto rounded-xl border bg-white">
         <table className="w-full min-w-max text-sm tabular-nums">
@@ -510,7 +543,9 @@ function ForecastTab({
               <th className="px-3 py-2 text-right">朝の予測</th>
               <th className="px-3 py-2 text-right">実際の収穫終了</th>
               <th className="px-3 py-2 text-right">差</th>
+              <th className="px-3 py-2 text-right">ケースの朝の見込み</th>
               <th className="px-3 py-2 text-right">収穫ケース</th>
+              <th className="px-3 py-2 text-right">ケースの差</th>
               <th className="px-3 py-2 text-right">夜温（外）</th>
               <th className="px-3 py-2 text-right">夜温（ハウス）</th>
               <th className="px-3 py-2 text-right">前日の日照</th>
@@ -527,7 +562,9 @@ function ForecastTab({
                   <td className="px-3 py-2 text-right">{clock(v.forecast)}</td>
                   <td className="px-3 py-2 text-right font-bold">{clock(v.endTime)}</td>
                   <td className="px-3 py-2 text-right">{v.forecast != null && v.endTime != null ? sign(v.endTime - v.forecast) : ""}</td>
-                  <td className="px-3 py-2 text-right">{total(d) > 0 ? fmtCases(total(d)) : ""}</td>
+                  <td className="px-3 py-2 text-right">{v.casesForecast != null ? fmtCases(v.casesForecast) : ""}</td>
+                  <td className="px-3 py-2 text-right font-bold">{total(d) > 0 ? fmtCases(total(d)) : ""}</td>
+                  <td className="px-3 py-2 text-right">{v.casesForecast != null && total(d) > 0 && closed(d, v) ? caseSign(d, v.casesForecast) : ""}</td>
                   <td className="px-3 py-2 text-right">
                     {wOf(d)?.nightMin != null ? (
                       <>
@@ -553,7 +590,7 @@ function ForecastTab({
                 </tr>
                 {open === d && (
                   <tr>
-                    <td colSpan={8} className="bg-sky-50/40 px-3 py-2">
+                    <td colSpan={10} className="bg-sky-50/40 px-3 py-2">
                       {temps?.[d] && Object.keys(temps[d]).length > 0 && (
                         <p className="mb-2 text-xs text-gray-700">
                           ハウスの中の夜温（いちばん低かった温度）：
@@ -579,7 +616,7 @@ function ForecastTab({
             ))}
             {!days.length && (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-gray-500">
+                <td colSpan={10} className="px-3 py-4 text-center text-gray-500">
                   この期間の予測の記録はまだありません
                 </td>
               </tr>

@@ -219,6 +219,8 @@ export type HarvestDay = {
   /** 保存した休憩（なければ null＝ふだんの休憩） */ brk: HarvestBreak | null;
   /** 朝の予測（ハウスごとの入る・終わる予測） */
   forecastHouses: ForecastHouses | null;
+  /** 朝の収穫ケース数の見込み */
+  casesForecast?: number | null;
 };
 /** ハウス → 朝の予測（入る・終わる。分） */
 export type ForecastHouses = Record<string, { start: number | null; end: number; members?: string[] }>;
@@ -244,6 +246,7 @@ export function useHarvestDay(date: string): HarvestDay | undefined {
               forecast: typeof s.get("forecast") === "number" ? (s.get("forecast") as number) : null,
               brk: readBreak(s.get("break")),
               forecastHouses: readForecastHouses(s.get("forecastHouses")),
+              casesForecast: typeof s.get("casesForecast") === "number" ? (s.get("casesForecast") as number) : null,
             },
           }),
         () => setState({ date, v: { houses: {}, endTime: null, forecast: null, brk: null, forecastHouses: null } }),

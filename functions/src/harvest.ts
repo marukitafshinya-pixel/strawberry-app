@@ -5,6 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
+import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
 
 /** 人ごとに使う最近の記録の数 */
 const PER_PERSON = 20;
@@ -35,7 +36,19 @@ const DEFAULT_PLANTS: Record<string, number> = {
   "20": 1344,
 };
 
-type House = { members?: string[]; start?: number | null; end?: number | null };
+type House = { members?: string[]; start?: number | null; end?: number | null; cases?: number };
+
+/** 画面側（web/src/lib/harvest.ts）と同じ、はじめのハウスのまとまり */
+const DEFAULT_GROUPS: { name: string; houses: string[] }[] = [
+  { name: "①", houses: ["21", "22"] },
+  { name: "②", houses: ["23", "24"] },
+  { name: "③", houses: ["25", "26"] },
+  { name: "④", houses: ["27"] },
+  { name: "⑤", houses: ["1", "6", "8"] },
+  { name: "⑥", houses: ["4", "5", "9", "10"] },
+  { name: "⑦", houses: ["17", "18"] },
+  { name: "⑧", houses: ["19", "20"] },
+];
 export type SpeedRecord = { date: string; member: string; minutes: number; plants: number };
 
 const ymd = (d: Date) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -89,11 +102,25 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
   const useByDate = new Map(uses.docs.map((d) => [d.id, (d.get("houses") as Record<string, string>) ?? {}]));
   let cur: Record<string, string> = (before.docs[before.docs.length - 1]?.get("houses") as Record<string, string>) ?? {};
 
+  const groups = (cfg.get("groups") as { name: string; houses: string[] }[] | undefined) ?? DEFAULT_GROUPS;
+  const groupOf = (h: string) => groups.find((g) => g.houses.includes(h))?.name ?? "その他";
   const records: SpeedRecord[] = [];
+  /** 収穫ケース数の見込み用：日ごと・まとまりごとの、終わったハウスのケース数と株数 */
+  const yieldDays: YieldDay[] = [];
   for (const d of [...harvest.docs].sort((a, b) => a.id.localeCompare(b.id))) {
     // その日のハウスの使い方（記録がない日は前の日のまま）
     for (const [date, u] of useByDate) if (date <= d.id) cur = u;
     const houses = (d.get("houses") as Record<string, House>) ?? {};
+    const yd: YieldDay = { date: d.id, groups: {} };
+    for (const [h, r] of Object.entries(houses)) {
+      const use = cur[h] ?? "harvest";
+      const p = (plants[h] ?? 0) * (use === "harvest" ? 1 : use === "half" || use === "halfBack" ? 0.5 : 0);
+      if (r.end == null || !(p > 0) || !((r.cases ?? 0) > 0)) continue;
+      const g = (yd.groups[groupOf(h)] ??= { cases: 0, plants: 0 });
+      g.cases += r.cases!;
+      g.plants += p;
+    }
+    yieldDays.push(yd);
     const brk = d.get("break") as { start?: number; minutes?: number } | undefined;
     for (const [h, r] of Object.entries(houses)) {
       if (r.members?.length !== 1 || r.start == null || r.end == null || r.end <= r.start) continue;
@@ -109,6 +136,17 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
   }
   const { speeds, counts, avg } = speedsFrom(records);
   await db.doc("stats/harvestSpeed").set({ speeds, counts, avg, records: records.length, updatedAt: FieldValue.serverTimestamp() });
+
+  // 収穫ケース数の見込み（まとまりごとの 1,000株あたりのケース数と、夜温・日照の影響）
+  const months = new Set<string>();
+  for (let t = Date.parse(`${from}T00:00:00Z`) - 86400e3; t <= Date.parse(`${today}T00:00:00Z`); t += 86400e3)
+    months.add(new Date(t).toISOString().slice(0, 7));
+  const weather: YieldWeather = {};
+  for (const ym of months) {
+    const days = ((await db.doc(`weather/${ym}`).get()).get("days") as Record<string, { nightMin?: number | null; sun?: number | null }> | undefined) ?? {};
+    for (const [dd, w] of Object.entries(days)) weather[`${ym}-${dd}`] = w;
+  }
+  await db.doc("stats/harvestYield").set({ ...yieldFrom(yieldDays, weather, today), forDate: today, updatedAt: FieldValue.serverTimestamp() });
   return { ok: true };
 });
 
