@@ -5,7 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { helpCandidates, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
+import { helpCandidates, helpRanking, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
 
 /** 人ごとに使う最近の記録の数 */
@@ -236,5 +236,7 @@ export const harvestHelpHouse = onCall(async (req) => {
       .filter(([, v]) => v?.start != null && v?.end == null)
       .map(([h, v]) => [h, { start: v.start!, left: Array.isArray(v.left) ? v.left : [] }]),
   );
-  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members, started };
+  // 応援が必要な順（向かっている人も人数に数える）：収穫管理（スタッフ・管理者・集荷係）の指示一覧に出す
+  const ranking = helpRanking({ ...input, assigns: assign });
+  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members, started, ranking };
 });

@@ -40,6 +40,11 @@ export function helpCandidates(i: HelpInput): string[] {
 
 /** そのハウスが、いまの人数（＋向かっている人）のままで終わる見込みの時刻（分） */
 export function finishOf(i: HelpInput, h: string, me: string | null): number {
+  return estimate(i, h, me).finish;
+}
+
+/** そのハウスの見込み：終わる時刻（分）、いまの人数（向かっている人もふくむ）、もう入っているか */
+function estimate(i: HelpInput, h: string, me: string | null): { finish: number; crew: number; started: boolean } {
   const inside = Object.keys(i.taps).filter((id) => i.taps[id]?.[h]?.start != null && i.taps[id]?.[h]?.end == null);
   const pending = Object.entries(i.assigns).filter(([id, x]) => x === h && id !== me && !inside.includes(id)).length;
   const f = i.fh[h];
@@ -58,11 +63,21 @@ export function finishOf(i: HelpInput, h: string, me: string | null): number {
   const crew = nowCrew + pending;
   if (start == null) {
     // まだだれも入っていない：向かっている人がいればその人数で、いなければ朝の予測どおり（予定の人があとから入る）
-    if (crew > 0) return i.now + work / crew;
-    return f?.end ?? i.now + work;
+    if (crew > 0) return { finish: i.now + work / crew, crew, started: false };
+    return { finish: f?.end ?? i.now + work, crew, started: false };
   }
   const left = Math.max(work * 0.1, work - Math.max(0, i.now - start) * Math.max(1, nowCrew));
-  return i.now + left / Math.max(1, crew);
+  return { finish: i.now + left / Math.max(1, crew), crew, started: true };
+}
+
+/** 応援が必要な順：終わっていないハウスを、いまのままだと終わるのがおそい順に並べる（収穫管理の指示一覧に出す） */
+export function helpRanking(i: HelpInput): { house: string; finish: number; crew: number; started: boolean }[] {
+  return helpCandidates(i)
+    .map((h) => {
+      const e = estimate(i, h, null);
+      return { house: h, finish: Math.round(e.finish), crew: e.crew, started: e.started };
+    })
+    .sort((a, b) => b.finish - a.finish);
 }
 
 /** 手のあいた人（me）の応援先：いまのままだといちばん終わるのがおそいハウス。終わっていないハウスがなければ null */

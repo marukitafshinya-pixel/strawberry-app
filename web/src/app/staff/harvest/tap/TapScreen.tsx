@@ -504,6 +504,32 @@ export function TapList({
           </tbody>
         </table>
       </div>
+      <div className="mt-4 rounded-xl border bg-white p-3">
+        <h3 className="font-bold">🆘 応援が必要な順</h3>
+        {help == null ? (
+          <p className="mt-1 text-sm text-gray-500">読み込み中…</p>
+        ) : !help.ranking?.length ? (
+          <p className="mt-1 text-sm text-gray-500">終わっていないハウスはありません。</p>
+        ) : (
+          <ol className="mt-1 space-y-1 text-sm tabular-nums">
+            {help.ranking.map((r, i) => (
+              <li key={r.house} className={`flex items-baseline gap-2 ${i === 0 ? "font-bold text-red-700" : ""}`}>
+                <span className="w-8 shrink-0">{i + 1}位</span>
+                <span className="w-12 shrink-0">{r.house}番</span>
+                <span>
+                  終わる見込み {clock(r.finish)}
+                  <span className="ml-1 text-xs font-normal text-gray-500">
+                    （{r.started ? `いま${r.crew}人` : r.crew > 0 ? `${r.crew}人が向かっている` : "まだだれも入っていない・朝の予測"}）
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-1 text-xs text-gray-500">
+          いまの人数のままだと終わるのがおそいハウスから順に並べています（応援に向かっている人も人数に数えます。「🚫応援なし」のハウスは出しません）。手のあいた人には、1位のハウスから順に応援を出します。
+        </p>
+      </div>
       <p className="mt-2 text-xs text-gray-500">
         「いまの指示」は、その人の収穫報告の画面に出ている指示です（1分ごとに読み直します）。「終わる予測」は、いま収穫しているハウスが、いまの人数のままで終わる予測です。
         「ほかのハウスに行く」で選んで、まだ「入った」を押していないときは、元の指示のまま出ます。
