@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { diffAt } from "./tempDiff.js";
 import { db } from "./common.js";
 
 /** 上川・留萌地方（府県予報区）と、その中の上川地方（一次細分区域）、気温の地点（旭川） */
@@ -20,6 +21,8 @@ export type ForecastSlot = {
   temp: number | null;
   windDir: string | null;
   windSpeed: number | null;
+  /** 美瑛に直す前の、旭川の予報の気温 */
+  tempAsahikawa?: number | null;
 };
 /** 降水確率（6時間ごと） */
 export type ForecastPop = { time: string; pop: number | null };
@@ -206,12 +209,32 @@ export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
       slotsError = e instanceof Error ? e.message : "3時間ごとの予報が読めませんでした";
     }
   }
+  // 気温を美瑛に直す：アメダス美瑛と旭川の、時刻ごとの差（最近14日の平均）を足す（差がまだ集まっていなければ旭川のまま）
+  const diff = ((await db.doc("stats/tempDiff").get()).get("avg") as Record<string, number> | undefined) ?? {};
+  const corrected = slotsSource !== FORECAST_AREA.cityName && Object.keys(diff).length >= 4;
+  if (corrected) {
+    slots = slots.map((x) => {
+      const d = diffAt(diff, x.time);
+      return x.temp == null || d == null ? x : { ...x, temp: Math.round(x.temp + d), tempAsahikawa: x.temp };
+    });
+    // 週間予報：最低は朝6時ごろ、最高は昼（12時・15時）の差
+    const morning = diff["6"] ?? diff["3"];
+    const noon = [diff["12"], diff["15"]].filter((v): v is number => v != null);
+    const day = noon.length ? noon.reduce((a, b) => a + b, 0) / noon.length : undefined;
+    weekly = weekly.map((w) => ({
+      ...w,
+      tempMin: w.tempMin == null || morning == null ? w.tempMin : Math.round(w.tempMin + morning),
+      tempMax: w.tempMax == null || day == null ? w.tempMax : Math.round(w.tempMax + day),
+    }));
+    slotsSource = `${FORECAST_AREA.cityName}（${FORECAST_AREA.tempPoint}の予報を、最近のアメダス美瑛との差で補正）`;
+  }
   if (office.days.length === 0 && slots.length === 0) throw new HttpsError("unavailable", "気象庁の予報を読めませんでした。少し時間をおいてやり直してください");
   await ref.set({
     area: FORECAST_AREA.class10Name,
-    tempPoint: FORECAST_AREA.tempPoint,
     slots,
     slotsSource,
+    tempPoint: corrected ? `${FORECAST_AREA.cityName}（補正）` : FORECAST_AREA.tempPoint,
+    tempDiff: corrected ? diff : null,
     pops: office.pops,
     days: office.days,
     weekly,

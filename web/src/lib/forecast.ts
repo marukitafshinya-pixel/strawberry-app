@@ -14,6 +14,8 @@ export type ForecastSlot = {
   temp: number | null;
   windDir: string | null;
   windSpeed: number | null;
+  /** 美瑛に直す前の、旭川の予報の気温 */
+  tempAsahikawa?: number | null;
 };
 export type ForecastPop = { time: string; pop: number | null };
 export type ForecastDay = { date: string; weatherCode: string | null; weather: string | null; wind: string | null };
@@ -28,6 +30,8 @@ export type Forecast = {
   weekly?: WeeklyDay[];
   /** 3時間ごとの予報をどこのものにしたか（美瑛 か 上川地方（気温は旭川）） */
   slotsSource?: string;
+  /** 気温を美瑛に直した差（時刻 "0"〜"21" → 美瑛−旭川 ℃。最近14日の平均）。直していなければ null */
+  tempDiff?: Record<string, number> | null;
   reportDatetime: string | null;
   fetchedAt?: { toDate: () => Date };
 };

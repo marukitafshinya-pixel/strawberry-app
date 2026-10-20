@@ -36,6 +36,15 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
     <p className={`px-2 pb-1 text-gray-500 ${big ? "text-sm" : "text-[11px]"}`}>
       出典：気象庁（3時間ごとの予報は{data.slotsSource ?? `${data.area}・気温は${data.tempPoint}`}
       {lastSlot && `、${md(lastSlot.slice(0, 10))} ${hourOf(lastSlot)}時の分まで`}）
+      {data.tempDiff && (
+        <span className="block">
+          美瑛への補正（最近のアメダス美瑛−旭川の差）：
+          {Object.entries(data.tempDiff)
+            .sort((a, b) => Number(a[0]) - Number(b[0]))
+            .map(([h, d]) => `${h}時 ${d > 0 ? "＋" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)}℃`)
+            .join("・")}
+        </span>
+      )}
       {data.fetchedAt && `　${data.fetchedAt.toDate().toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 取得`}
     </p>
   );
@@ -70,7 +79,7 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
         </span>
       ),
     ],
-    ["気温", (s) => (s.temp === null ? "－" : <b>{s.temp}℃</b>), () => "－"],
+    ["気温", (s) => (s.temp === null ? "－" : <b title={s.tempAsahikawa != null ? `旭川の予報 ${s.tempAsahikawa}℃` : undefined}>{s.temp}℃</b>), () => "－"],
     [
       "降水確率",
       (s) => {
