@@ -12,8 +12,6 @@ import { addDays, formatJa, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
 import {
   addCases,
-  noteActiveOn,
-  useHarvestNotes,
   logHarvest,
   clock,
   fmtCases,
@@ -193,7 +191,6 @@ export default function HarvestPage() {
   const phone = isWorker || (phoneView ?? narrow);
   const me = isWorker ? members?.find((m) => m.uid === user?.uid) : undefined;
   const everyDay = me?.harvestEntry === true;
-  const notes = useHarvestNotes(role === "admin");
 
   if (role !== "admin" && role !== "staff" && !isWorker) return <p>この画面はスタッフだけが使えます。</p>;
   if (isWorker) {
@@ -210,22 +207,6 @@ export default function HarvestPage() {
       );
   }
   const isAdmin = role === "admin";
-  // 管理者の助言（次の日から考えること）：管理者のログインだけに出す
-  const todayNotes = (notes ?? []).filter((n) => noteActiveOn(n, date));
-  const notesBox = isAdmin && todayNotes.length > 0 && (
-    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
-      <p className="font-bold">
-        📝 今日気をつけること<span className="ml-2 text-xs font-normal text-gray-500">管理者のログインだけに出ています</span>
-      </p>
-      <ul className="mt-1 list-disc space-y-0.5 pl-5">
-        {todayNotes.map((n) => (
-          <li key={n.id} className="whitespace-pre-wrap">
-            {n.text}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
   const tooOld = !isAdmin && date < addDays(todayJST(), -STAFF_DAYS);
   const total = rec ? Object.values(rec).reduce((n, h) => n + (h.cases ?? 0), 0) : 0;
   // 収穫終了：入れていなければ、ハウスの「終わった」のいちばん遅い時刻（点線）
@@ -356,7 +337,6 @@ export default function HarvestPage() {
             {endBox}
           </div>
           {unassignedNote}
-          {notesBox}
           <div className="mt-1 flex justify-end">{breakBox}</div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
@@ -469,7 +449,6 @@ export default function HarvestPage() {
         )}
       </div>
       {unassignedNote}
-      {notesBox}
       {content}
     </>
   );
@@ -789,24 +768,6 @@ function Sheet({
         .catch(() => {});
   }, [endTime, latest, date]);
 
-  const help = (
-    <>
-      集荷のたびに「＋1」を押します（押すとすぐ保存）。端数は「＋0.1」で足すか、確定数の欄を押して直接打てます。名前を引っぱって次のハウスに落とすと、そのハウスにも名前が入ります（名前を押すだけなら外れます）。収穫中のハウスへ入れると、元のハウスの名前は灰色の✓（移った）になり、緑（今いる場所）は1人1か所になります。「🚫応援なし」のハウス（病気などで決めた人しか入れないハウス。管理者がハウス名の横の🚫で付け外し、外すまで続きます）は、応援の指示や収穫報告の「ほかのハウスに行く」に出ません。いま収穫しているハウス（「入った」があって「終わった」がまだ）の名前は
-      <b className="text-emerald-700">緑</b>、終わったハウスの名前は<b className="text-gray-500">灰色（✓）</b>になります。時刻は「710」で
-      7:10。「終わった」を入れると、その人の次のハウスの「入った」に同じ時刻が入ります。収穫者は、作業配置表の名前と、矢印でたどれるハウスまで入れています。最初のハウスの「入った」には開始時刻が入ります（点線＝まだ保存していない予定）。矢印のないハウスへは、名前を引っぱって入れてください。
-      {use.from !== date &&
-        (use.from ? `　ハウスの使い方は${formatJa(use.from)}の状態を引きついでいます。` : "　ハウスの使い方はまだ記録がありません（全部「収穫」）。")}
-    </>
-  );
-  const legend = (
-    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-      {HOUSE_USES.map((u) => (
-        <span key={u.key} className={`rounded border px-2 py-0.5 ${u.cls}`}>
-          {u.short}＝{u.label}
-        </span>
-      ))}
-    </div>
-  );
   const dragChip = drag && (
     <div
       className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-amber-100 px-3 py-1 font-bold shadow-lg"
@@ -819,11 +780,6 @@ function Sheet({
   if (phone)
     return (
       <>
-        <details className="mt-2 text-sm text-gray-600">
-          <summary className="cursor-pointer">使い方</summary>
-          <p className="mt-1">{help}</p>
-          {legend}
-        </details>
         {error && <p className="mt-2 font-bold text-red-600">{error}</p>}
         <div className="mt-2 space-y-2">
           {rows.map((h) =>
@@ -865,8 +821,6 @@ function Sheet({
 
   return (
     <>
-      <p className="mt-2 text-sm text-gray-600">{help}</p>
-      {legend}
       {error && <p className="mt-2 font-bold text-red-600">{error}</p>}
       <div className="mt-2 overflow-x-auto rounded-xl border bg-white">
         <table className="w-full min-w-[900px] text-sm tabular-nums">
