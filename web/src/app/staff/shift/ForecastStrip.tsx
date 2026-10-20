@@ -30,9 +30,12 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
   const label = (d: string) => (d === today ? "今日" : d === addDays(today, 1) ? "明日" : d === addDays(today, 2) ? "明後日" : "");
   const head = `whitespace-nowrap border-r border-gray-300 bg-sky-50 px-2 text-left font-bold ${big ? "py-1.5" : "py-1"}`;
   const cell = `whitespace-nowrap border-r border-gray-200 px-1 text-center tabular-nums leading-tight ${big ? "py-1" : "py-1"}`;
+  /** 3時間ごとの予報が出ているいちばん先の時刻 */
+  const lastSlot = data.slots.length ? data.slots[data.slots.length - 1].time : null;
   const credit = (
     <p className={`px-2 pb-1 text-gray-500 ${big ? "text-sm" : "text-[11px]"}`}>
-      出典：気象庁（{data.area}の予報・気温は{data.tempPoint}）
+      出典：気象庁（3時間ごとの予報は{data.slotsSource ?? `${data.area}・気温は${data.tempPoint}`}
+      {lastSlot && `、${md(lastSlot.slice(0, 10))} ${hourOf(lastSlot)}時の分まで`}）
       {data.fetchedAt && `　${data.fetchedAt.toDate().toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 取得`}
     </p>
   );
@@ -62,7 +65,7 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
         </span>
       ),
       (x) => (
-        <span className={`${big ? "text-3xl" : "text-xl"} opacity-60`} title={x.day?.weather ?? ""}>
+        <span className={big ? "text-3xl" : "text-xl"} title={x.day?.weather ?? ""}>
           {weatherIcon(x.day?.weatherCode ?? x.week?.weatherCode ?? null, x.day?.weather ?? null) || "－"}
         </span>
       ),

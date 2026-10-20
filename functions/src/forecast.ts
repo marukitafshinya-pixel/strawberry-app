@@ -9,7 +9,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
 
 /** 上川・留萌地方（府県予報区）と、その中の上川地方（一次細分区域）、気温の地点（旭川） */
-export const FORECAST_AREA = { office: "012000", class10: "012010", class10Name: "上川地方", tempPoint: "旭川" };
+export const FORECAST_AREA = { office: "012000", class10: "012010", class10Name: "上川地方", tempPoint: "旭川", city: "0145900", cityName: "美瑛" };
 const MAX_AGE_MS = 60 * 60_000;
 
 /** 時間帯ごとの予報（3時間ごと）。time は ISO（日本時間）。足りない項目は null */
@@ -166,7 +166,8 @@ export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
   const ref = db.doc("forecast/biei");
   const cur = await ref.get();
   const at = cur.get("fetchedAt") as Timestamp | undefined;
-  if (at && Date.now() - at.toMillis() < MAX_AGE_MS && req.data?.force !== true) return { ok: true, cached: true };
+  // 1時間以内に読んであれば読み直さない（読む場所を変える前の記録＝slotsSource がないときは読み直す）
+  if (at && Date.now() - at.toMillis() < MAX_AGE_MS && req.data?.force !== true && cur.get("slotsSource") !== undefined) return { ok: true, cached: true };
 
   const officeJson = await fetchJson(`https://www.jma.go.jp/bosai/forecast/data/forecast/${FORECAST_AREA.office}.json`, "jma-forecast-office.json");
   const office = parseOfficeForecast(officeJson);
@@ -180,19 +181,37 @@ export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
   // 3時間ごとの予報は、読めなくても1日ごとの予報だけで出す
   let slots: ForecastSlot[] = [];
   let slotsError: string | null = null;
+  /** 3時間ごとの予報をどこのものにしたか（美瑛町の予報が読めればそれ、なければ上川地方・気温は旭川） */
+  let slotsSource = `${FORECAST_AREA.class10Name}（気温は${FORECAST_AREA.tempPoint}）`;
   try {
-    slots = parseTimeSeriesForecast(
-      await fetchJson(`https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/${FORECAST_AREA.class10}.json`, "jma-forecast-vpfd.json"),
-    );
-    if (slots.length === 0) slotsError = "3時間ごとの予報が読めませんでした";
-  } catch (e) {
-    slotsError = e instanceof Error ? e.message : "3時間ごとの予報が読めませんでした";
+    // まず美瑛町の予報（テスト環境では読まない）
+    if (process.env.FUNCTIONS_EMULATOR !== "true") {
+      const res = await fetch(`https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/${FORECAST_AREA.city}.json`, { headers: UA });
+      const city = res.ok ? parseTimeSeriesForecast(await res.json()) : [];
+      if (city.length > 0) {
+        slots = city;
+        slotsSource = FORECAST_AREA.cityName;
+      }
+    }
+  } catch {
+    // 美瑛町の予報がなければ、上川地方の予報を使う
+  }
+  if (slots.length === 0) {
+    try {
+      slots = parseTimeSeriesForecast(
+        await fetchJson(`https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/${FORECAST_AREA.class10}.json`, "jma-forecast-vpfd.json"),
+      );
+      if (slots.length === 0) slotsError = "3時間ごとの予報が読めませんでした";
+    } catch (e) {
+      slotsError = e instanceof Error ? e.message : "3時間ごとの予報が読めませんでした";
+    }
   }
   if (office.days.length === 0 && slots.length === 0) throw new HttpsError("unavailable", "気象庁の予報を読めませんでした。少し時間をおいてやり直してください");
   await ref.set({
     area: FORECAST_AREA.class10Name,
     tempPoint: FORECAST_AREA.tempPoint,
     slots,
+    slotsSource,
     pops: office.pops,
     days: office.days,
     weekly,

@@ -26,6 +26,8 @@ export type Forecast = {
   pops: ForecastPop[];
   days: ForecastDay[];
   weekly?: WeeklyDay[];
+  /** 3時間ごとの予報をどこのものにしたか（美瑛 か 上川地方（気温は旭川）） */
+  slotsSource?: string;
   reportDatetime: string | null;
   fetchedAt?: { toDate: () => Date };
 };
