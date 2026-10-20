@@ -322,7 +322,7 @@ function Display() {
             </div>
             <FitPane fitMode="width" deps={[]}>
               <div className="w-[1200px] p-3 pt-0.5">
-                <ForecastStrip big />
+                <ForecastStrip big date={hDate} />
               </div>
             </FitPane>
           </div>

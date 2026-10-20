@@ -472,7 +472,7 @@ export function HaichiTab({ cfg, members, isAdmin }: { cfg: ShiftConfig; members
             </label>
           )}
           {/* 天気予報は、ボタンを押したときだけ出す（押したときに気象庁の予報を確かめる） */}
-          {showForecast && <ForecastStrip big={done} />}
+          {showForecast && <ForecastStrip big={done} date={date} />}
         </div>
       </div>
       {drag && (
