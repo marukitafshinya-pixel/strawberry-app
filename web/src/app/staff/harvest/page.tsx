@@ -306,10 +306,10 @@ export default function HarvestPage() {
   );
 
   if (phone) {
-    // 携帯の画面：上に日付と合計を小さくまとめ、ハウスはカードで縦に並べる
+    // 携帯の画面：上に日付と合計を小さくまとめ、ハウスはカードで縦に並べる（上の合計・切り替えボタンも、下の画面といっしょにスクロールする）
     const screen = (
       <div className="pb-6">
-        <div className="sticky top-0 z-20 -mx-3 border-b bg-white px-3 py-2 shadow-sm">
+        <div className="-mx-3 border-b bg-white px-3 py-2 shadow-sm">
           <div className="flex items-center gap-1">
             {(!isWorker || everyDay) && (
               <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg border px-2 py-1.5">
