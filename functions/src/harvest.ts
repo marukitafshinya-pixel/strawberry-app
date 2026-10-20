@@ -5,6 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
+import { helpCandidates, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
 
 /** 人ごとに使う最近の記録の数 */
@@ -150,41 +151,16 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
   return { ok: true };
 });
 
-/** 収穫しない使い方（応援の行き先にしない） */
-const NO_HARVEST = ["picking", "reserve", "off"];
-type ForecastHouse = { start?: number | null; end?: number | null };
 type Taps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
 
-/**
- * 応援の行き先：まだ誰も入っていないハウスのうち、朝の予測でいちばん遅く終わるハウス。
- * 入った・終わったの時刻があるハウスと、だれかが収穫報告で押したハウス、集荷係が収穫管理で人を入れ直したハウス、
- * 管理者が「応援なし」にしたハウス（病気などで決めた人しか入れない）は除く
- */
-export function pickHelpHouse(
-  fh: Record<string, ForecastHouse>,
-  houses: Record<string, House>,
-  taps: Taps,
-  usage: Record<string, string>,
-  noHelp: string[] = [],
-): string | null {
-  const tapped = new Set(
-    Object.values(taps).flatMap((t) =>
-      Object.entries(t)
-        .filter(([, v]) => v?.start != null || v?.end != null)
-        .map(([h]) => h),
-    ),
-  );
-  let best: string | null = null;
-  for (const [h, f] of Object.entries(fh)) {
-    if (f?.end == null || NO_HARVEST.includes(usage[h] ?? "harvest") || tapped.has(h) || noHelp.includes(h)) continue;
-    if (houses[h]?.start != null || houses[h]?.end != null || houses[h]?.membersEdited) continue;
-    const b = best == null ? null : fh[best];
-    if (b == null || f.end! > b.end! || (f.end === b.end && (f.start ?? 0) > (b.start ?? 0))) best = h;
-  }
-  return best;
-}
+/** 応援の割り当てを覚えておく場所（サーバーだけが読み書きする。画面からは読めない） */
+const assignDoc = (date: string) => db.doc(`harvest/${date}/helpAssign/all`);
 
-/** 収穫報告：応援に行くハウス、もう終わったハウス、集荷係が入れ直した収穫者を返す（収穫者は収穫管理の記録を読めないので、必要なものだけ渡す） */
+/**
+ * 収穫報告：応援先、もう終わったハウス、集荷係が入れ直した収穫者を返す（収穫者は収穫管理の記録を読めないので、必要なものだけ渡す）。
+ * 自分の予定が終わった従業員（free）には、応援先を割り当てる（そのハウスが終わるまで変えない）。
+ * assign＝みんなの応援先（収穫管理の指示一覧・収穫報告の画面を見るときに使う）、open＝終わっていないハウスがあるか
+ */
 export const harvestHelpHouse = onCall(async (req) => {
   const uid = req.auth?.uid;
   const role = req.auth?.token.role;
@@ -192,8 +168,12 @@ export const harvestHelpHouse = onCall(async (req) => {
   if (!uid || (role !== "worker" && role !== "admin" && role !== "staff")) throw new HttpsError("permission-denied", "使えません");
   const w = await db.doc(role === "worker" ? `workers/${uid}` : `staff/${uid}`).get();
   if (w.get("active") !== true) throw new HttpsError("permission-denied", "使えません");
+  const me = role === "worker" ? ((w.get("memberId") as string | undefined) ?? null) : null;
+  const free = (req.data as { free?: unknown } | undefined)?.free === true;
   const date = ymd(new Date());
-  const [day, taps, use, cfg] = await Promise.all([
+  const jst = new Date(Date.now() + 9 * 3600e3);
+  const now = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  const [day, taps, use, cfg, speed] = await Promise.all([
     db.doc(`harvest/${date}`).get(),
     db.collection(`harvest/${date}/taps`).get(),
     // ハウスの使い方は、その日の記録がなければ前の日（いちばん近い記録。60日前まで）を引きつぐ
@@ -203,12 +183,43 @@ export const harvestHelpHouse = onCall(async (req) => {
       .where(FieldPath.documentId(), "<=", date)
       .get(),
     db.doc("config/harvest").get(),
+    db.doc("stats/harvestSpeed").get(),
   ]);
   const noHelp = (cfg.get("noHelp") as string[] | undefined) ?? [];
-  const fh = (day.get("forecastHouses") as Record<string, ForecastHouse> | undefined) ?? {};
+  const fh = (day.get("forecastHouses") as Record<string, HelpForecast> | undefined) ?? {};
   const houses = (day.get("houses") as Record<string, House> | undefined) ?? {};
   const t: Taps = Object.fromEntries(taps.docs.map((d) => [d.id, d.get("houses") ?? {}]));
   const usage = (use.docs[use.docs.length - 1]?.get("houses") as Record<string, string> | undefined) ?? {};
+  const input: HelpInput = {
+    now,
+    fh,
+    houses,
+    taps: t,
+    usage,
+    noHelp,
+    plants: (cfg.get("plants") as Record<string, number> | undefined) ?? DEFAULT_PLANTS,
+    avg: typeof speed.get("avg") === "number" ? (speed.get("avg") as number) : null,
+    assigns: {},
+  };
+  const open = helpCandidates(input);
+  /** まだ使える割り当て：そのハウスが終わっていなくて、その人がそこで「終わった」を押していなくて、ほかのハウスで収穫中でない */
+  const valid = (id: string, h: string | undefined) =>
+    !!h && open.includes(h) && t[id]?.[h]?.end == null && !Object.entries(t[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v?.end == null);
+  const assign = await db.runTransaction(async (tx) => {
+    const raw = ((await tx.get(assignDoc(date))).get("assign") as Record<string, { house: string; at: number }> | undefined) ?? {};
+    const cur: Record<string, { house: string; at: number }> = Object.fromEntries(Object.entries(raw).filter(([id, a]) => valid(id, a?.house)));
+    let changed = Object.keys(cur).length !== Object.keys(raw).length;
+    if (me && free && !cur[me]) {
+      // 手のあいた人に、応援先を割り当てる（ほかの人の割り当ても人数に数える）
+      const h = pickHelp({ ...input, assigns: Object.fromEntries(Object.entries(cur).map(([id, a]) => [id, a.house])) }, me);
+      if (h) {
+        cur[me] = { house: h, at: Date.now() };
+        changed = true;
+      }
+    }
+    if (changed) tx.set(assignDoc(date), { assign: cur, updatedAt: FieldValue.serverTimestamp() });
+    return Object.fromEntries(Object.entries(cur).map(([id, a]) => [id, a.house]));
+  });
   // done＝もう終わったハウス（「ほかのハウスに行く」の一覧から外す）
   const done = Object.entries(houses)
     .filter(([, v]) => v?.end != null)
@@ -219,5 +230,5 @@ export const harvestHelpHouse = onCall(async (req) => {
       .filter(([, v]) => v?.membersEdited && Array.isArray(v.members))
       .map(([h, v]) => [h, v.members!]),
   );
-  return { house: pickHelpHouse(fh, houses, t, usage, noHelp), forecast: Object.keys(fh).length > 0, done, members };
+  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members };
 });

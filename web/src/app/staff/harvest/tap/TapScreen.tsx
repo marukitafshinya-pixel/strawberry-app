@@ -79,6 +79,8 @@ export function TapScreen({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** 押し終わるたびに増やす（ハウスの「終わった」が入ってから、応援先を聞き直すため） */
+  const [pressed, setPressed] = useState(0);
   /** サーバーから聞いたこと（応援の行き先・入れ直した収穫者など）。n＝聞いたときの「終わった」の数 */
   const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
@@ -102,21 +104,26 @@ export function TapScreen({
     .sort((a, b) => mine[b].end! - mine[a].end!)[0];
   const last = inNow ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
 
-  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）
+  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）。
+  // 自分の予定が終わったら（free）、応援先を割り当ててもらう（見るだけの画面では割り当てない）
   const tapKey = JSON.stringify(mine);
+  const askFree = free && !preview;
   useEffect(() => {
     let alive = true;
     const ask = () =>
-      fetchHelpHouse()
+      fetchHelpHouse(askFree)
         .then((r) => alive && setHelp({ ...r, n: doneCount }))
-        .catch(() => alive && setHelp((h) => ({ house: null, forecast: true, done: [], members: h?.members ?? {}, n: doneCount })));
+        .catch(
+          () =>
+            alive && setHelp((h) => ({ house: null, assign: h?.assign ?? {}, open: true, forecast: true, done: [], members: h?.members ?? {}, n: doneCount })),
+        );
     void ask();
     const t = setInterval(ask, 60_000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [doneCount, tapKey]);
+  }, [doneCount, tapKey, askFree, pressed]);
 
   /** そのハウスが終わるのに「終わった」が要る人：予定の収穫者（ログインのある人）と、入ったを押した人。応援で入ったハウスは、入った人だけ */
   const crewOf = (h: string, all: DayTaps) => {
@@ -134,6 +141,7 @@ export function TapScreen({
       setError(errorText(e));
     } finally {
       setBusy(false);
+      setPressed((n) => n + 1);
     }
   };
 
@@ -180,7 +188,9 @@ export function TapScreen({
   // 聞いたあとに「終わった」を押していたら、聞き直すまで使わない
   const helpNow = help && help.n === doneCount ? help : null;
   /** 指示するハウス：今のハウスか、応援のハウス。ほかのハウスを選んだら、そのハウス */
-  const target = inNow ? current : (chosen ?? current ?? (free ? (helpNow?.house ?? null) : null));
+  /** 自分の応援先（見るだけの画面では、その人に割り当てられている応援先） */
+  const helpHouse = helpNow ? (helpNow.assign[me.id] ?? null) : null;
+  const target = inNow ? current : (chosen ?? current ?? (free ? helpHouse : null));
   const isChosen = !inNow && chosen != null;
   const isHelp = !isChosen && current == null && target != null;
   /** 「ほかのハウスに行く」を開く（もう終わったハウスをサーバーに聞く） */
@@ -255,15 +265,14 @@ export function TapScreen({
         <p className="rounded-2xl bg-white p-5 text-lg text-gray-700">今日の収穫の予定はまだありません。作業配置表に名前が入ると、ここに出ます。</p>
       ) : target == null ? (
         <>
-          {free && helpNow == null ? (
-            <p className="rounded-2xl bg-white p-5 text-center text-lg text-gray-500">次のハウスをさがしています…</p>
-          ) : (
-            <p className="rounded-2xl bg-green-50 p-6 text-center text-2xl font-bold text-green-800">
-              今日の収穫はおわりです。おつかれさまでした
-              {free && helpNow && !helpNow.forecast && (
-                <span className="mt-2 block text-base font-normal">ほかに手伝うハウスは、集荷係の人に聞いてください。</span>
-              )}
+          {free && (helpNow == null || helpNow.open) ? (
+            // 終わっていないハウスがあるうちは、応援先が決まるまで待つ（1分ごとに聞き直す）
+            <p className="rounded-2xl bg-white p-5 text-center text-lg text-gray-500">
+              次の応援先をさがしています…
+              {preview && <span className="mt-1 block text-sm">（その人の携帯で開くと決まります）</span>}
             </p>
+          ) : (
+            <p className="rounded-2xl bg-green-50 p-6 text-center text-2xl font-bold text-green-800">今日の収穫はおわりです。おつかれさまでした</p>
           )}
           {othersBox}
         </>
@@ -433,11 +442,19 @@ export function TapList({
             ? `今日は${h}番から`
             : `次は${h}番`
           : st.free
-            ? help?.house
-              ? `応援：${help.house}番`
-              : "おわり"
+            ? help?.assign[m.id]
+              ? `応援：${help.assign[m.id]}番`
+              : help?.open === false
+                ? "おわり"
+                : "応援先待ち（携帯を開くと決まります）"
             : "予定なし";
-      return { m, text, help: !st.inNow && !h && st.free && !!help?.house, house: st.inNow ? h : null, start: st.inNow ? (st.mine[h!]?.start ?? null) : null };
+      return {
+        m,
+        text,
+        help: !st.inNow && !h && st.free && !!help?.assign[m.id],
+        house: st.inNow ? h : null,
+        start: st.inNow ? (st.mine[h!]?.start ?? null) : null,
+      };
     }
     // ログインのない人：収穫管理の記録から（集荷係が入れた時刻）
     const st = tapStateOf({ plan, template, use, taps: {}, meId: m.id, edited });
