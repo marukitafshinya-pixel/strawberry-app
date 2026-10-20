@@ -387,7 +387,6 @@ export default function HarvestPage() {
             members={members}
             rec={rec}
             houseEnd={fc?.houseEnd ?? {}}
-            startOf={hp.startOf}
           />
         ) : (
           content

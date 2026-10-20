@@ -37,7 +37,7 @@ const DEFAULT_PLANTS: Record<string, number> = {
   "20": 1344,
 };
 
-type House = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number };
+type House = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number; left?: string[] };
 
 /** 画面側（web/src/lib/harvest.ts）と同じ、はじめのハウスのまとまり */
 const DEFAULT_GROUPS: { name: string; houses: string[] }[] = [
@@ -230,5 +230,11 @@ export const harvestHelpHouse = onCall(async (req) => {
       .filter(([, v]) => v?.membersEdited && Array.isArray(v.members))
       .map(([h, v]) => [h, v.members!]),
   );
-  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members };
+  // 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）：入った時刻と、移った人（携帯を忘れた人の分を集荷係が入れたときも、今いる場所がわかるように）
+  const started = Object.fromEntries(
+    Object.entries(houses)
+      .filter(([, v]) => v?.start != null && v?.end == null)
+      .map(([h, v]) => [h, { start: v.start!, left: Array.isArray(v.left) ? v.left : [] }]),
+  );
+  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members, started };
 });

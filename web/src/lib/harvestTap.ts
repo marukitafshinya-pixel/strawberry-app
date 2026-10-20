@@ -67,7 +67,8 @@ export function nowMinJST() {
 /**
  * サーバーに聞く：house＝自分の応援先（free＝自分の予定が終わったときに割り当ててもらう。終わっていないハウスへまんべんなく）、
  * assign＝みんなの応援先（従業員の id → ハウス）、open＝終わっていないハウスがあるか、forecast＝朝の予測があるか、
- * done＝もう終わったハウス、members＝集荷係が収穫管理で入れ直したハウスの収穫者（作業配置表より優先する）
+ * done＝もう終わったハウス、members＝集荷係が収穫管理で入れ直したハウスの収穫者（作業配置表より優先する）、
+ * started＝収穫中のハウス（集荷係が入れた分もふくむ）
  */
 export type HelpInfo = {
   house: string | null;
@@ -76,5 +77,7 @@ export type HelpInfo = {
   forecast: boolean;
   done: string[];
   members: Record<string, string[]>;
+  /** 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）→ 入った時刻と、終わる前にほかへ移った人 */
+  started?: Record<string, { start: number; left: string[] }>;
 };
 export const fetchHelpHouse = (free = false) => callFunction<{ free: boolean }, HelpInfo>("harvestHelpHouse", { free });

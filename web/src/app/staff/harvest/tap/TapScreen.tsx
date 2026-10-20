@@ -27,6 +27,10 @@ export function tapStateOf(a: {
   taps: DayTaps;
   meId: string;
   edited?: Record<string, string[]>;
+  /** 収穫管理で「終わった」が入っているハウス */
+  houseDone?: string[];
+  /** 収穫管理で「入った」が入っていて「終わった」がまだのハウス（入った時刻・移った人） */
+  houseStarted?: Record<string, { start: number; left: string[] }>;
 }) {
   const { plan, template, use, taps, meId } = a;
   /** そのハウスの収穫者：集荷係が収穫管理で入れ直したハウスはその人、それ以外は作業配置表の人 */
@@ -45,16 +49,30 @@ export function tapStateOf(a: {
     .filter((h) => mine[h]?.start != null && !planned.includes(h))
     .sort((x, y) => mine[x].start! - mine[y].start!);
   const seq = [...planned, ...helped];
+  /** 自分にとって終わったハウス：自分で「終わった」を押したか、収穫管理で「終わった」が入っている */
+  const isDone = (h: string) => mine[h]?.end != null || !!a.houseDone?.includes(h);
   /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす） */
   const takenByHelper = (h: string) => mine[h]?.start == null && tappedIn(h).some((id) => !who(h).includes(id));
-  // 今のハウス：「入った」を押してまだ「終わった」がないハウス。なければ、予定の順で次のハウス
-  const current = seq.find((h) => mine[h]?.start != null && mine[h]?.end == null) ?? seq.find((h) => mine[h]?.end == null && !takenByHelper(h)) ?? null;
+  // 今のハウス：① 自分で「入った」を押してまだ終わっていないハウス
+  // ② 集荷係が収穫管理に「入った」を入れたハウス（携帯を忘れた人など。移った人は除き、いちばんあとに入ったハウス）
+  // ③ なければ、予定の順で次のハウス
+  const byTap = seq.find((h) => mine[h]?.start != null && !isDone(h)) ?? null;
+  const byRec =
+    seq
+      .filter((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].left.includes(meId))
+      .sort((x, y) => a.houseStarted![y].start - a.houseStarted![x].start)[0] ?? null;
+  const current = byTap ?? byRec ?? seq.find((h) => !isDone(h) && !takenByHelper(h)) ?? null;
   const pos = current ? seq.indexOf(current) : seq.length;
-  const inNow = current != null && mine[current]?.start != null;
+  /** 自分で「入った」を押して収穫中か（「入った」のボタンを押せなくする） */
+  const inByTap = current != null && current === byTap;
+  /** 収穫中か（自分で押したか、収穫管理に入っている） */
+  const inNow = current != null && (inByTap || current === byRec);
+  /** 収穫中のハウスに入った時刻 */
+  const startAt = current == null ? null : (mine[current]?.start ?? a.houseStarted?.[current]?.start ?? null);
   /** 予定が全部終わって、応援に行けるか */
   const free = planned.length > 0 && current == null;
-  const doneCount = seq.filter((h) => mine[h]?.end != null).length;
-  return { who, usageOf, mine, planned, helped, seq, current, pos, inNow, free, doneCount };
+  const doneCount = seq.filter((h) => isDone(h)).length;
+  return { who, usageOf, mine, planned, helped, seq, current, pos, inNow, inByTap, startAt, free, doneCount, isDone };
 }
 
 /** preview＝収穫管理から見るだけ（押せない） */
@@ -90,19 +108,21 @@ export function TapScreen({
 
   const plan = planHarvest(template, haichi);
   const cfg = useHarvestConfig();
-  const { who, usageOf, mine, planned, helped, current, pos, inNow, free, doneCount } = tapStateOf({
+  const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount } = tapStateOf({
     plan,
     template,
     use,
     taps,
     meId: me.id,
     edited: help?.members,
+    houseDone: help?.done,
+    houseStarted: help?.started,
   });
   /** 取り消せる最後の操作：今のハウスの「入った」か、その前に「終わった」を押したハウス */
   const lastOut = Object.keys(mine)
     .filter((h) => mine[h]?.end != null)
     .sort((a, b) => mine[b].end! - mine[a].end!)[0];
-  const last = inNow ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
+  const last = inByTap ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
 
   // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）。
   // 自分の予定が終わったら（free）、応援先を割り当ててもらう（見るだけの画面では割り当てない）
@@ -300,7 +320,7 @@ export function TapScreen({
           </div>
           {othersBox}
           <button
-            disabled={preview || busy || inNow}
+            disabled={preview || busy || inByTap}
             onClick={() =>
               void run(async () => {
                 await tapIn(target);
@@ -309,7 +329,7 @@ export function TapScreen({
             }
             className={`${big} bg-sky-600 text-white`}
           >
-            入った{inNow && <span className="block text-lg font-normal">{clock(mine[target]?.start)}</span>}
+            入った{inNow && startAt != null && <span className="block text-lg font-normal">{clock(startAt)}</span>}
           </button>
           <button
             disabled={preview || busy || (!inNow && (isHelp || isChosen))}
@@ -388,7 +408,6 @@ export function TapList({
   members,
   rec,
   houseEnd,
-  startOf,
 }: {
   date: string;
   template: HaichiTemplate;
@@ -398,8 +417,6 @@ export function TapList({
   rec: HarvestDoc;
   /** ハウス → 終わる予測（分。収穫終了の予測から） */
   houseEnd: Record<string, number>;
-  /** そのハウスの「入った」（予定の開始時刻もふくむ） */
-  startOf: (h: string) => number | null;
 }) {
   const taps = useDayTaps(date);
   const [help, setHelp] = useState<HelpInfo | null>(null);
@@ -430,38 +447,38 @@ export function TapList({
   if (!taps) return <p className="mt-4 text-gray-500">読み込み中…</p>;
   if (!people.length) return <p className="mt-4 rounded-xl bg-white p-4 text-gray-600">この日の作業配置表に、収穫の名前が入っていません。</p>;
 
+  // 収穫管理の「終わった」「入った」（集荷係が入れた分）も、その人の今いるハウスに使う
+  const houseDone = Object.keys(rec).filter((h) => rec[h]?.end != null);
+  const houseStarted = Object.fromEntries(
+    Object.entries(rec)
+      .filter(([, r]) => r.start != null && r.end == null)
+      .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [] }]),
+  );
   const rows = people.map((m) => {
-    if (m.uid) {
-      // ログインのある人：携帯の画面と同じ決め方
-      const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited });
-      const h = st.current;
-      const text = st.inNow
-        ? `${h}番を収穫中`
-        : h
-          ? st.pos === 0 && st.doneCount === 0
-            ? `今日は${h}番から`
-            : `次は${h}番`
-          : st.free
-            ? help?.assign[m.id]
-              ? `応援：${help.assign[m.id]}番`
-              : help?.open === false
-                ? "おわり"
-                : "応援先待ち（携帯を開くと決まります）"
-            : "予定なし";
-      return {
-        m,
-        text,
-        help: !st.inNow && !h && st.free && !!help?.assign[m.id],
-        house: st.inNow ? h : null,
-        start: st.inNow ? (st.mine[h!]?.start ?? null) : null,
-      };
-    }
-    // ログインのない人：収穫管理の記録から（集荷係が入れた時刻）
-    const st = tapStateOf({ plan, template, use, taps: {}, meId: m.id, edited });
-    const h = st.planned.find((x) => rec[x]?.end == null) ?? null;
-    const inNow = h != null && rec[h]?.start != null;
-    const text = h ? (inNow ? `${h}番を収穫中` : `次は${h}番`) : "おわり";
-    return { m, text: `${text}（ログインなし）`, help: false, house: inNow ? h : null, start: inNow ? (rec[h!]?.start ?? startOf(h!)) : null };
+    const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited, houseDone, houseStarted });
+    const h = st.current;
+    const text = st.inNow
+      ? `${h}番を収穫中`
+      : h
+        ? st.pos === 0 && st.doneCount === 0
+          ? `今日は${h}番から`
+          : `次は${h}番`
+        : st.free
+          ? m.uid && help?.assign[m.id]
+            ? `応援：${help.assign[m.id]}番`
+            : help?.open === false
+              ? "おわり"
+              : m.uid
+                ? "応援先待ち（携帯を開くと決まります）"
+                : "おわり"
+          : "予定なし";
+    return {
+      m,
+      text: m.uid ? text : `${text}（ログインなし）`,
+      help: !st.inNow && !h && st.free && !!(m.uid && help?.assign[m.id]),
+      house: st.inNow ? h : null,
+      start: st.inNow ? st.startAt : null,
+    };
   });
   return (
     <div className="mt-3">
