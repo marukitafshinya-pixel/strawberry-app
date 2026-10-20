@@ -17,7 +17,7 @@ function popAt(f: Forecast, iso: string): number | null {
   return p?.pop ?? null;
 }
 
-/** 作業配置表の日（当日）と次の日。3時間ごとの予報がある日は時間帯ごとに、まだない日は1日ごとの予報（天気・風・降水確率）で出す */
+/** 作業配置表の日（当日）と次の日を、同じ時間帯の表で出す。3時間ごとの予報がまだない時間は、1日ごとの予報（天気・降水確率）で埋める（灰色） */
 export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
   const { data, error } = useForecast();
   const today = todayJST();
@@ -37,17 +37,23 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
     </p>
   );
   type Slot = Forecast["slots"][number];
-  /** 日ごとの列：3時間ごとの予報があればその時刻、なければ1日ごとの予報の1列 */
-  const byDay = [first, second]
-    .map((d) => ({ d, list: data.slots.filter((s) => s.time.startsWith(d)), day: data.days.find((x) => x.date === d) ?? null }))
-    .filter((x) => x.list.length > 0 || x.day);
-  if (byDay.length === 0) return <div className={`${wrap} p-3 text-gray-500`}>この日の天気予報はまだ出ていません。</div>;
-  const dayPops = (d: string) =>
-    data.pops
-      .filter((p) => p.time.startsWith(d))
-      .map((p) => `${hourOf(p.time)}時 ${p.pop ?? "－"}%`)
-      .join(" ");
-  const rows: [string, (s: Slot) => React.ReactNode, (d: (typeof byDay)[number]) => React.ReactNode][] = [
+  /** 表の1列：3時間ごとの予報があればその予報、まだなければ1日ごとの予報で埋める（fill） */
+  type Col = { time: string; slot: Slot | null };
+  const TIMES = [0, 3, 6, 9, 12, 15, 18, 21];
+  const byDay = [first, second].map((d) => {
+    const list = data.slots.filter((s) => s.time.startsWith(d));
+    // 今日はこれからの時間だけ。ほかの日は 0時〜21時をそろえて出す
+    const cols: Col[] =
+      d === today && list.length
+        ? list.map((s) => ({ time: s.time, slot: s }))
+        : TIMES.map((h) => {
+            const time = `${d}T${String(h).padStart(2, "0")}:00:00+09:00`;
+            return { time, slot: list.find((s) => Date.parse(s.time) === Date.parse(time)) ?? null };
+          });
+    return { d, cols, day: data.days.find((x) => x.date === d) ?? null, week: data.weekly?.find((x) => x.date === d) ?? null };
+  });
+  const fillCell = `${cell} bg-gray-50 text-gray-500`;
+  const rows: [string, (s: Slot) => React.ReactNode, (x: (typeof byDay)[number], c: Col) => React.ReactNode][] = [
     [
       "天気",
       (s) => (
@@ -56,10 +62,9 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
         </span>
       ),
       (x) => (
-        <>
-          <span className={big ? "text-3xl" : "text-xl"}>{weatherIcon(x.day?.weatherCode ?? null, x.day?.weather ?? null)}</span>
-          <span className="block text-[0.8em] whitespace-normal">{x.day?.weather}</span>
-        </>
+        <span className={`${big ? "text-3xl" : "text-xl"} opacity-60`} title={x.day?.weather ?? ""}>
+          {weatherIcon(x.day?.weatherCode ?? x.week?.weatherCode ?? null, x.day?.weather ?? null) || "－"}
+        </span>
       ),
     ],
     ["気温", (s) => (s.temp === null ? "－" : <b>{s.temp}℃</b>), () => "－"],
@@ -69,7 +74,10 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
         const p = popAt(data, s.time);
         return p === null ? "－" : <span className={p >= 50 ? "font-bold text-sky-700" : ""}>{p}%</span>;
       },
-      (x) => dayPops(x.d) || "－",
+      (x, c) => {
+        const p = popAt(data, c.time) ?? x.week?.pop ?? null;
+        return p === null ? "－" : <span className={p >= 50 ? "font-bold text-sky-700" : ""}>{p}%</span>;
+      },
     ],
     [
       "風",
@@ -82,35 +90,39 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
         ) : (
           "－"
         ),
-      (x) => <span className="text-[0.85em] whitespace-normal">{x.day?.wind ?? "－"}</span>,
+      () => "－",
     ],
   ];
+  /** 1日ごとの予報で埋めた時間がある日は、見出しにその日の最高・最低（週間予報）と風を出す */
+  const filled = (x: (typeof byDay)[number]) => x.cols.some((c) => !c.slot);
+  const anyFilled = byDay.some(filled);
   return (
     <div className={wrap}>
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-gray-300">
             <th className={head}>天気予報</th>
-            {byDay.map(({ d, list }) => (
-              <th key={d} colSpan={Math.max(1, list.length)} className="border-r-2 border-sky-700 bg-sky-700 px-2 py-1 text-center font-bold text-white">
-                {label(d)} {md(d)}
+            {byDay.map((x) => (
+              <th key={x.d} colSpan={x.cols.length} className="border-r-2 border-sky-700 bg-sky-700 px-2 py-1 text-center font-bold text-white">
+                {label(x.d)} {md(x.d)}
+                {filled(x) && (x.week?.tempMax != null || x.week?.tempMin != null) && (
+                  <span className="ml-2 font-normal">
+                    {x.week?.tempMax != null && <>最高 {x.week.tempMax}℃ </>}
+                    {x.week?.tempMin != null && <>最低 {x.week.tempMin}℃</>}
+                  </span>
+                )}
+                {filled(x) && x.day?.wind && <span className="ml-2 text-[0.85em] font-normal">{x.day.wind}</span>}
               </th>
             ))}
           </tr>
           <tr className="border-b border-gray-300">
             <th className={head}>時刻</th>
-            {byDay.flatMap(({ d, list }) =>
-              list.length
-                ? list.map((s, i) => (
-                    <th key={s.time} className={`${cell} font-bold ${i === list.length - 1 ? "border-r-2 border-r-sky-700" : ""}`}>
-                      {hourOf(s.time)}時
-                    </th>
-                  ))
-                : [
-                    <th key={d} className={`${cell} border-r-2 border-r-sky-700 font-bold`}>
-                      1日
-                    </th>,
-                  ],
+            {byDay.flatMap((x) =>
+              x.cols.map((c, i) => (
+                <th key={c.time} className={`${c.slot ? cell : fillCell} font-bold ${i === x.cols.length - 1 ? "border-r-2 border-r-sky-700" : ""}`}>
+                  {hourOf(c.time)}時
+                </th>
+              )),
             )}
           </tr>
         </thead>
@@ -119,22 +131,21 @@ export function ForecastStrip({ big, date }: { big?: boolean; date?: string }) {
             <tr key={name} className="border-b border-gray-200">
               <th className={head}>{name}</th>
               {byDay.flatMap((x) =>
-                x.list.length
-                  ? x.list.map((s, i) => (
-                      <td key={s.time} className={`${cell} ${i === x.list.length - 1 ? "border-r-2 border-r-sky-700" : ""}`}>
-                        {f(s)}
-                      </td>
-                    ))
-                  : [
-                      <td key={x.d} className={`${cell} min-w-32 border-r-2 border-r-sky-700`}>
-                        {g(x)}
-                      </td>,
-                    ],
+                x.cols.map((c, i) => (
+                  <td key={c.time} className={`${c.slot ? cell : fillCell} ${i === x.cols.length - 1 ? "border-r-2 border-r-sky-700" : ""}`}>
+                    {c.slot ? f(c.slot) : g(x, c)}
+                  </td>
+                )),
               )}
             </tr>
           ))}
         </tbody>
       </table>
+      {anyFilled && (
+        <p className={`px-2 pt-1 text-gray-500 ${big ? "text-sm" : "text-[11px]"}`}>
+          灰色の時間は、3時間ごとの予報がまだ出ていないので、1日ごとの予報（天気・6時間ごとの降水確率）で出しています。気温はその日の最高・最低（週間予報）を見出しに出しています。
+        </p>
+      )}
       {credit}
     </div>
   );

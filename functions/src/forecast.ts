@@ -13,12 +13,21 @@ export const FORECAST_AREA = { office: "012000", class10: "012010", class10Name:
 const MAX_AGE_MS = 60 * 60_000;
 
 /** 時間帯ごとの予報（3時間ごと）。time は ISO（日本時間）。足りない項目は null */
-export type ForecastSlot = { time: string; weatherCode: string | null; weather: string | null; temp: number | null; windDir: string | null; windSpeed: number | null };
+export type ForecastSlot = {
+  time: string;
+  weatherCode: string | null;
+  weather: string | null;
+  temp: number | null;
+  windDir: string | null;
+  windSpeed: number | null;
+};
 /** 降水確率（6時間ごと） */
 export type ForecastPop = { time: string; pop: number | null };
 /** 1日ごとの天気の文（「晴れ 時々 くもり」など）と風の文 */
 export type ForecastDay = { date: string; weatherCode: string | null; weather: string | null; wind: string | null };
 export type Forecast = { slots: ForecastSlot[]; pops: ForecastPop[]; days: ForecastDay[]; reportDatetime: string | null };
+/** 1日ごとの見込み（週間予報と、府県天気予報の明日の気温）：天気・降水確率（1日）・最低・最高（℃。旭川） */
+export type WeeklyDay = { date: string; weatherCode: string | null; pop: number | null; tempMin: number | null; tempMax: number | null };
 
 type Json = Record<string, unknown>;
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -34,7 +43,10 @@ const timeOf = (v: unknown): string | null => str(typeof v === "object" ? obj(v)
 export function parseOfficeForecast(json: unknown): { days: ForecastDay[]; pops: ForecastPop[]; reportDatetime: string | null } {
   const short = obj(arr(json)[0]);
   const series = arr(short.timeSeries).map(obj);
-  const pickArea = (s: Json) => arr(s.areas).map(obj).find((a) => str(obj(a.area).code) === FORECAST_AREA.class10) ?? obj(arr(s.areas)[0]);
+  const pickArea = (s: Json) =>
+    arr(s.areas)
+      .map(obj)
+      .find((a) => str(obj(a.area).code) === FORECAST_AREA.class10) ?? obj(arr(s.areas)[0]);
   const days: ForecastDay[] = [];
   const pops: ForecastPop[] = [];
   for (const s of series) {
@@ -42,13 +54,68 @@ export function parseOfficeForecast(json: unknown): { days: ForecastDay[]; pops:
     const a = pickArea(s);
     if (Array.isArray(a.weathers) || Array.isArray(a.weatherCodes)) {
       times.forEach((t, i) => {
-        if (t) days.push({ date: t.slice(0, 10), weatherCode: str(arr(a.weatherCodes)[i]), weather: str(arr(a.weathers)[i])?.replace(/\s+/g, " ") ?? null, wind: str(arr(a.winds)[i])?.replace(/\s+/g, " ") ?? null });
+        if (t)
+          days.push({
+            date: t.slice(0, 10),
+            weatherCode: str(arr(a.weatherCodes)[i]),
+            weather: str(arr(a.weathers)[i])?.replace(/\s+/g, " ") ?? null,
+            wind: str(arr(a.winds)[i])?.replace(/\s+/g, " ") ?? null,
+          });
       });
     } else if (Array.isArray(a.pops)) {
       times.forEach((t, i) => t && pops.push({ time: t, pop: num(arr(a.pops)[i]) }));
     }
   }
   return { days, pops, reportDatetime: str(short.reportDatetime) };
+}
+
+/**
+ * 府県天気予報（012000.json）の週間予報（2つめ）から、日ごとの天気・降水確率・最低・最高気温を読む。
+ * 週間予報にない明日の気温は、1つめ（府県天気予報）の気温（朝の最低・日中の最高）で埋める
+ */
+export function parseWeeklyForecast(json: unknown): WeeklyDay[] {
+  const out = new Map<string, WeeklyDay>();
+  const get = (date: string) => {
+    if (!out.has(date)) out.set(date, { date, weatherCode: null, pop: null, tempMin: null, tempMax: null });
+    return out.get(date)!;
+  };
+  const week = obj(arr(json)[1]);
+  for (const s of arr(week.timeSeries).map(obj)) {
+    const times = arr(s.timeDefines).map(timeOf);
+    const areas = arr(s.areas).map(obj);
+    // 天気の地域は上川（なければ最初）、気温の地点は旭川（なければ最初）
+    const a =
+      areas.find((x) => str(obj(x.area).code) === FORECAST_AREA.class10 || str(obj(x.area).name) === FORECAST_AREA.tempPoint) ??
+      areas.find((x) => str(obj(x.area).name)?.includes(FORECAST_AREA.class10Name.replace("地方", ""))) ??
+      areas[0] ??
+      {};
+    times.forEach((t, i) => {
+      if (!t) return;
+      const d = get(t.slice(0, 10));
+      if (Array.isArray(a.weatherCodes)) d.weatherCode = str(arr(a.weatherCodes)[i]) ?? d.weatherCode;
+      if (Array.isArray(a.pops)) d.pop = num(arr(a.pops)[i]) ?? d.pop;
+      if (Array.isArray(a.tempsMin)) d.tempMin = num(arr(a.tempsMin)[i]) ?? d.tempMin;
+      if (Array.isArray(a.tempsMax)) d.tempMax = num(arr(a.tempsMax)[i]) ?? d.tempMax;
+    });
+  }
+  // 府県天気予報の気温：発表の日より後の日の 0時＝朝の最低、9時＝日中の最高
+  const short = obj(arr(json)[0]);
+  const reportDay = str(short.reportDatetime)?.slice(0, 10) ?? "";
+  for (const s of arr(short.timeSeries).map(obj)) {
+    const times = arr(s.timeDefines).map(timeOf);
+    const a = arr(s.areas)
+      .map(obj)
+      .find((x) => str(obj(x.area).name) === FORECAST_AREA.tempPoint);
+    if (!a || !Array.isArray(a.temps)) continue;
+    times.forEach((t, i) => {
+      if (!t || t.slice(0, 10) <= reportDay) return;
+      const d = get(t.slice(0, 10));
+      const v = num(arr(a.temps)[i]);
+      if (t.slice(11, 13) === "00") d.tempMin ??= v;
+      else d.tempMax ??= v;
+    });
+  }
+  return [...out.values()].sort((x, y) => x.date.localeCompare(y.date));
 }
 
 /**
@@ -101,12 +168,22 @@ export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
   const at = cur.get("fetchedAt") as Timestamp | undefined;
   if (at && Date.now() - at.toMillis() < MAX_AGE_MS && req.data?.force !== true) return { ok: true, cached: true };
 
-  const office = parseOfficeForecast(await fetchJson(`https://www.jma.go.jp/bosai/forecast/data/forecast/${FORECAST_AREA.office}.json`, "jma-forecast-office.json"));
+  const officeJson = await fetchJson(`https://www.jma.go.jp/bosai/forecast/data/forecast/${FORECAST_AREA.office}.json`, "jma-forecast-office.json");
+  const office = parseOfficeForecast(officeJson);
+  // 1日ごとの見込み（3時間ごとの予報がまだない日に使う）。読めなくても、ほかはそのまま出す
+  let weekly: WeeklyDay[] = [];
+  try {
+    weekly = parseWeeklyForecast(officeJson);
+  } catch {
+    weekly = [];
+  }
   // 3時間ごとの予報は、読めなくても1日ごとの予報だけで出す
   let slots: ForecastSlot[] = [];
   let slotsError: string | null = null;
   try {
-    slots = parseTimeSeriesForecast(await fetchJson(`https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/${FORECAST_AREA.class10}.json`, "jma-forecast-vpfd.json"));
+    slots = parseTimeSeriesForecast(
+      await fetchJson(`https://www.jma.go.jp/bosai/jmatile/data/wdist/VPFD/${FORECAST_AREA.class10}.json`, "jma-forecast-vpfd.json"),
+    );
     if (slots.length === 0) slotsError = "3時間ごとの予報が読めませんでした";
   } catch (e) {
     slotsError = e instanceof Error ? e.message : "3時間ごとの予報が読めませんでした";
@@ -118,6 +195,7 @@ export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
     slots,
     pops: office.pops,
     days: office.days,
+    weekly,
     reportDatetime: office.reportDatetime,
     slotsError,
     fetchedAt: FieldValue.serverTimestamp(),

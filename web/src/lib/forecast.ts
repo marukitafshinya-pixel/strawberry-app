@@ -17,12 +17,15 @@ export type ForecastSlot = {
 };
 export type ForecastPop = { time: string; pop: number | null };
 export type ForecastDay = { date: string; weatherCode: string | null; weather: string | null; wind: string | null };
+/** 1日ごとの見込み（週間予報など）：天気・降水確率（1日）・最低・最高 */
+export type WeeklyDay = { date: string; weatherCode: string | null; pop: number | null; tempMin: number | null; tempMax: number | null };
 export type Forecast = {
   area: string;
   tempPoint: string;
   slots: ForecastSlot[];
   pops: ForecastPop[];
   days: ForecastDay[];
+  weekly?: WeeklyDay[];
   reportDatetime: string | null;
   fetchedAt?: { toDate: () => Date };
 };
@@ -66,7 +69,8 @@ export function weatherIcon(code: string | null, text: string | null): string {
 
 /**
  * その日の最高気温と最低気温（3時間ごとの予報から）。
- * 最高＝その日（0:00〜24:00）のいちばん高い気温、最低＝その日の 0:00〜翌日 8:00 のいちばん低い気温。予報がなければ null
+ * 最高＝その日（0:00〜24:00）のいちばん高い気温、最低＝その日の 0:00〜翌日 8:00 のいちばん低い気温。
+ * 3時間ごとの予報がまだなければ週間予報の最高・最低、それもなければ null
  */
 export function dayHighLow(f: Forecast, date: string): { high: number | null; low: number | null } {
   const at = (s: ForecastSlot) => Date.parse(s.time);
@@ -74,5 +78,10 @@ export function dayHighLow(f: Forecast, date: string): { high: number | null; lo
   const within = (from: number, to: number) => f.slots.filter((s) => s.temp !== null && at(s) >= from && at(s) <= to).map((s) => s.temp as number);
   const hi = within(start(0), start(0, 1) - 1);
   const lo = within(start(0), start(8, 1));
-  return { high: hi.length ? Math.max(...hi) : null, low: lo.length ? Math.min(...lo) : null };
+  // 3時間ごとの予報がその時間までまだ出ていなければ（昼すぎ・翌朝）、週間予報の最高・最低を使う
+  const w = f.weekly?.find((x) => x.date === date);
+  const covers = (t: number) => f.slots.some((s) => at(s) >= t);
+  const high = covers(start(15)) || w?.tempMax == null ? (hi.length ? Math.max(...hi) : null) : w.tempMax;
+  const low = covers(start(6, 1)) || w?.tempMin == null ? (lo.length ? Math.min(...lo) : null) : w.tempMin;
+  return { high, low };
 }
