@@ -78,8 +78,16 @@ service cloud.firestore {
     }
     function tapHouse(hb, ha, k) {
       return ha[k] is map
-        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end'])
-        && minuteOrNull(ha[k], 'start') && minuteOrNull(ha[k], 'end');
+        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end', 'helpers'])
+        && minuteOrNull(ha[k], 'start') && minuteOrNull(ha[k], 'end')
+        && (!('helpers' in ha[k]) || onlyMeChanged(hb.get(k, {}).get('helpers', []), ha[k].helpers));
+    }
+    // 応援の人の名前：増えた・減ったのが自分（従業員の id）だけか
+    function onlyMeChanged(before, after) {
+      let me = get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId;
+      return after is list && after.size() <= 20
+        && after.toSet().difference(before.toSet()).hasOnly([me])
+        && before.toSet().difference(after.toSet()).hasOnly([me]);
     }
     // 時刻（0時からの分）か、空か、入っていない
     function minuteOrNull(m, k) {

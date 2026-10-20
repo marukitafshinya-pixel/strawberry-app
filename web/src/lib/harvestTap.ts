@@ -3,7 +3,7 @@
 // 収穫報告：収穫する人が自分の携帯で「入った」「終わった」を押す（harvest/{日付}/taps/{従業員のid}）。
 // 押した時刻は、収穫管理のハウスの「入った・終わった」にも入れる（収穫者は時刻だけ書ける。収穫管理のデータは読めない）。
 // 1つのハウスに2人以上いるときは、入った＝最初に押した人の時刻、終わった＝全員が押した時刻（最後の人）
-import { collection, doc, getDocs, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { arrayRemove, arrayUnion, collection, doc, getDocs, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
@@ -56,6 +56,16 @@ export async function saveTap(date: string, memberId: string, house: string, pat
 export async function saveTapToHouse(date: string, house: string, patch: { start?: number | null; end?: number | null }) {
   const { db } = await getFirebase();
   await setDoc(doc(db, "harvest", date), { tapHouse: house, houses: { [house]: patch }, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+/** 応援で入った人の名前を、収穫管理のハウスに足す・外す（予定の人の名前はそのまま。自分の名前だけ） */
+export async function setTapHelper(date: string, house: string, memberId: string, on: boolean) {
+  const { db } = await getFirebase();
+  await setDoc(
+    doc(db, "harvest", date),
+    { tapHouse: house, houses: { [house]: { helpers: on ? arrayUnion(memberId) : arrayRemove(memberId) } }, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }
 
 /** 今の日本時間（0時からの分） */

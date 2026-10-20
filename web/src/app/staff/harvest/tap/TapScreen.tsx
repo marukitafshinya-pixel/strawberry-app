@@ -7,7 +7,18 @@ import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
 import { refreshHarvestSpeeds } from "@/lib/harvestForecast";
-import { fetchDayTaps, fetchHelpHouse, NO_HARVEST, nowMinJST, saveTap, saveTapToHouse, useDayTaps, type DayTaps, type HelpInfo } from "@/lib/harvestTap";
+import {
+  fetchDayTaps,
+  fetchHelpHouse,
+  NO_HARVEST,
+  nowMinJST,
+  saveTap,
+  saveTapToHouse,
+  setTapHelper,
+  useDayTaps,
+  type DayTaps,
+  type HelpInfo,
+} from "@/lib/harvestTap";
 import type { ShiftMember } from "@/lib/shift";
 
 export const back = (
@@ -169,19 +180,24 @@ export function TapScreen({
     const now = nowMinJST();
     await saveTap(date, me.id, h, { start: now });
     logHarvest(date, { house: h, start: now, tap: "in" });
-    // ハウスの「入った」は、最初に押した人の時刻
-    const all = await fetchDayTaps(date);
+    // 予定の人でなければ、応援の人として名前を足す（収穫管理の画面に出る）
+    if (!who(h).includes(me.id)) await setTapHelper(date, h, me.id, true);
+    // ハウスの「入った」は、最初に入った人の時刻（ほかの人が押したか、収穫管理にもう入っていれば、そのまま）
+    const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
     const earlier = Object.keys(all).some((id) => id !== me.id && all[id]?.[h]?.start != null && all[id][h].start! <= now);
-    if (!earlier) await saveTapToHouse(date, h, { start: now });
+    const recorded = info?.started?.[h] != null && info.started[h].start <= now;
+    if (!earlier && !recorded) await saveTapToHouse(date, h, { start: now });
   }
   async function tapOut(h: string) {
     const now = nowMinJST();
     await saveTap(date, me.id, h, { end: now });
     logHarvest(date, { house: h, end: now, tap: "out" });
     // 同じハウスの人が全員押したら、ハウスの「終わった」（最後の人の時刻）
-    const all = await fetchDayTaps(date);
+    const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
     const ends = crewOf(h, all).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
-    if (ends.every((e) => e != null)) {
+    // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）ときは、ハウスの「終わった」は入れない（ほかの人がまだ収穫している）
+    const othersBefore = !who(h).includes(me.id) && info?.started?.[h] != null && info.started[h].start < (mine[h]?.start ?? now);
+    if (!othersBefore && ends.every((e) => e != null)) {
       await saveTapToHouse(date, h, { end: Math.max(now, ...(ends as number[])) });
       void refreshHarvestSpeeds();
     }
@@ -190,14 +206,19 @@ export function TapScreen({
     if (!last || !confirm(`${last.house}番の「${last.kind === "in" ? "入った" : "終わった"}」を取り消しますか？`)) return;
     const h = last.house;
     if (last.kind === "in") {
+      const myStart = mine[h]?.start ?? null;
       await saveTap(date, me.id, h, { start: null });
       logHarvest(date, { house: h, start: null, tap: "undoIn" });
-      const all = await fetchDayTaps(date);
-      const others = Object.keys(all)
-        .filter((id) => id !== me.id)
-        .map((id) => all[id]?.[h]?.start)
-        .filter((s): s is number => s != null);
-      await saveTapToHouse(date, h, { start: others.length ? Math.min(...others) : null });
+      if (!who(h).includes(me.id)) await setTapHelper(date, h, me.id, false);
+      // ハウスの「入った」が自分の時刻のときだけ、ほかの人の時刻（なければ空）に戻す
+      const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
+      if (info?.started?.[h]?.start === myStart) {
+        const others = Object.keys(all)
+          .filter((id) => id !== me.id)
+          .map((id) => all[id]?.[h]?.start)
+          .filter((s): s is number => s != null);
+        await saveTapToHouse(date, h, { start: others.length ? Math.min(...others) : null });
+      }
     } else {
       await saveTap(date, me.id, h, { end: null });
       logHarvest(date, { house: h, end: null, tap: "undoOut" });

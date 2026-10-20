@@ -12,7 +12,16 @@ import { sectionArrows, sectionSide, type HaichiDay, type HaichiTemplate } from 
 /** 1つのハウスのその日の記録。start・end は0時からの分、cases は確定数（0.1枚単位） */
 /** membersEdited＝収穫管理の画面で収穫者を手で変えた（作業配置表に合わせない） */
 /** left＝このハウスがまだ終わらないうちに、ほかの収穫中のハウスへ移った人（名前は記録として残すが、もうここにはいない） */
-export type HouseHarvest = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number; left?: string[] };
+/** helpers＝収穫報告で応援として入った人（予定の収穫者に足して数える） */
+export type HouseHarvest = {
+  members?: string[];
+  membersEdited?: boolean;
+  start?: number | null;
+  end?: number | null;
+  cases?: number;
+  left?: string[];
+  helpers?: string[];
+};
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;
 

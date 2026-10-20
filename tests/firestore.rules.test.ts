@@ -617,6 +617,11 @@ describe("収穫管理：収穫者の「入った・終わった」", () => {
     await assertFails(put({ tapHouse: "17", houses: { "17": { start: 401 }, "19": { start: 401 } } }));
     await assertFails(put({ tapHouse: "19", houses: { "17": { start: 402 } } }));
     await assertFails(put({ tapHouse: "17", endTime: 600, houses: { "17": { start: 404 } } }));
+    // 応援で入った：自分の名前だけ足せる・外せる
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { helpers: ["m7"] } } }));
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { helpers: [] } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { helpers: ["m8"] } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { helpers: ["m7", "m8"] } } }));
     // 今日でない日は書けない
     await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01"), { tapHouse: "17", houses: { "17": { start: 400 } } }, { merge: true }));
   });

@@ -62,7 +62,13 @@ function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
    * そのハウスの収穫者：収穫管理の画面で手で変えたハウスはその人、それ以外は作業配置表の人
    * （作業配置表をあとから変えても、収穫管理に反映する）
    */
-  const who = (h: string) => (rec[h]?.membersEdited ? (rec[h].members ?? []) : planActive ? (plan.members[h] ?? []) : (rec[h]?.members ?? []));
+  const base = (h: string) => (rec[h]?.membersEdited ? (rec[h].members ?? []) : planActive ? (plan.members[h] ?? []) : (rec[h]?.members ?? []));
+  // 収穫報告で応援として入った人も、そのハウスの収穫者に足す
+  const who = (h: string) => {
+    const b = base(h);
+    const extra = (rec[h]?.helpers ?? []).filter((m) => !b.includes(m));
+    return extra.length ? [...b, ...extra] : b;
+  };
   /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
   const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
   /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
@@ -379,15 +385,7 @@ export default function HarvestPage() {
         {tapView === "tap" && template && haichi && use && members ? (
           <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec} />
         ) : tapView === "list" && template && haichi && use && members && rec && hp ? (
-          <TapList
-            date={date}
-            template={template}
-            haichi={haichi}
-            use={use.houses}
-            members={members}
-            rec={rec}
-            houseEnd={fc?.houseEnd ?? {}}
-          />
+          <TapList date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec} houseEnd={fc?.houseEnd ?? {}} />
         ) : (
           content
         )}
