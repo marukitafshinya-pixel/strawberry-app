@@ -133,6 +133,8 @@ export const DEFAULT_BANK_RULES: BankRule[] = [
   { keyword: "手数料", code: "531" },
   { keyword: "電気", code: "540" },
   { keyword: "電力", code: "540" },
+  { keyword: "デンリョク", code: "540" },
+  { keyword: "デンキ", code: "540" },
   { keyword: "水道", code: "540" },
   { keyword: "NTT", code: "549" },
 ];
