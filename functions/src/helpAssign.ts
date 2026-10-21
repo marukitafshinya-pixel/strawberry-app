@@ -3,7 +3,17 @@
 // ・いまの人数のままだと、いちばん終わるのがおそくなりそうなハウスへ行く（応援に向かっている途中の人も人数に数える）
 // ・終わるのがおそいかは、朝の予測（ハウスごとの入る・終わる・人数）から仕事の量（のべ時間）を出し、入ってからの時間と人数で残りを見積もる
 
-export type HelpHouse = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number };
+export type HelpHouse = {
+  members?: string[];
+  membersEdited?: boolean;
+  start?: number | null;
+  end?: number | null;
+  cases?: number;
+  /** 終わる前にほかのハウスへ移った人 */
+  left?: string[];
+  /** 収穫報告で応援として入った人 */
+  helpers?: string[];
+};
 export type HelpForecast = { start?: number | null; end?: number | null; members?: string[] };
 export type HelpTaps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
 
@@ -46,15 +56,22 @@ export function finishOf(i: HelpInput, h: string, me: string | null): number {
 /** そのハウスの見込み：終わる時刻（分）、いまの人数（向かっている人もふくむ）、もう入っているか */
 function estimate(i: HelpInput, h: string, me: string | null): { finish: number; crew: number; started: boolean } {
   const inside = Object.keys(i.taps).filter((id) => i.taps[id]?.[h]?.start != null && i.taps[id]?.[h]?.end == null);
-  const pending = Object.entries(i.assigns).filter(([id, x]) => x === h && id !== me && !inside.includes(id)).length;
   const f = i.fh[h];
-  const planned = Math.max(1, (i.houses[h]?.members ?? f?.members ?? []).length);
+  // 収穫管理で名前が入っている人（応援で足された人もふくむ。携帯を忘れた人の分を集荷係が入れたときも数える）。
+  // そのハウスで「終わった」を押した人、ほかへ移った人、携帯でほかのハウスの「入った」を押している人は数えない
+  const listed = [...new Set([...(i.houses[h]?.members ?? f?.members ?? []), ...(i.houses[h]?.helpers ?? [])])].filter(
+    (id) =>
+      i.taps[id]?.[h]?.end == null &&
+      !(i.houses[h]?.left ?? []).includes(id) &&
+      !Object.entries(i.taps[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v?.end == null),
+  );
+  const pending = Object.entries(i.assigns).filter(([id, x]) => x === h && id !== me && !inside.includes(id) && !listed.includes(id)).length;
   const tapStarts = Object.values(i.taps)
     .map((t) => t[h]?.start)
     .filter((s): s is number => s != null);
   const start = i.houses[h]?.start ?? (tapStarts.length ? Math.min(...tapStarts) : null);
-  // 収穫している人：押した人。だれも押していなくて「入った」があれば、予定の収穫者（集荷係が入れた分）
-  const nowCrew = inside.length || (start != null ? planned : 0);
+  // 収穫している人：携帯で「入った」を押した人と、収穫管理で名前が入っている人（ハウスに「入った」があるとき）
+  const nowCrew = start != null ? Math.max(1, new Set([...inside, ...listed]).size) : inside.length;
   // 仕事の量（のべ時間）：朝の予測の（終わる−入る）× 人数。なければ株数 × 平均の速さ
   const use = i.usage[h] ?? "harvest";
   const p = (i.plants[h] ?? 0) * (use === "half" || use === "halfBack" ? 0.5 : 1);
