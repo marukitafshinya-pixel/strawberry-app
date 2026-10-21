@@ -52,6 +52,7 @@ import {
   type Forecast,
 } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
+import { useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
@@ -118,6 +119,8 @@ export default function HarvestPage() {
     else void refreshHarvestSpeeds();
   }, [role]);
   const yld = useHarvestYield();
+  /** 収穫する人が携帯で押した「入った」「終わった」（今いる場所の緑に使う） */
+  const taps = useDayTaps(date);
   const plan = template && haichi ? planHarvest(template, haichi) : null;
   const houses = template ? harvestHouses(template) : [];
   const jst = new Date(tick + 9 * 3600e3);
@@ -308,6 +311,7 @@ export default function HarvestPage() {
       isAdmin={isAdmin}
       phone={phone}
       noHelp={cfg.noHelp}
+      taps={taps}
     />
   );
 
@@ -465,6 +469,7 @@ function Sheet({
   isAdmin,
   phone,
   noHelp,
+  taps,
 }: {
   date: string;
   /** 携帯の画面（ハウスをカードで縦に並べる） */
@@ -487,6 +492,8 @@ function Sheet({
   isAdmin: boolean;
   /** 応援を入れないハウス（病気などで、決めた人しか入れない） */
   noHelp: string[];
+  /** 収穫する人が携帯で押した「入った」「終わった」 */
+  taps: DayTaps | null;
 }) {
   const [error, setError] = useState("");
   /** ドラッグ中の名前と指の位置 */
@@ -611,11 +618,19 @@ function Sheet({
    * 同じ人が2つのハウスで同時に緑にならないようにする
    */
   const hereOf = (id: string): string | null => {
+    // 本人が携帯で「入った」を押して、まだ「終わった」を押していないハウスがあれば、そこ
+    const mine = taps?.[id] ?? {};
+    const byTap = rows.find((h) => mine[h]?.start != null && mine[h]?.end == null && rec[h]?.end == null);
+    if (byTap) return byTap;
+    // なければ収穫管理の時刻から（携帯で「終わった」を押したハウスは除く）
     let best: string | null = null;
     for (const h of rows)
-      if (inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id) && (best == null || startOf(h)! >= startOf(best)!)) best = h;
+      if (inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id) && mine[h]?.end == null && (best == null || startOf(h)! >= startOf(best)!))
+        best = h;
     return best;
   };
+  /** そのハウスを終えた・離れた人か（ハウスはまだ収穫中）：ほかへ移った人と、携帯で「終わった」を押した人。名前を灰色の✓にする */
+  const leftHouse = (h: string, id: string) => rec[h]?.end == null && ((rec[h]?.left ?? []).includes(id) || taps?.[id]?.[h]?.end != null);
   /** 名前を押したとき：少し動かせばドラッグ、動かさずに離せば外す */
   function onPick(id: string, from: string, e: React.PointerEvent) {
     e.preventDefault();
@@ -660,7 +675,7 @@ function Sheet({
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
       here={(id) => hereOf(id) === h}
-      moved={(id) => rec[h]?.end == null && (rec[h]?.left ?? []).includes(id)}
+      moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
       members={members}
