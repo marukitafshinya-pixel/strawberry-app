@@ -540,6 +540,14 @@ service cloud.firestore {
           && request.resource.data.monthTotals is list && request.resource.data.monthTotals.size() <= 24;
       }
     }
+    // 経費の分け方（仕入れ先ごと・品名ごとの項目）：管理者だけ
+    match /ledgerRules/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && id == 'rules'
+        && request.resource.data.keys().hasOnly(['partners', 'items', 'updatedAt'])
+        && (!('partners' in request.resource.data) || (request.resource.data.partners is map && request.resource.data.partners.size() <= 2000))
+        && (!('items' in request.resource.data) || (request.resource.data.items is map && request.resource.data.items.size() <= 5000));
+    }
     // 去年の出荷実績（日ごとの合計重量）：経営の数字なので管理者だけが読める。保存はサーバー（savePastShipments）だけ
     match /pastShipments/{season} {
       allow read: if isAdmin();

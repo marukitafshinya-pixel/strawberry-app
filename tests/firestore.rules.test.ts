@@ -809,6 +809,11 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
     await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/902"), acc));
     await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/901"), { ...acc, memo: "x" }));
     await assertFails(setDoc(doc(admin(), "ledgers/2026"), { from: "2026-02-01", to: "2027-01-31" }));
+    await assertSucceeds(setDoc(doc(admin(), "ledgerRules/rules"), { partners: { 見本農協: "repair" }, items: {} }));
+    await assertFails(getDoc(doc(staff(), "ledgerRules/rules")));
+    await assertFails(setDoc(doc(staff(), "ledgerRules/rules"), { partners: {} }));
+    await assertFails(setDoc(doc(admin(), "ledgerRules/other"), { partners: {} }));
+    await assertFails(setDoc(doc(admin(), "ledgerRules/rules"), { partners: "x" }));
   });
 });
 

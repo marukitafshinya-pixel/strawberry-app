@@ -2,7 +2,7 @@
 
 // 総勘定元帳（会計ソフトから印刷してスキャンしたもの）の読み込み：作業用フォルダの「経費の仕分け」で使う（管理者だけ）。
 // 1ページずつAIで読み取り、科目ごとにまとめて、月度合計・総合計と合うかを確かめてから ledgers/{期間のはじめ}/accounts/{科目コード} に保存する
-import { collection, doc, onSnapshot, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, deleteField, doc, onSnapshot, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { getFirebase } from "./firebase";
 import { filesToPages, type Page } from "./shikiri";
@@ -220,4 +220,61 @@ export function useLedgerAccounts(period: string | null): SavedAccount[] | null 
     };
   }, [period]);
   return period && v?.period === period ? v.list : null;
+}
+
+// ---------- 経費の分け方（仕入れ先ごと・品名ごと） ----------
+// 仕入れ先に項目を決めると、その仕入れ先の明細はすべてその項目。品名ごとに別の項目にもできる（品名のほうが優先）。
+// 決めた分け方は ledgerRules/rules に残し、次の年の元帳にもそのまま使う
+
+export const EXPENSE_CATS = [
+  { key: "newHouse", label: "新規ハウス資材", group: "今年だけ" },
+  { key: "oneOther", label: "その他（今年だけ）", group: "今年だけ" },
+  { key: "repair", label: "修繕費", group: "毎年かかる" },
+  { key: "store", label: "店舗消耗品", group: "毎年かかる" },
+  { key: "hoveShip", label: "ホーブ出荷資材", group: "毎年かかる" },
+  { key: "hoveProd", label: "ホーブ生産資材", group: "毎年かかる" },
+] as const;
+export type ExpenseCat = (typeof EXPENSE_CATS)[number]["key"];
+export const catLabel = (k: string | null | undefined) => EXPENSE_CATS.find((c) => c.key === k)?.label ?? "未分類";
+export const catGroup = (k: string | null | undefined) => EXPENSE_CATS.find((c) => c.key === k)?.group ?? "未分類";
+
+export type LedgerRules = { partners: Record<string, ExpenseCat>; items: Record<string, ExpenseCat> };
+
+/** 取引先の名前（まとめるときの見出し）。空なら「（取引先なし）」 */
+export const NO_PARTNER = "（取引先なし）";
+export const partnerOf = (e: LedgerEntry) => e.partner.replace(/\s+/g, "") || NO_PARTNER;
+/** 品名の決まりのキー（取引先と品名） */
+export const itemKey = (partner: string, item: string) => `${partner}｜${item.replace(/\s+/g, "")}`;
+
+/** 明細の項目：品名の決まり → 取引先の決まり → 未分類（null） */
+export function catOf(e: LedgerEntry, rules: LedgerRules): ExpenseCat | null {
+  const p = partnerOf(e);
+  return rules.items[itemKey(p, e.item)] ?? rules.partners[p] ?? null;
+}
+
+export function useLedgerRules(): LedgerRules | null {
+  const [v, setV] = useState<LedgerRules | null>(null);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "ledgerRules", "rules"),
+        (s) => setV({ partners: (s.get("partners") as LedgerRules["partners"]) ?? {}, items: (s.get("items") as LedgerRules["items"]) ?? {} }),
+        () => setV({ partners: {}, items: {} }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return v;
+}
+
+/** 決まりを変える（cat が null なら決まりを消す）。kind＝取引先の決まりか、品名の決まりか */
+export async function setLedgerRule(kind: "partners" | "items", key: string, cat: ExpenseCat | null) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "ledgerRules", "rules"), { [kind]: { [key]: cat ?? deleteField() }, updatedAt: serverTimestamp() }, { merge: true });
 }

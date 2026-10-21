@@ -19,6 +19,7 @@ import {
   type SavedAccount,
 } from "@/lib/ledger";
 import type { Page } from "@/lib/shikiri";
+import { Classify } from "./Classify";
 
 const yen = (n: number) => n.toLocaleString("ja-JP");
 const md = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))}` : d);
@@ -38,7 +39,9 @@ export default function ExpensesPage() {
         </Link>
       </p>
       <h1 className="text-xl font-bold">🧾 経費の仕分け</h1>
-      <ImportLedger />
+      <div className="print:hidden">
+        <ImportLedger />
+      </div>
       <SavedLedger />
     </div>
   );
@@ -322,53 +325,58 @@ function SavedLedger() {
   const label = (p: { from: string; to: string }) =>
     `${p.from.slice(0, 4)}年${Number(p.from.slice(5, 7))}月〜${p.to.slice(0, 4)}年${Number(p.to.slice(5, 7))}月`;
   return (
-    <section className="rounded-xl border bg-white p-4">
-      <h2 className="font-bold">② 保存した元帳</h2>
-      {periods === null ? (
-        <p className="mt-2 text-sm text-gray-500">読み込み中…</p>
-      ) : periods.length === 0 ? (
-        <p className="mt-2 text-sm text-gray-500">まだ保存した元帳はありません。</p>
-      ) : (
-        <>
-          <select value={period ?? ""} onChange={(e) => setPick(e.target.value)} className="mt-2 rounded-lg border px-3 py-2">
-            {periods.map((p) => (
-              <option key={p.from} value={p.from}>
-                {label(p)}
-              </option>
-            ))}
-          </select>
-          {accounts === null ? (
-            <p className="mt-2 text-sm text-gray-500">読み込み中…</p>
-          ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-max text-sm">
-                <thead className="bg-gray-50 text-left text-xs text-gray-600">
-                  <tr>
-                    <th className="px-2 py-1">科目</th>
-                    <th className="px-2 py-1 text-right">件数</th>
-                    <th className="px-2 py-1 text-right">合計（税込）</th>
-                    <th className="px-2 py-1"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map((a) => (
-                    <SavedRow key={a.code} a={a} open={open === a.code} onToggle={() => setOpen(open === a.code ? null : a.code)} />
-                  ))}
-                  <tr className="border-t bg-gray-50 font-bold">
-                    <td className="px-2 py-1">合計</td>
-                    <td className="px-2 py-1 text-right">{accounts.reduce((n, a) => n + a.entries.length, 0)}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">
-                      {yen(accounts.reduce((n, a) => n + a.entries.reduce((s, e) => s + e.debit - e.credit, 0), 0))}
-                    </td>
-                    <td />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+    <>
+      <section className="rounded-xl border bg-white p-4 print:hidden">
+        <h2 className="font-bold">② 保存した元帳</h2>
+        {periods === null ? (
+          <p className="mt-2 text-sm text-gray-500">読み込み中…</p>
+        ) : periods.length === 0 ? (
+          <p className="mt-2 text-sm text-gray-500">まだ保存した元帳はありません。</p>
+        ) : (
+          <>
+            <select value={period ?? ""} onChange={(e) => setPick(e.target.value)} className="mt-2 rounded-lg border px-3 py-2">
+              {periods.map((p) => (
+                <option key={p.from} value={p.from}>
+                  {label(p)}
+                </option>
+              ))}
+            </select>
+            {accounts === null ? (
+              <p className="mt-2 text-sm text-gray-500">読み込み中…</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-max text-sm">
+                  <thead className="bg-gray-50 text-left text-xs text-gray-600">
+                    <tr>
+                      <th className="px-2 py-1">科目</th>
+                      <th className="px-2 py-1 text-right">件数</th>
+                      <th className="px-2 py-1 text-right">合計（税込）</th>
+                      <th className="px-2 py-1"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accounts.map((a) => (
+                      <SavedRow key={a.code} a={a} open={open === a.code} onToggle={() => setOpen(open === a.code ? null : a.code)} />
+                    ))}
+                    <tr className="border-t bg-gray-50 font-bold">
+                      <td className="px-2 py-1">合計</td>
+                      <td className="px-2 py-1 text-right">{accounts.reduce((n, a) => n + a.entries.length, 0)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {yen(accounts.reduce((n, a) => n + a.entries.reduce((s, e) => s + e.debit - e.credit, 0), 0))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+      {accounts && accounts.length > 0 && period && (
+        <Classify accounts={accounts} periodLabel={label(periods!.find((p) => p.from === period) ?? { from: period, to: "" })} />
       )}
-    </section>
+    </>
   );
 }
 
