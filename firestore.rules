@@ -299,7 +299,9 @@ service cloud.firestore {
     match /config/accounts {
       allow read: if isAdmin() || isAccounting();
       allow write: if (isAdmin() || isAccounting())
-        && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'auto', 'bankRules', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'auto', 'bankRules', 'salesMap', 'chartVersion', 'updatedAt'])
+        && (!('salesMap' in request.resource.data) || (request.resource.data.salesMap is map && request.resource.data.salesMap.size() <= 200))
+        && (!('chartVersion' in request.resource.data) || request.resource.data.chartVersion is int)
         && (!('auto' in request.resource.data) || (request.resource.data.auto is map && request.resource.data.auto.size() <= 20))
         && (!('bankRules' in request.resource.data) || (request.resource.data.bankRules is list && request.resource.data.bankRules.size() <= 300))
         && request.resource.data.accounts is list && request.resource.data.accounts.size() <= 300

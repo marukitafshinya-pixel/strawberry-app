@@ -9,6 +9,7 @@ import { decodeCsv, parseCsv } from "@/lib/csv";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
+  fullName,
   balanceOf,
   guessBankColumns,
   KIND_LABEL,
@@ -106,7 +107,8 @@ function CodeSelect({ accounts, value, onChange, label, empty }: { accounts: Acc
             .filter((a) => a.kind === k && a.code !== UNSORTED)
             .map((a) => (
               <option key={a.code} value={a.code}>
-                {a.code} {a.name}
+                {a.parent ? "　└ " : ""}
+                {a.code} {fullName(accounts, a)}
               </option>
             ))}
         </optgroup>
@@ -114,7 +116,7 @@ function CodeSelect({ accounts, value, onChange, label, empty }: { accounts: Acc
     </select>
   );
 }
-const codeName = (accounts: Account[], code: string) => (code === SKIP ? "帳簿に入れない" : accountOf(accounts, code).name);
+const codeName = (accounts: Account[], code: string) => (code === SKIP ? "帳簿に入れない" : fullName(accounts, accountOf(accounts, code)));
 
 function Import({ books, config, onDone }: { books: Books; config: LedgerConfig; onDone: (lastMonth: string) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);

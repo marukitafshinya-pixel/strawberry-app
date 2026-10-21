@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { KIND_LABEL, KINDS, type Account } from "@/lib/ledger";
+import { fullName, KIND_LABEL, KINDS, type Account } from "@/lib/ledger";
 
 export const yen = (n: number) => n.toLocaleString("ja-JP");
 
@@ -81,7 +81,8 @@ export function AccountSelect({
             .filter((a) => a.kind === k)
             .map((a) => (
               <option key={a.code} value={a.code}>
-                {a.code} {a.name}
+                {a.parent ? "　└ " : ""}
+                {a.code} {fullName(accounts, a)}
               </option>
             ))}
         </optgroup>

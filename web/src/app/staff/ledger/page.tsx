@@ -11,6 +11,7 @@ import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
+  fullName,
   autoPostings,
   bankPostings,
   cashPostings,
@@ -106,7 +107,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   }, [dirty]);
 
   const { accounts } = config;
-  const name = (code: string) => accountOf(accounts, code).name;
+  const name = (code: string) => fullName(accounts, accountOf(accounts, code));
   const fromCash = cashPostings(books.cash, month, config.itemMap);
   const fromAuto = autoPostings(books.auto, month);
   const fromBank = bankPostings(books.bank, month, config.bankRules);

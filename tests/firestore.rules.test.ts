@@ -787,6 +787,9 @@ describe("経理担当（現金出納帳を見る・帳簿をつける）", () =
     await assertFails(setDoc(doc(accOff(), "config/accounts"), config));
     await assertSucceeds(setDoc(doc(acc(), "config/accounts"), { ...config, auto: { sales: "400" }, bankRules: [{ keyword: "給与", code: "210" }] }));
     await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, bankRules: "x" }));
+    await assertSucceeds(setDoc(doc(acc(), "config/accounts"), { ...config, salesMap: { いちご狩り: "411" }, chartVersion: 2 }));
+    await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, salesMap: "x" }));
+    await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, chartVersion: "2" }));
 
     // 自動仕訳は見るだけ（作るのはサーバー）
     await env.withSecurityRulesDisabled(async (ctx) => {

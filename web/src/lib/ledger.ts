@@ -19,13 +19,68 @@ export const KINDS: AccountKind[] = ["asset", "liability", "equity", "revenue", 
 /** 借方に残る科目（資産・費用）か */
 export const debitSide = (k: AccountKind) => k === "asset" || k === "expense";
 
-export type Account = { code: string; name: string; kind: AccountKind };
+/**
+ * 損益計算書・製造原価報告書のどこに出すか（収益と費用だけ）。
+ * 丸北農場の合計残高試算表（損益計算書・製造原価報告書）と同じ並び
+ */
+export type Section =
+  | "sales"
+  | "nonOpIncome"
+  | "extraGain"
+  | "purchase"
+  | "material"
+  | "labor"
+  | "overhead"
+  | "personnel"
+  | "sgaOther"
+  | "nonOpExpense"
+  | "extraLoss"
+  | "tax";
+export const SECTIONS: { key: Section; kind: AccountKind; label: string }[] = [
+  { key: "sales", kind: "revenue", label: "売上高" },
+  { key: "nonOpIncome", kind: "revenue", label: "営業外収益" },
+  { key: "extraGain", kind: "revenue", label: "特別利益" },
+  { key: "purchase", kind: "expense", label: "売上原価（商品仕入）" },
+  { key: "material", kind: "expense", label: "製造原価：材料費" },
+  { key: "labor", kind: "expense", label: "製造原価：労務費" },
+  { key: "overhead", kind: "expense", label: "製造原価：製造経費" },
+  { key: "personnel", kind: "expense", label: "販管費：人件費" },
+  { key: "sgaOther", kind: "expense", label: "販管費：その他経費" },
+  { key: "nonOpExpense", kind: "expense", label: "営業外費用" },
+  { key: "extraLoss", kind: "expense", label: "特別損失" },
+  { key: "tax", kind: "expense", label: "法人税等" },
+];
+/** 製造原価（当期製品製造原価）に入る区分 */
+export const MFG_SECTIONS: Section[] = ["material", "labor", "overhead"];
+
+export type Account = {
+  code: string;
+  name: string;
+  kind: AccountKind;
+  /** 損益計算書のどこに出すか（収益・費用だけ。なければ 収益→売上高、費用→販管費のその他経費） */
+  section?: Section;
+  /** 補助科目のときの、親の科目コード（試算表の字下げの科目。親の金額は、自分と子の合計） */
+  parent?: string;
+};
+export const sectionOf = (a: Account): Section | null =>
+  a.kind === "revenue" || a.kind === "expense"
+    ? a.section && SECTIONS.some((x) => x.key === a.section && x.kind === a.kind)
+      ? a.section
+      : a.kind === "revenue"
+        ? "sales"
+        : "sgaOther"
+    : null;
 
 /** 現金（現金出納帳の相手）・開始残高（出納帳のいちばん最初の繰越金の相手）・未分類（出納帳の項目に科目をまだ決めていないとき） */
 export const CASH = "100";
 export const OPENING = "390";
 export const UNSORTED = "999";
 
+type Row = [code: string, name: string, section?: Section, parent?: string];
+const rev = (rows: Row[]): Account[] => rows.map(([code, name, section, parent]) => ({ code, name, kind: "revenue", section, ...(parent ? { parent } : {}) }));
+const exp = (rows: Row[]): Account[] => rows.map(([code, name, section, parent]) => ({ code, name, kind: "expense", section, ...(parent ? { parent } : {}) }));
+
+/** はじめの勘定科目。損益は、丸北農場の合計残高試算表（2026年2月度〜2027年決算月度）の科目と補助科目 */
 export const DEFAULT_ACCOUNTS: Account[] = [
   { code: CASH, name: "現金", kind: "asset" },
   { code: "101", name: "レジ現金", kind: "asset" },
@@ -46,68 +101,149 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   { code: "240", name: "借入金", kind: "liability" },
   { code: "300", name: "資本金", kind: "equity" },
   { code: OPENING, name: "開始残高", kind: "equity" },
-  { code: "400", name: "売上高", kind: "revenue" },
-  { code: "410", name: "交付金・助成金", kind: "revenue" },
-  { code: "420", name: "雑収入", kind: "revenue" },
-  { code: "430", name: "受取利息", kind: "revenue" },
-  { code: "500", name: "仕入高", kind: "expense" },
-  { code: "510", name: "種苗費", kind: "expense" },
-  { code: "511", name: "肥料費", kind: "expense" },
-  { code: "512", name: "農薬費", kind: "expense" },
-  { code: "513", name: "諸材料費", kind: "expense" },
-  { code: "520", name: "給料手当", kind: "expense" },
-  { code: "521", name: "役員報酬", kind: "expense" },
-  { code: "522", name: "法定福利費", kind: "expense" },
-  { code: "523", name: "福利厚生費", kind: "expense" },
-  { code: "530", name: "荷造運賃", kind: "expense" },
-  { code: "531", name: "支払手数料", kind: "expense" },
-  { code: "540", name: "水道光熱費", kind: "expense" },
-  { code: "541", name: "燃料費", kind: "expense" },
-  { code: "542", name: "修繕費", kind: "expense" },
-  { code: "543", name: "消耗品費", kind: "expense" },
-  { code: "544", name: "減価償却費", kind: "expense" },
-  { code: "545", name: "地代家賃", kind: "expense" },
-  { code: "546", name: "賃借料", kind: "expense" },
-  { code: "547", name: "保険料", kind: "expense" },
-  { code: "548", name: "租税公課", kind: "expense" },
-  { code: "549", name: "通信費", kind: "expense" },
-  { code: "550", name: "旅費交通費", kind: "expense" },
-  { code: "551", name: "広告宣伝費", kind: "expense" },
-  { code: "552", name: "接待交際費", kind: "expense" },
-  { code: "553", name: "会議費", kind: "expense" },
-  { code: "554", name: "車両費", kind: "expense" },
-  { code: "555", name: "諸会費", kind: "expense" },
-  { code: "560", name: "支払利息", kind: "expense" },
-  { code: "599", name: "雑費", kind: "expense" },
-  { code: UNSORTED, name: "未分類", kind: "expense" },
+  // 売上高
+  ...rev([
+    ["401", "野菜等収入", "sales"],
+    ["402", "イチゴ", "sales", "401"],
+    ["410", "飲食売上高", "sales"],
+    ["411", "いちご狩り", "sales", "410"],
+    ["412", "いちご販売", "sales", "410"],
+    ["413", "イチゴ狩りチケット代", "sales", "410"],
+    ["414", "イチゴジャム販売", "sales", "410"],
+    ["419", "その他", "sales", "410"],
+  ]),
+  // 売上原価
+  ...exp([["501", "当期商品仕入高", "purchase"]]),
+  // 製造原価：材料費
+  ...exp([
+    ["601", "材料仕入高", "material"],
+    ["602", "種苗費", "material"],
+    ["603", "肥料費", "material"],
+    ["604", "農薬費", "material"],
+    ["605", "燃料費", "material"],
+    ["606", "諸材料費", "material"],
+  ]),
+  // 製造原価：労務費
+  ...exp([
+    ["620", "(製)給料手当", "labor"],
+    ["621", "給与", "labor", "620"],
+    ["622", "交通費", "labor", "620"],
+    ["625", "(製)賃金", "labor"],
+    ["626", "(製)法定福利費", "labor"],
+    ["627", "(製)福利厚生費", "labor"],
+    ["628", "おやつ外", "labor", "627"],
+    ["629", "飲食代", "labor", "627"],
+    ["630", "(製)作業用衣料費", "labor"],
+  ]),
+  // 製造原価：製造経費
+  ...exp([
+    ["640", "(製)作業委託料", "overhead"],
+    ["641", "(製)外注加工費", "overhead"],
+    ["642", "(製)荷造運賃手数料", "overhead"],
+    ["643", "(製)農具費", "overhead"],
+    ["644", "(製)修繕費", "overhead"],
+    ["645", "(製)動力光熱費", "overhead"],
+    ["646", "(製)共済掛金", "overhead"],
+    ["647", "(製)土地改良費", "overhead"],
+    ["648", "(製)消耗品費", "overhead"],
+    ["650", "(製)車両燃料費", "overhead"],
+    ["651", "ガソリン外", "overhead", "650"],
+    ["652", "自動車税", "overhead", "650"],
+    ["653", "整備等課税", "overhead", "650"],
+    ["654", "整備等不課税", "overhead", "650"],
+    ["655", "軽油配送", "overhead", "650"],
+    ["656", "自賠責共済", "overhead", "650"],
+    ["657", "軽油引取税", "overhead", "650"],
+    ["660", "(製)雑費", "overhead"],
+    ["661", "課税", "overhead", "660"],
+  ]),
+  // 販売費および一般管理費：人件費
+  ...exp([
+    ["701", "役員報酬", "personnel"],
+    ["702", "法定福利費", "personnel"],
+    ["703", "福利厚生費", "personnel"],
+  ]),
+  // 販売費および一般管理費：その他経費
+  ...exp([
+    ["710", "外注費", "sgaOther"],
+    ["711", "通信費", "sgaOther"],
+    ["712", "荷造運賃", "sgaOther"],
+    ["713", "水道光熱費", "sgaOther"],
+    ["714", "水道代", "sgaOther", "713"],
+    ["715", "LPガス", "sgaOther", "713"],
+    ["716", "旅費交通費", "sgaOther"],
+    ["717", "広告宣伝費", "sgaOther"],
+    ["718", "接待交際費", "sgaOther"],
+    ["719", "飲食代", "sgaOther", "718"],
+    ["720", "お土産代", "sgaOther", "718"],
+    ["721", "その他", "sgaOther", "718"],
+    ["722", "事務用品費", "sgaOther"],
+    ["723", "消耗品費", "sgaOther"],
+    ["724", "修繕費", "sgaOther"],
+    ["725", "車両燃料費", "sgaOther"],
+    ["726", "車両費", "sgaOther"],
+    ["727", "租税公課", "sgaOther"],
+    ["728", "固定資産税", "sgaOther", "727"],
+    ["729", "印紙代", "sgaOther", "727"],
+    ["730", "その他", "sgaOther", "727"],
+    ["731", "リース料", "sgaOther"],
+    ["732", "支払手数料", "sgaOther"],
+    ["733", "減価償却費", "sgaOther"],
+    ["734", "管理諸費", "sgaOther"],
+    ["735", "雑費", "sgaOther"],
+    ["736", "課税", "sgaOther", "735"],
+    ["737", "不課税", "sgaOther", "735"],
+  ]),
+  // 営業外収益・営業外費用・法人税等
+  ...rev([
+    ["810", "受取利息", "nonOpIncome"],
+    ["820", "雑収入", "nonOpIncome"],
+    ["821", "課税", "nonOpIncome", "820"],
+    ["822", "不課税", "nonOpIncome", "820"],
+  ]),
+  ...exp([
+    ["850", "支払利息", "nonOpExpense"],
+    ["950", "法人税等", "tax"],
+  ]),
+  { code: UNSORTED, name: "未分類", kind: "expense", section: "sgaOther" },
 ];
 /** 消せない科目（自動の仕訳で使う） */
 export const FIXED_CODES = [CASH, OPENING, UNSORTED];
+
+/** 科目の名前（補助科目は「親／子」。プルダウンや元帳で使う） */
+export function fullName(accounts: Account[], a: Account): string {
+  const p = a.parent ? accounts.find((x) => x.code === a.parent) : undefined;
+  return p ? `${p.name}／${a.name}` : a.name;
+}
 
 /** 自動仕訳（レジの売上・売掛・給与）に使う科目。サーバー（functions/src/ledgerAuto.ts）の DEFAULT_AUTO と同じ */
 export const DEFAULT_AUTO = {
   cashSales: "101",
   creditSales: "120",
-  sales: "400",
+  sales: "419",
   collect: "110",
-  wages: "520",
-  officer: "521",
+  wages: "621",
+  commute: "622",
+  officer: "701",
   withheld: "220",
   unpaid: "210",
-  welfare: "522",
+  welfare: "626",
 };
 export type AutoCodes = typeof DEFAULT_AUTO;
 export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[] = [
-  { key: "sales", label: "売上", note: "レジの売上・手で入れた売掛の相手" },
+  { key: "sales", label: "売上（分類で決めていないもの）", note: "下の「レジの分類と売上の科目」で決めていない分類の売上・手で入れた売掛の相手" },
   { key: "cashSales", label: "レジの現金売上", note: "現金で受け取った売上を入れておく科目（預金に入れたら通帳の取り込みで動く）" },
   { key: "creditSales", label: "売掛", note: "売掛の会計・手で入れた売掛" },
   { key: "collect", label: "売掛の入金先", note: "売掛管理で「入金済み」にしたとき、お金が入った科目" },
-  { key: "wages", label: "給料", note: "月給・時給・通勤費" },
+  { key: "wages", label: "給料", note: "月給・時給" },
+  { key: "commute", label: "通勤費", note: "非課税通勤費" },
   { key: "officer", label: "役員報酬", note: "役員報酬" },
   { key: "withheld", label: "天引きした分", note: "社会保険料・所得税・住民税（会社負担の社会保険料もここに入れ、納めたときに減らす）" },
   { key: "unpaid", label: "振り込む給与", note: "手取り（通帳から振り込んだときに減らす）" },
   { key: "welfare", label: "会社負担の社会保険料", note: "法定福利費" },
 ];
+/** レジの分類（商品・プランの分類）→ 売上の科目。はじめの対応 */
+export const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "411" };
 
 /** 通帳の摘要に keyword が入っていたら、code の科目にする（code が SKIP なら帳簿に入れない） */
 export type BankRule = { keyword: string; code: string };
@@ -122,23 +258,35 @@ export type LedgerConfig = {
   fiscalStart: number;
   auto: AutoCodes;
   bankRules: BankRule[];
+  /** レジの分類 → 売上の科目 */
+  salesMap: Record<string, string>;
 };
+/** 勘定科目の版。2＝丸北農場の試算表の科目。これより前に保存した科目は、はじめの科目に置き換えて読む */
+export const CHART_VERSION = 2;
 export const DEFAULT_BANK_RULES: BankRule[] = [
   { keyword: "給与", code: "210" },
   { keyword: "社会保険", code: "220" },
   { keyword: "厚生年金", code: "220" },
   { keyword: "所得税", code: "220" },
   { keyword: "住民税", code: "220" },
-  { keyword: "利息", code: "430" },
-  { keyword: "手数料", code: "531" },
-  { keyword: "電気", code: "540" },
-  { keyword: "電力", code: "540" },
-  { keyword: "デンリョク", code: "540" },
-  { keyword: "デンキ", code: "540" },
-  { keyword: "水道", code: "540" },
-  { keyword: "NTT", code: "549" },
+  { keyword: "利息", code: "810" },
+  { keyword: "手数料", code: "732" },
+  { keyword: "電気", code: "645" },
+  { keyword: "電力", code: "645" },
+  { keyword: "デンリョク", code: "645" },
+  { keyword: "デンキ", code: "645" },
+  { keyword: "水道", code: "714" },
+  { keyword: "スイドウ", code: "714" },
+  { keyword: "NTT", code: "711" },
 ];
-export const DEFAULT_CONFIG: LedgerConfig = { accounts: DEFAULT_ACCOUNTS, itemMap: {}, fiscalStart: 1, auto: DEFAULT_AUTO, bankRules: DEFAULT_BANK_RULES };
+export const DEFAULT_CONFIG: LedgerConfig = {
+  accounts: DEFAULT_ACCOUNTS,
+  itemMap: {},
+  fiscalStart: 2,
+  auto: DEFAULT_AUTO,
+  bankRules: DEFAULT_BANK_RULES,
+  salesMap: DEFAULT_SALES_MAP,
+};
 
 export function useLedgerConfig() {
   const [state, setState] = useState<{ value: LedgerConfig | null; error: unknown }>({ value: null, error: null });
@@ -151,18 +299,23 @@ export function useLedgerConfig() {
         doc(db, "config/accounts"),
         (s) => {
           if (!s.exists()) return setState({ value: DEFAULT_CONFIG, error: null });
-          const accounts = (s.get("accounts") as Account[] | undefined) ?? [];
-          const auto = { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
+          // 前の版の科目（試算表の科目にする前）は使わず、はじめの科目にする。出納帳の項目の対応は、同じコードの科目があれば残す
+          const old = s.get("chartVersion") !== CHART_VERSION;
+          const codes = new Set(DEFAULT_ACCOUNTS.map((a) => a.code));
+          const accounts = old ? DEFAULT_ACCOUNTS : ((s.get("accounts") as Account[] | undefined) ?? []);
+          const auto = old ? DEFAULT_AUTO : { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
+          const itemMap = (s.get("itemMap") as Record<string, string> | undefined) ?? {};
           // 消せない科目と、自動仕訳に使う科目が入っていなければ足す（あとから足した「レジ現金」など）
           const need = new Set([...FIXED_CODES, ...Object.values(auto)]);
           const missing = DEFAULT_ACCOUNTS.filter((a) => need.has(a.code) && !accounts.some((b) => b.code === a.code));
           setState({
             value: {
               accounts: sortAccounts([...accounts, ...missing]),
-              itemMap: (s.get("itemMap") as Record<string, string> | undefined) ?? {},
-              fiscalStart: (s.get("fiscalStart") as number | undefined) ?? 1,
+              itemMap: old ? Object.fromEntries(Object.entries(itemMap).filter(([, v]) => codes.has(v))) : itemMap,
+              fiscalStart: old ? DEFAULT_CONFIG.fiscalStart : ((s.get("fiscalStart") as number | undefined) ?? DEFAULT_CONFIG.fiscalStart),
               auto,
-              bankRules: (s.get("bankRules") as BankRule[] | undefined) ?? DEFAULT_BANK_RULES,
+              bankRules: old ? DEFAULT_BANK_RULES : ((s.get("bankRules") as BankRule[] | undefined) ?? DEFAULT_BANK_RULES),
+              salesMap: old ? DEFAULT_SALES_MAP : ((s.get("salesMap") as Record<string, string> | undefined) ?? DEFAULT_SALES_MAP),
             },
             error: null,
           });
@@ -192,7 +345,12 @@ export async function saveLedgerConfig(c: LedgerConfig) {
   await setDoc(doc(db, "config/accounts"), {
     accounts: sortAccounts(c.accounts)
       .slice(0, 300)
-      .map((a) => ({ code: a.code.trim().slice(0, 10), name: a.name.trim().slice(0, 40), kind: a.kind })),
+      .map((a) => {
+        const section = sectionOf(a);
+        const parent = a.parent && a.parent !== a.code && codes.has(a.parent) ? a.parent : null;
+        return { code: a.code.trim().slice(0, 10), name: a.name.trim().slice(0, 40), kind: a.kind, ...(section ? { section } : {}), ...(parent ? { parent } : {}) };
+      }),
+    chartVersion: CHART_VERSION,
     itemMap,
     fiscalStart: Math.min(12, Math.max(1, Math.round(c.fiscalStart))),
     auto: Object.fromEntries(Object.entries(c.auto).filter(([, v]) => codes.has(v))),
@@ -200,6 +358,12 @@ export async function saveLedgerConfig(c: LedgerConfig) {
       .map((r) => ({ keyword: r.keyword.trim().slice(0, 40), code: r.code }))
       .filter((r) => r.keyword && (r.code === SKIP || codes.has(r.code)))
       .slice(0, 300),
+    salesMap: Object.fromEntries(
+      Object.entries(c.salesMap)
+        .map(([k, v]) => [k.trim().slice(0, 40), v] as const)
+        .filter(([k, v]) => k && codes.has(v))
+        .slice(0, 200),
+    ),
     updatedAt: serverTimestamp(),
   });
 }
@@ -330,7 +494,8 @@ export function postingsInRange(b: Books, config: LedgerConfig, from: string, to
 // ---------- 自動仕訳（レジの売上・売掛・給与） ----------
 
 export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
-export type AutoMonth = { month: string; entries: AutoEntry[]; generatedAt: Date | null };
+/** categories：その月のレジの分類ごとの売上（分類と科目の対応を決める画面で使う） */
+export type AutoMonth = { month: string; entries: AutoEntry[]; generatedAt: Date | null; categories: Record<string, number> };
 export const AUTO_KIND_LABEL: Record<AutoEntry["kind"], string> = { sales: "レジ", receivable: "売掛", payroll: "給与" };
 
 export function autoPostings(auto: AutoMonth[], month: string): Posting[] {
@@ -342,6 +507,7 @@ export function useAutoJournal() {
     month: id,
     entries: (d.entries as AutoEntry[] | undefined) ?? [],
     generatedAt: (d.generatedAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? null,
+    categories: (d.categories as Record<string, number> | undefined) ?? {},
   }));
 }
 
@@ -637,3 +803,93 @@ export function cashItemsUsage(cash: CashMonth[]) {
   return [...map.entries()].map(([item, v]) => ({ item, ...v })).sort((a, b) => b.count - a.count || a.item.localeCompare(b.item, "ja"));
 }
 
+
+// ---------- 損益計算書・製造原価報告書の形 ----------
+
+/** 表の1行。値は、terms の科目の金額（収益は貸方−借方、費用は借方−貸方）に sign をかけて足したもの */
+export type StatementLine = { label: string; type: "head" | "sub" | "item" | "total" | "result"; indent: 0 | 1 | 2; terms: { code: string; sign: 1 | -1 }[] };
+
+/**
+ * 丸北農場の合計残高試算表と同じ並びの行を作る。
+ * 科目は、金額のあるもの（used）だけ出す。補助科目は親の下に字下げして出し、親の金額は自分と補助科目の合計
+ */
+export function statementLines(accounts: Account[], used: Set<string>, which: "pl" | "mfg"): StatementLine[] {
+  const all = [...accounts, ...[...used].filter((c) => !accounts.some((a) => a.code === c)).map((c) => accountOf(accounts, c))];
+  const inSection = (s: Section) => sortAccounts(all.filter((a) => sectionOf(a) === s));
+  const terms = (sections: Section[], sign: 1 | -1 = 1) => sections.flatMap((s) => inSection(s).map((a) => ({ code: a.code, sign })));
+  const items = (s: Section): StatementLine[] => {
+    const list = inSection(s);
+    const isTop = (a: Account) => !a.parent || !list.some((p) => p.code === a.parent && !p.parent);
+    return list.filter(isTop).flatMap((p) => {
+      const children = isTop(p) ? list.filter((c) => c.parent === p.code && c.code !== p.code) : [];
+      const own = [p, ...children].map((a) => ({ code: a.code, sign: 1 as const }));
+      if (!own.some((t) => used.has(t.code))) return [];
+      return [
+        { label: p.name, type: "item" as const, indent: 1 as const, terms: own },
+        ...children.filter((c) => used.has(c.code)).map((c) => ({ label: c.name, type: "item" as const, indent: 2 as const, terms: [{ code: c.code, sign: 1 as const }] })),
+      ];
+    });
+  };
+  const head = (label: string): StatementLine => ({ label, type: "head", indent: 0, terms: [] });
+  const sub = (label: string): StatementLine => ({ label, type: "sub", indent: 0, terms: [] });
+  const total = (label: string, t: StatementLine["terms"], type: "total" | "result" = "total"): StatementLine => ({ label, type, indent: 0, terms: t });
+  const mfg = terms(MFG_SECTIONS);
+  if (which === "mfg")
+    return [
+      head("【材料費】"),
+      ...items("material"),
+      total("材料費計", terms(["material"])),
+      head("【労務費】"),
+      ...items("labor"),
+      total("労務費計", terms(["labor"])),
+      head("【製造経費】"),
+      ...items("overhead"),
+      total("製造経費計", terms(["overhead"])),
+      total("当期総製造費用", mfg),
+      total("当期製品製造原価", mfg, "result"),
+    ];
+  const sales = terms(["sales"]);
+  const cogs = terms(["purchase", ...MFG_SECTIONS], -1);
+  const sga = terms(["personnel", "sgaOther"], -1);
+  const nonOp = [...terms(["nonOpIncome"]), ...terms(["nonOpExpense"], -1)];
+  const extra = [...terms(["extraGain"]), ...terms(["extraLoss"], -1)];
+  return [
+    head("【売上高】"),
+    ...items("sales"),
+    total("売上高計", sales),
+    head("【売上原価】"),
+    ...items("purchase"),
+    { label: "当期製品製造原価", type: "item", indent: 1, terms: mfg },
+    total("売上原価計", terms(["purchase", ...MFG_SECTIONS])),
+    total("売上総利益", [...sales, ...cogs], "result"),
+    head("【販売費および一般管理費】"),
+    sub("（人件費）"),
+    ...items("personnel"),
+    total("人件費計", terms(["personnel"])),
+    sub("（その他経費）"),
+    ...items("sgaOther"),
+    total("その他経費計", terms(["sgaOther"])),
+    total("販売費・一般管理費計", terms(["personnel", "sgaOther"])),
+    total("営業利益", [...sales, ...cogs, ...sga], "result"),
+    head("【営業外収益】"),
+    ...items("nonOpIncome"),
+    total("営業外収益計", terms(["nonOpIncome"])),
+    head("【営業外費用】"),
+    ...items("nonOpExpense"),
+    total("営業外費用計", terms(["nonOpExpense"])),
+    total("経常利益", [...sales, ...cogs, ...sga, ...nonOp], "result"),
+    head("【特別利益】"),
+    ...items("extraGain"),
+    total("特別利益計", terms(["extraGain"])),
+    head("【特別損失】"),
+    ...items("extraLoss"),
+    total("特別損失計", terms(["extraLoss"])),
+    total("税引前当期純利益", [...sales, ...cogs, ...sga, ...nonOp, ...extra], "result"),
+    head("【法人税等】"),
+    ...items("tax"),
+    total("法人税等計", terms(["tax"])),
+    total("当期純利益", [...sales, ...cogs, ...sga, ...nonOp, ...extra, ...terms(["tax"], -1)], "result"),
+  ];
+}
+
+export const lineValue = (l: StatementLine, amounts: Map<string, number>) => l.terms.reduce((n, t) => n + t.sign * (amounts.get(t.code) ?? 0), 0);

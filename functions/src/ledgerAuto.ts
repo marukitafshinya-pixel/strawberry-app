@@ -9,14 +9,19 @@ import { db } from "./common.js";
 const DEFAULT_AUTO = {
   cashSales: "101",
   creditSales: "120",
-  sales: "400",
+  sales: "419",
   collect: "110",
-  wages: "520",
-  officer: "521",
+  wages: "621",
+  commute: "622",
+  officer: "701",
   withheld: "220",
   unpaid: "210",
-  welfare: "522",
+  welfare: "626",
 };
+/** レジの分類 → 売上の科目（画面側の DEFAULT_SALES_MAP と同じ） */
+const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "411" };
+/** 勘定科目の版（画面側の CHART_VERSION と同じ）。これより前の設定は使わず、はじめの科目にする */
+const CHART_VERSION = 2;
 type AutoCodes = typeof DEFAULT_AUTO;
 
 type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
@@ -47,29 +52,48 @@ export const buildAutoJournal = onCall(async (req) => {
     db.doc(`payrolls/${prevMonth(month)}`).get(),
     db.doc(`payrolls/${month}`).get(),
   ]);
-  const saved = (config.get("auto") as Partial<AutoCodes> | undefined) ?? {};
+  const current = config.get("chartVersion") === CHART_VERSION;
+  const saved = current ? ((config.get("auto") as Partial<AutoCodes> | undefined) ?? {}) : {};
+  const salesMap = current ? ((config.get("salesMap") as Record<string, string> | undefined) ?? DEFAULT_SALES_MAP) : DEFAULT_SALES_MAP;
   const c: AutoCodes = { ...DEFAULT_AUTO };
   for (const k of Object.keys(DEFAULT_AUTO) as (keyof AutoCodes)[]) if (typeof saved[k] === "string" && saved[k]) c[k] = saved[k]!;
 
   const entries: Entry[] = [];
 
-  // レジの売上：現金は日ごとにまとめる。売掛は1件ずつ（お客様名を残す）
-  const cashByDay = new Map<string, { amount: number; count: number }>();
+  // レジの売上：明細の分類ごとに売上の科目を決める。現金は日ごと・科目ごとにまとめる。売掛は1件ずつ（お客様名を残す）
+  const categories: Record<string, number> = {};
+  const cashByDay = new Map<string, { date: string; code: string; amount: number; count: number }>();
   for (const d of sales.docs) {
     if (d.get("status") === "voided") continue;
     const total = n(d.get("total"));
     if (!total) continue;
     const date = String(d.get("date"));
-    if (d.get("payment") === "credit") {
-      entries.push({ date, debit: c.creditSales, credit: c.sales, amount: total, memo: `レジ売上（売掛）${String(d.get("customerName") ?? "")}`.trim(), kind: "sales" });
-    } else {
-      const v = cashByDay.get(date) ?? { amount: 0, count: 0 };
-      v.amount += total;
-      v.count++;
-      cashByDay.set(date, v);
+    // 分類ごとの金額。明細の合計と会計の合計がちがう分（古い会計など）は、決めていない売上にする
+    const byCode = new Map<string, number>();
+    let lineSum = 0;
+    for (const l of (d.get("lines") as { category?: unknown; amount?: unknown }[] | undefined) ?? []) {
+      const cat = typeof l.category === "string" && l.category.trim() ? l.category.trim() : "その他";
+      const amount = n(l.amount);
+      categories[cat] = (categories[cat] ?? 0) + amount;
+      const code = salesMap[cat] ?? c.sales;
+      byCode.set(code, (byCode.get(code) ?? 0) + amount);
+      lineSum += amount;
+    }
+    if (total !== lineSum) byCode.set(c.sales, (byCode.get(c.sales) ?? 0) + total - lineSum);
+    for (const [code, amount] of byCode) {
+      if (!amount) continue;
+      if (d.get("payment") === "credit") {
+        entries.push({ date, debit: c.creditSales, credit: code, amount, memo: `レジ売上（売掛）${String(d.get("customerName") ?? "")}`.trim(), kind: "sales" });
+      } else {
+        const key = `${date}|${code}`;
+        const v = cashByDay.get(key) ?? { date, code, amount: 0, count: 0 };
+        v.amount += amount;
+        v.count++;
+        cashByDay.set(key, v);
+      }
     }
   }
-  for (const [date, v] of cashByDay) entries.push({ date, debit: c.cashSales, credit: c.sales, amount: v.amount, memo: `レジ売上（現金）${v.count}件`, kind: "sales" });
+  for (const v of cashByDay.values()) entries.push({ date: v.date, debit: c.cashSales, credit: v.code, amount: v.amount, memo: `レジ売上（現金）${v.count}件`, kind: "sales" });
 
   // 手で入れた売掛（会計からでないもの）は、売掛にした日に売上にする
   for (const d of receivables.docs) {
@@ -95,18 +119,23 @@ export const buildAutoJournal = onCall(async (req) => {
     if (!date.startsWith(month)) continue;
     const label = `${Number(p.id.slice(5))}月分給与`;
     let wages = 0,
+      commute = 0,
       officer = 0,
       withheld = 0;
     for (const r of Object.values((p.get("rows") as Record<string, Record<string, unknown>> | undefined) ?? {})) {
-      const w = n(r.monthly) + n(r.hourly) + n(r.commute);
+      const w = n(r.monthly) + n(r.hourly);
+      const cm = n(r.commute);
       const o = n(r.officer);
-      const net = w + o - (n(r.health) + n(r.care) + n(r.pension) + n(r.employment) + n(r.socialAdj)) - n(r.incomeTax) - n(r.residentTax) + n(r.yearEnd);
+      const pay = w + cm + o;
+      const net = pay - (n(r.health) + n(r.care) + n(r.pension) + n(r.employment) + n(r.socialAdj)) - n(r.incomeTax) - n(r.residentTax) + n(r.yearEnd);
       wages += w;
+      commute += cm;
       officer += o;
-      withheld += w + o - net;
+      withheld += pay - net;
     }
     // 支給額は、給料・役員報酬（借方）と、預り金（引いた社会保険料・税金）・未払金（振り込む手取り）（貸方）に分ける
     if (wages) entries.push({ date, debit: c.wages, credit: c.unpaid, amount: wages, memo: `${label}（給料）`, kind: "payroll" });
+    if (commute) entries.push({ date, debit: c.commute, credit: c.unpaid, amount: commute, memo: `${label}（通勤費）`, kind: "payroll" });
     if (officer) entries.push({ date, debit: c.officer, credit: c.unpaid, amount: officer, memo: `${label}（役員報酬）`, kind: "payroll" });
     if (withheld > 0) entries.push({ date, debit: c.unpaid, credit: c.withheld, amount: withheld, memo: `${label}（社会保険料・税金の天引き）`, kind: "payroll" });
     if (withheld < 0) entries.push({ date, debit: c.withheld, credit: c.unpaid, amount: -withheld, memo: `${label}（年末調整の還付）`, kind: "payroll" });
@@ -115,6 +144,6 @@ export const buildAutoJournal = onCall(async (req) => {
   }
 
   entries.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
-  await db.doc(`autoJournal/${month}`).set({ entries: entries.map((e) => ({ ...e, amount: Math.round(e.amount) })), generatedAt: FieldValue.serverTimestamp(), generatedBy: uid });
+  await db.doc(`autoJournal/${month}`).set({ entries: entries.map((e) => ({ ...e, amount: Math.round(e.amount) })), categories, generatedAt: FieldValue.serverTimestamp(), generatedBy: uid });
   return { count: entries.length };
 });

@@ -13,10 +13,13 @@ import {
   fiscalLabel,
   fiscalMonths,
   fiscalStartOf,
+  fullName,
   KIND_LABEL,
   ledgerOf,
   monthlyAmounts,
   monthsWithData,
+  lineValue,
+  statementLines,
   UNSORTED,
   useBooks,
   useLedgerConfig,
@@ -28,9 +31,10 @@ import {
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
 
-type Tab = "pl" | "bs" | "tb" | "gl";
+type Tab = "pl" | "mfg" | "bs" | "tb" | "gl";
 const TABS: { key: Tab; label: string }[] = [
   { key: "pl", label: "損益計算書" },
+  { key: "mfg", label: "製造原価報告書" },
   { key: "bs", label: "貸借対照表" },
   { key: "tb", label: "試算表" },
   { key: "gl", label: "総勘定元帳" },
@@ -130,9 +134,9 @@ function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
         ))}
       </nav>
       <div className="mt-4">
-        {tab === "pl" && <ProfitLoss books={books} config={config} months={months.filter((m) => m <= end)} title={title} />}
+        {(tab === "pl" || tab === "mfg") && <Statement key={tab} which={tab} books={books} config={config} months={months.filter((m) => m <= end)} title={title} />}
         {tab === "bs" && <BalanceSheet period={period} title={title} />}
-        {tab === "tb" && <TrialBalance period={period} title={title} />}
+        {tab === "tb" && <TrialBalance period={period} accounts={config.accounts} title={title} />}
         {tab === "gl" && <GeneralLedger period={period} accounts={config.accounts} code={glCode} setCode={setGlCode} title={title} />}
       </div>
     </>
@@ -189,82 +193,82 @@ function Heading({ name, title, onExcel }: { name: string; title: string; onExce
   );
 }
 
-/** 損益計算書：収益・費用の科目ごとに、月別と期の合計 */
-function ProfitLoss({ books, config, months, title }: { books: Books; config: LedgerConfig; months: string[]; title: string }) {
+/**
+ * 損益計算書・製造原価報告書：試算表（丸北農場の合計残高試算表）と同じ並びで、月別と期の合計。
+ * 構成比は、損益計算書は売上高計、製造原価報告書は当期総製造費用を100とした割合
+ */
+function Statement({ which, books, config, months, title }: { which: "pl" | "mfg"; books: Books; config: LedgerConfig; months: string[]; title: string }) {
+  const name = which === "pl" ? "損益計算書" : "製造原価報告書";
   const byMonth = monthlyAmounts(books, config, months);
-  const codesOf = (kind: AccountKind) =>
-    [...new Set(byMonth.flatMap((m) => [...m.keys()]))]
-      .map((c) => accountOf(config.accounts, c))
-      .filter((a) => a.kind === kind && byMonth.some((m) => m.get(a.code)))
-      .sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }));
-  const revenue = codesOf("revenue");
-  const expense = codesOf("expense");
-  const sumOf = (list: Account[], i: number) => list.reduce((n, a) => n + (byMonth[i].get(a.code) ?? 0), 0);
-  const total = (f: (i: number) => number) => months.reduce((n, _, i) => n + f(i), 0);
-  const profit = (i: number) => sumOf(revenue, i) - sumOf(expense, i);
-  const lines: { label: string; values: (i: number) => number; strong?: boolean; head?: boolean }[] = [
-    { label: "【収益】", values: () => 0, head: true },
-    ...revenue.map((a) => ({ label: a.name, values: (i: number) => byMonth[i].get(a.code) ?? 0 })),
-    { label: "収益の合計", values: (i: number) => sumOf(revenue, i), strong: true },
-    { label: "【費用】", values: () => 0, head: true },
-    ...expense.map((a) => ({ label: a.name, values: (i: number) => byMonth[i].get(a.code) ?? 0 })),
-    { label: "費用の合計", values: (i: number) => sumOf(expense, i), strong: true },
-    { label: "当期の利益（収益−費用）", values: profit, strong: true },
-  ];
+  const used = new Set(byMonth.flatMap((m) => [...m.entries()].filter(([, v]) => v).map(([c]) => c)));
+  const lines = statementLines(config.accounts, used, which);
+  const sumAll = new Map<string, number>();
+  for (const m of byMonth) for (const [c, v] of m) sumAll.set(c, (sumAll.get(c) ?? 0) + v);
+  const base = lineValue(lines.find((l) => l.label === (which === "pl" ? "売上高計" : "当期総製造費用"))!, sumAll);
+  const ratio = (v: number) => (base ? ((v / base) * 100).toFixed(2) : "");
 
   function excel() {
     const rows: XCell[][] = [
-      [{ v: "損益計算書", bold: true }, title],
+      [{ v: name, bold: true }, title],
       [],
-      [B("科目"), ...months.map((m) => B(mo(m))), B("合計")],
-      ...lines.map((l) =>
-        l.head
-          ? [B(l.label, { left: true, bold: true }), ...months.map(() => B(null)), B(null)]
-          : [B(l.label, { left: true, bold: l.strong }), ...months.map((_, i) => B(l.values(i), { num: true, bold: l.strong })), B(total(l.values), { num: true, bold: true })],
-      ),
+      [B("勘定科目"), ...months.map((m) => B(mo(m))), B("合計"), B("構成比")],
+      ...lines.map((l) => {
+        const label = "　".repeat(l.indent) + l.label;
+        if (l.type === "head" || l.type === "sub") return [B(label, { left: true, bold: true }), ...months.map(() => B(null)), B(null), B(null)];
+        const bold = l.type !== "item";
+        const t = lineValue(l, sumAll);
+        return [B(label, { left: true, bold }), ...byMonth.map((m) => B(lineValue(l, m), { num: true, bold })), B(t, { num: true, bold: true }), B(ratio(t))];
+      }),
     ];
-    downloadXlsx(`損益計算書_${months[0]}.xlsx`, "損益計算書", rows, [24, ...months.map(() => 11), 13]);
+    downloadXlsx(`${name}_${months[0]}.xlsx`, name, rows, [26, ...months.map(() => 11), 13, 8]);
   }
 
   return (
     <section>
-      <Heading name="損益計算書" title={title} onExcel={excel} />
+      <Heading name={name} title={title} onExcel={excel} />
       <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="w-full text-sm tabular-nums">
-          <thead className="bg-gray-50 text-xs text-gray-600">
+          <thead className="bg-sky-50 text-xs text-gray-600">
             <tr>
-              <th className="sticky left-0 bg-gray-50 px-2 py-2 text-left">科目</th>
+              <th className="sticky left-0 bg-sky-50 px-2 py-2 text-left">勘定科目</th>
               {months.map((m) => (
                 <th key={m} className="px-2 py-2 text-right whitespace-nowrap">
                   {mo(m)}
                 </th>
               ))}
               <th className="px-2 py-2 text-right">合計</th>
+              <th className="px-2 py-2 text-right">構成比</th>
             </tr>
           </thead>
           <tbody>
-            {lines.map((l, k) =>
-              l.head ? (
-                <tr key={k} className="border-t bg-gray-50/50">
-                  <td colSpan={months.length + 2} className="px-2 py-1.5 text-xs font-bold text-gray-600">
-                    {l.label}
-                  </td>
-                </tr>
-              ) : (
-                <tr key={k} className={`border-t ${l.strong ? "bg-gray-50 font-bold" : ""}`}>
-                  <td className={`sticky left-0 px-2 py-1.5 whitespace-nowrap ${l.strong ? "bg-gray-50" : "bg-white"}`}>{l.label}</td>
-                  {months.map((m, i) => {
-                    const v = l.values(i);
+            {lines.map((l, k) => {
+              if (l.type === "head" || l.type === "sub")
+                return (
+                  <tr key={k} className="border-t">
+                    <td colSpan={months.length + 3} className={`px-2 py-1.5 ${l.type === "head" ? "font-bold" : "text-xs text-gray-600"}`}>
+                      {l.label}
+                    </td>
+                  </tr>
+                );
+              const strong = l.type !== "item";
+              const bg = l.type === "result" ? "bg-sky-100" : l.type === "total" ? "bg-sky-50" : "bg-white";
+              const t = lineValue(l, sumAll);
+              return (
+                <tr key={k} className={`border-t ${bg} ${strong ? "font-bold" : ""}`}>
+                  <td className={`sticky left-0 py-1.5 pr-2 whitespace-nowrap ${bg} ${l.indent === 2 ? "pl-8" : l.indent === 1 ? "pl-4" : "pl-2"}`}>{l.label}</td>
+                  {byMonth.map((m, i) => {
+                    const v = lineValue(l, m);
                     return (
-                      <td key={m} className={`px-2 text-right whitespace-nowrap ${v < 0 ? "text-red-600" : ""}`}>
+                      <td key={months[i]} className={`px-2 text-right whitespace-nowrap ${v < 0 ? "text-red-600" : ""}`}>
                         {v ? yen(v) : "－"}
                       </td>
                     );
                   })}
-                  <td className={`px-2 text-right font-bold whitespace-nowrap ${total(l.values) < 0 ? "text-red-600" : ""}`}>{yen(total(l.values))}</td>
+                  <td className={`px-2 text-right font-bold whitespace-nowrap ${t < 0 ? "text-red-600" : ""}`}>{yen(t)}</td>
+                  <td className="px-2 text-right text-xs whitespace-nowrap text-gray-600">{ratio(t)}</td>
                 </tr>
-              ),
-            )}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -346,7 +350,7 @@ function Side({ head, list }: { head: string; list: [string, number, boolean?][]
 }
 
 /** 試算表：科目ごとの 期首残高・借方・貸方・期末残高 */
-function TrialBalance({ period, title }: { period: Period; title: string }) {
+function TrialBalance({ period, accounts, title }: { period: Period; accounts: Account[]; title: string }) {
   const debit = period.rows.reduce((n, r) => n + r.debit, 0);
   const credit = period.rows.reduce((n, r) => n + r.credit, 0);
 
@@ -357,7 +361,7 @@ function TrialBalance({ period, title }: { period: Period; title: string }) {
       ["コード", "科目", "種類", "期首残高", "借方", "貸方", "期末残高"].map((h) => B(h)),
       ...period.rows.map((r) => [
         B(r.account.code),
-        B(r.account.name, { left: true }),
+        B(fullName(accounts, r.account), { left: true }),
         B(KIND_LABEL[r.account.kind]),
         B(r.opening, { num: true }),
         B(r.debit, { num: true }),
@@ -392,7 +396,7 @@ function TrialBalance({ period, title }: { period: Period; title: string }) {
               {period.rows.map((r) => (
                 <tr key={r.account.code} className={`border-t ${r.account.code === UNSORTED ? "bg-amber-50" : ""}`}>
                   <td className="px-2 py-1.5">{r.account.code}</td>
-                  <td className="px-2">{r.account.name}</td>
+                  <td className="px-2">{fullName(accounts, r.account)}</td>
                   <td className="px-2 text-xs text-gray-500">{KIND_LABEL[r.account.kind]}</td>
                   <td className="px-2 text-right">{r.opening ? yen(r.opening) : ""}</td>
                   <td className="px-2 text-right">{r.debit ? yen(r.debit) : ""}</td>
@@ -426,7 +430,7 @@ function GeneralLedger({ period, accounts, code, setCode, title }: { period: Per
   const lines = ledgerOf(account, opening, period.during);
   const used = period.rows.map((r) => r.account);
   const options = used.some((a) => a.code === code) ? used : [account, ...used];
-  const name = (c: string) => accountOf(accounts, c).name;
+  const name = (c: string) => fullName(accounts, accountOf(accounts, c));
 
   function excel() {
     const rows: XCell[][] = [
@@ -446,7 +450,7 @@ function GeneralLedger({ period, accounts, code, setCode, title }: { period: Per
         <select value={code} onChange={(e) => setCode(e.target.value)} aria-label="科目" className="rounded-lg border bg-white px-2 py-1.5">
           {options.map((a) => (
             <option key={a.code} value={a.code}>
-              {a.code} {a.name}
+              {a.code} {fullName(accounts, a)}
             </option>
           ))}
         </select>
