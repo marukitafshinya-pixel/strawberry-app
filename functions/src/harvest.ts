@@ -5,7 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { finishOf, helpCandidates, helpRanking, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
+import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
 
 /** 人ごとに使う最近の記録の数 */
@@ -219,7 +219,13 @@ export const harvestHelpHouse = onCall(async (req) => {
       const mine = cur[me]?.house;
       // まだ向かっている途中（そのハウスで「入った」を押していない）なら見直す：
       // 割り当てたハウスより、REASSIGN_MIN 分以上おそく終わりそうなハウスが出てきたら、そちらに切り替える
-      const switchTo = mine && h && h !== mine && t[me]?.[mine]?.start == null && finishOf(others, h, me) - finishOf(others, mine, me) >= REASSIGN_MIN;
+      const switchTo =
+        mine &&
+        h &&
+        h !== mine &&
+        t[me]?.[mine]?.start == null &&
+        // だれも入っていないハウスが出てきたとき（向かっている先には人がいる）か、REASSIGN_MIN 分以上おそいハウスが出てきたとき
+        ((isEmptyHouse(others, h, me) && !isEmptyHouse(others, mine, me)) || finishOf(others, h, me) - finishOf(others, mine, me) >= REASSIGN_MIN);
       if (h && (!mine || switchTo)) {
         cur[me] = { house: h, at: Date.now() };
         changed = true;

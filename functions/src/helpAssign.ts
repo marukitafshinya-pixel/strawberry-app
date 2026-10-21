@@ -100,8 +100,21 @@ export function helpRanking(i: HelpInput): { house: string; finish: number; crew
       const e = estimate(i, h, null);
       return { house: h, finish: Math.round(e.finish), crew: e.crew, started: e.started };
     })
-    .sort((a, b) => b.finish - a.finish);
+    .sort(byNeed);
 }
+
+/** まだだれも入っていなくて、向かっている人もいないハウスか（me の割り当ては数えない） */
+export function isEmptyHouse(i: HelpInput, h: string, me: string | null): boolean {
+  const e = estimate(i, h, me);
+  return !e.started && e.crew === 0;
+}
+
+/** 応援が必要な順：① まだだれも入っていない（向かっている人もいない）ハウス ② いまのままだと終わるのがおそいハウス */
+const byNeed = (a: { finish: number; crew: number; started: boolean }, b: { finish: number; crew: number; started: boolean }) => {
+  const ea = !a.started && a.crew === 0 ? 0 : 1;
+  const eb = !b.started && b.crew === 0 ? 0 : 1;
+  return ea - eb || b.finish - a.finish;
+};
 
 /** ハウスの地区（離れている）：1〜10番・17〜20番・21〜27番。それ以外は null */
 export function areaOf(h: string): string | null {
@@ -114,20 +127,22 @@ export function areaOf(h: string): string | null {
 }
 
 /**
- * 手のあいた人（me）の応援先：いまのままだといちばん終わるのがおそいハウス。終わっていないハウスがなければ null。
+ * 手のあいた人（me）の応援先：① まだだれも入っていないハウス（1人ずつ）② いまのままだといちばん終わるのがおそいハウス。終わっていないハウスがなければ null。
  * ただし1位が別の地区で、2位がいまいる地区（最後に「終わった」を押したハウスの地区）にあれば、移動が少ないよう2位にする
  */
 export function pickHelp(i: HelpInput, me: string): string | null {
   const list = helpCandidates(i)
     // 自分が「終わった」を押したハウスには戻さない（ハウスの「終わった」が入る前に聞かれたときのため）
     .filter((h) => i.taps[me]?.[h]?.end == null)
-    .map((h) => ({ h, f: finishOf(i, h, me) }))
-    .sort((x, y) => y.f - x.f);
+    .map((h) => ({ h, ...estimate(i, h, me) }))
+    .sort(byNeed);
   if (!list.length) return null;
   const last = Object.entries(i.taps[me] ?? {})
     .filter(([, v]) => v?.end != null)
     .sort((x, y) => y[1].end! - x[1].end!)[0]?.[0];
   const here = last ? areaOf(last) : null;
-  if (here && areaOf(list[0].h) !== here && list[1] && areaOf(list[1].h) === here) return list[1].h;
+  // 地区の入れ替えは、同じ段（だれも入っていないハウスどうし・人がいるハウスどうし）のときだけ
+  const tier = (x: { crew: number; started: boolean }) => (!x.started && x.crew === 0 ? 0 : 1);
+  if (here && areaOf(list[0].h) !== here && list[1] && tier(list[1]) === tier(list[0]) && areaOf(list[1].h) === here) return list[1].h;
   return list[0].h;
 }
