@@ -3,7 +3,7 @@
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { announce, unlockSound, useWakeLock, voiceTest } from "@/lib/announce";
+import { announce, DimScreen, unlockSound, useIdleDim, useWakeLock, voiceTest } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
@@ -244,7 +244,8 @@ export function TapScreen({
   /** 自分の収穫も、ほかのハウスも全部終わった */
   const allDone = (planned.length > 0 || helped.length > 0) && target == null && free && helpNow != null && !helpNow.open;
   // 収穫報告を開いている間は画面を消さない（全部終わったら元に戻す）
-  useWakeLock(!preview && (planned.length > 0 || helped.length > 0) && !allDone);
+  const keepAwake = !preview && (planned.length > 0 || helped.length > 0) && !allDone;
+  useWakeLock(keepAwake);
   // 画面を一度押したら、音と声を出せるようにしておく
   useEffect(() => {
     if (preview) return;
@@ -253,6 +254,8 @@ export function TapScreen({
   }, [preview]);
   /** 画面いっぱいに出す知らせ（「わかった」で消す） */
   const [notice, setNotice] = useState<string | null>(null);
+  // 30秒触らないと画面を黒くする（電池の節約）。知らせが出ているときは黒くしない
+  const { dim, wake } = useIdleDim(keepAwake && !notice, 30_000);
   /** 「終わった」を押したあと、次のハウスがわかったら読み上げる（押したハウス） */
   const afterOut = useRef<string | null>(null);
   /** 最後に読み上げた行き先（同じ行き先を2回言わない） */
@@ -346,6 +349,7 @@ export function TapScreen({
   const big = "w-full rounded-3xl py-8 text-4xl font-bold shadow disabled:opacity-40";
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
+      {dim && <DimScreen text={target ? (inNow ? `${target}番 収穫中` : `次は ${target}番`) : ""} onWake={wake} />}
       {notice && (
         // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-amber-400 p-6 text-center">

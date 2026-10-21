@@ -2,7 +2,8 @@
 
 // 収穫報告の音声案内：知らせの音（ピンポン）・読み上げ（携帯に入っている日本語の声）・振動（Android）、画面を消さない。
 // 携帯のブラウザは、画面を一度押したあとでないと音や声を出せないので、最初に押したときに unlockSound() を呼ぶ
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /** 知らせの音（ピン・ポンの2つの高さ）を作る。外から音のファイルを読まないので、電波が弱くても鳴る */
 function chimeUrl(): string {
@@ -151,4 +152,53 @@ export function voiceTest(onNotice: (text: string | null) => void): () => void {
   ];
   const timers = steps.map(([ms, f]) => setTimeout(f, ms));
   return () => timers.forEach(clearTimeout);
+}
+
+/**
+ * しばらく触らないと画面を黒くする（電池の節約。有機ELの画面は黒いところがほとんど光らない）。
+ * ms 触らないと dim＝true。画面を触ると wake() で戻す（黒い画面への最初のひと押しは、下のボタンを押さない）
+ */
+export function useIdleDim(active: boolean, ms: number): { dim: boolean; wake: () => void } {
+  const [dim, setDim] = useState(false);
+  const last = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    last.current = Date.now();
+    const touch = () => (last.current = Date.now());
+    document.addEventListener("pointerdown", touch);
+    const t = setInterval(() => {
+      if (Date.now() - last.current >= ms) setDim(true);
+    }, 1000);
+    return () => {
+      document.removeEventListener("pointerdown", touch);
+      clearInterval(t);
+      setTimeout(() => setDim(false), 0);
+    };
+  }, [active, ms]);
+  const wake = () => {
+    last.current = Date.now();
+    setDim(false);
+  };
+  return { dim: active && dim, wake };
+}
+
+/** 黒い画面（触ると戻る）。text＝暗い灰色で小さく出す（いまのハウスなど） */
+export function DimScreen({ text, onWake }: { text: string; onWake: () => void }) {
+  // 画面全体をおおうため、ページの外（body の直下）に出す
+  return createPortal(
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onWake();
+      }}
+    >
+      <p className="text-center text-xl text-gray-700">
+        {text}
+        <span className="mt-3 block text-sm">画面を触るともどります</span>
+      </p>
+    </div>,
+    document.body,
+  );
 }

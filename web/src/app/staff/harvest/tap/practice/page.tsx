@@ -4,7 +4,7 @@
 // 流れ：予定のハウス（1番→2番）→ 応援（3番。向かっている途中に「応援先を変える」で4番に変わる）→ 全部終わる
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { announce, unlockSound, useWakeLock } from "@/lib/announce";
+import { announce, DimScreen, unlockSound, useIdleDim, useWakeLock } from "@/lib/announce";
 
 const PLANNED = ["1", "2"];
 const HELP_FIRST = "3";
@@ -18,6 +18,8 @@ export default function PracticePage() {
   const done = "done" in step;
   // 練習中も、本番と同じく画面を消さない
   useWakeLock(!done);
+  // 本番と同じく、30秒触らないと画面を黒くする
+  const { dim, wake } = useIdleDim(!done && !notice, 30_000);
   useEffect(() => {
     document.addEventListener("pointerdown", unlockSound, { once: true });
     return () => document.removeEventListener("pointerdown", unlockSound);
@@ -56,6 +58,7 @@ export default function PracticePage() {
   const big = "w-full rounded-3xl py-8 text-4xl font-bold shadow disabled:opacity-40";
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
+      {dim && !done && <DimScreen text={step.inNow ? `${step.house}番 収穫中` : `次は ${step.house}番`} onWake={wake} />}
       {notice && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-amber-400 p-6 text-center">
           <p className="text-3xl leading-snug font-bold text-gray-900">{notice}</p>
