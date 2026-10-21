@@ -101,7 +101,9 @@ export function unlockSound() {
       });
   }
   try {
-    const u = new SpeechSynthesisUtterance(" ");
+    // 空の文字だと「出せるようにする」にならない携帯があるので、音量0で短いことばを読む
+    const u = new SpeechSynthesisUtterance("はい");
+    u.lang = "ja-JP";
     u.volume = 0;
     window.speechSynthesis?.speak(u);
   } catch {
@@ -139,20 +141,17 @@ export function saveVoice(name: string | null) {
     // 覚えられなくても、その場は使える
   }
 }
-/** 使う声：選んだ声、なければ女性らしい名前の声、なければ最初の日本語の声 */
+/**
+ * 使う声：声の設定で選んだ声だけ。選んでいなければ（おまかせ）声は選ばず、携帯のふだんの日本語の声を使う
+ * （名前で探して選ぶと、携帯にダウンロードされていない声を選んで無音になることがあるため）
+ */
 function pickVoice(): SpeechSynthesisVoice | undefined {
-  const list = japaneseVoices();
   const name = savedVoice();
-  return (
-    list.find((x) => x.name === name) ??
-    list.find((x) => /kyoko|o-ren|nanami|female|女性|haruka|ayumi|sayaka/i.test(x.name)) ??
-    list.find((x) => /google/i.test(x.name)) ??
-    list[0]
-  );
+  return name ? japaneseVoices().find((x) => x.name === name) : undefined;
 }
 
-/** 読み上げる（前の読み上げは止める） */
-export function speak(text: string) {
+/** 読み上げる（前の読み上げは止める）。選んだ声が鳴らなければ（1.5秒たってもしゃべり始めなければ）、ふだんの声で言い直す */
+export function speak(text: string, useChosen = true) {
   try {
     const s = window.speechSynthesis;
     if (!s) return;
@@ -162,13 +161,20 @@ export function speak(text: string) {
     u.pitch = VOICE_PITCH;
     u.rate = VOICE_RATE;
     u.volume = 1;
-    const voice = pickVoice();
+    const voice = useChosen ? pickVoice() : undefined;
     try {
       if (voice) u.voice = voice;
     } catch {
-      // 声を選べなくても、いつもの声で読み上げる
+      // 声を選べなくても、ふだんの声で読み上げる
     }
-    s.speak(u);
+    let started = false;
+    u.onstart = () => (started = true);
+    // cancel のすぐあとに speak すると、しゃべらない携帯があるので、少しだけ待つ
+    setTimeout(() => s.speak(u), 60);
+    if (voice)
+      setTimeout(() => {
+        if (!started && !s.speaking) speak(text, false);
+      }, 1500);
   } catch {
     // 読み上げのない携帯は、なにもしない
   }
@@ -337,7 +343,7 @@ export function VoiceSettings() {
           className="mt-1 w-full rounded-lg border px-2 py-2 text-base"
           aria-label="声"
         >
-          <option value="">おまかせ（明るい声を自動で選ぶ）</option>
+          <option value="">おまかせ（携帯のふだんの声を明るく）</option>
           {voices.map((n) => (
             <option key={n} value={n}>
               {n}
@@ -345,6 +351,7 @@ export function VoiceSettings() {
           ))}
         </select>
       )}
+      <p className="mt-1 text-xs text-gray-500">声によっては、携帯にダウンロードされていないと鳴りません。鳴らないときは「おまかせ」にしてください。</p>
       <div className="mt-2 flex gap-2">
         <button
           onClick={() => {
