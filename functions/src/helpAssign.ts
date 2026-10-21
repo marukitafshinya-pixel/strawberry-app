@@ -83,7 +83,13 @@ function estimate(i: HelpInput, h: string, me: string | null): { finish: number;
     if (crew > 0) return { finish: i.now + work / crew, crew, started: false };
     return { finish: f?.end ?? i.now + work, crew, started: false };
   }
-  const left = Math.max(work * 0.1, work - Math.max(0, i.now - start) * Math.max(1, nowCrew));
+  // もう終わった作業（のべ時間）：一人ひとりが入ってからの時間を足す（途中から入った応援の人は、入った時刻から）。
+  // 携帯で押した人はその時刻、収穫管理に名前があるだけの人はハウスの「入った」から。そのハウスを終えた人も、いた間の分を足す
+  const joinOf = (id: string) => Math.max(start, i.taps[id]?.[h]?.start ?? start);
+  let doneWork = 0;
+  for (const id of new Set([...inside, ...listed])) doneWork += Math.max(0, i.now - joinOf(id));
+  for (const [id, t] of Object.entries(i.taps)) if (t[h]?.start != null && t[h]?.end != null) doneWork += Math.max(0, t[h].end! - joinOf(id));
+  const left = Math.max(work * 0.05, work - doneWork);
   return { finish: i.now + left / Math.max(1, crew), crew, started: true };
 }
 

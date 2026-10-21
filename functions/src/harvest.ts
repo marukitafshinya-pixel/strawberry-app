@@ -5,7 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { helpCandidates, helpRanking, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
+import { finishOf, helpCandidates, helpRanking, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
 
 /** 人ごとに使う最近の記録の数 */
@@ -153,6 +153,9 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
 
 type Taps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
 
+/** 向かっている途中の応援先を切り替えるのは、ほかのハウスがこの分以上おそく終わりそうなとき（指示がころころ変わらないように） */
+const REASSIGN_MIN = 15;
+
 /** 応援の割り当てを覚えておく場所（サーバーだけが読み書きする。画面からは読めない） */
 const assignDoc = (date: string) => db.doc(`harvest/${date}/helpAssign/all`);
 
@@ -209,10 +212,15 @@ export const harvestHelpHouse = onCall(async (req) => {
     const raw = ((await tx.get(assignDoc(date))).get("assign") as Record<string, { house: string; at: number }> | undefined) ?? {};
     const cur: Record<string, { house: string; at: number }> = Object.fromEntries(Object.entries(raw).filter(([id, a]) => valid(id, a?.house)));
     let changed = Object.keys(cur).length !== Object.keys(raw).length;
-    if (me && free && !cur[me]) {
+    if (me && free) {
       // 手のあいた人に、応援先を割り当てる（ほかの人の割り当ても人数に数える）
-      const h = pickHelp({ ...input, assigns: Object.fromEntries(Object.entries(cur).map(([id, a]) => [id, a.house])) }, me);
-      if (h) {
+      const others = { ...input, assigns: Object.fromEntries(Object.entries(cur).map(([id, a]) => [id, a.house])) };
+      const h = pickHelp(others, me);
+      const mine = cur[me]?.house;
+      // まだ向かっている途中（そのハウスで「入った」を押していない）なら見直す：
+      // 割り当てたハウスより、REASSIGN_MIN 分以上おそく終わりそうなハウスが出てきたら、そちらに切り替える
+      const switchTo = mine && h && h !== mine && t[me]?.[mine]?.start == null && finishOf(others, h, me) - finishOf(others, mine, me) >= REASSIGN_MIN;
+      if (h && (!mine || switchTo)) {
         cur[me] = { house: h, at: Date.now() };
         changed = true;
       }

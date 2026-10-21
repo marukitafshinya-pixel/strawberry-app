@@ -137,8 +137,9 @@ export function TapScreen({
 
   // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）。
   // 自分の予定が終わったら（free）、応援先を割り当ててもらう（見るだけの画面では割り当てない）
-  const tapKey = JSON.stringify(mine);
   const askFree = free && !preview;
+  // 手があいて応援先を待っている・向かっている間は、だれかが押すたびに聞き直す（応援先をその場で見直すため）
+  const tapKey = JSON.stringify(askFree ? taps : mine);
   useEffect(() => {
     let alive = true;
     const ask = () =>
@@ -441,7 +442,10 @@ export function TapList({
 }) {
   const taps = useDayTaps(date);
   const [help, setHelp] = useState<HelpInfo | null>(null);
-  // 応援の行き先を聞く（1分ごと）
+  // 応援の行き先と応援が必要な順を聞く（1分ごと。だれかが押したときと、収穫管理の入力が変わったときはすぐ）
+  const changeKey =
+    JSON.stringify(taps) +
+    JSON.stringify(Object.entries(rec).map(([h, r]) => [h, r.start ?? null, r.end ?? null, r.members ?? null, r.helpers ?? null, r.left ?? null]));
   useEffect(() => {
     let alive = true;
     const ask = () =>
@@ -454,7 +458,7 @@ export function TapList({
       alive = false;
       clearInterval(t);
     };
-  }, []);
+  }, [changeKey]);
   const plan = planHarvest(template, haichi);
   // 集荷係が収穫管理で入れ直したハウスの収穫者
   const edited = Object.fromEntries(
