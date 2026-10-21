@@ -9,6 +9,8 @@ export type YieldDay = { date: string; groups: Record<string, { cases: number; p
 /** 日付 → 夜温（その日の朝まで）と日照時間（その日） */
 export type YieldWeather = Record<string, { nightMin?: number | null; sun?: number | null }>;
 export type YieldModel = { n: number; a: number; b: number; c: number };
+/** 去年の出荷実績から出した天気の影響（stats/pastYield の model と季節の名前） */
+export type YieldPrior = { season: string; n: number; b: number; c: number; varNight: number; varSun: number };
 export type YieldStats = {
   /** まとまり → 1,000株あたりのケース数 */
   groups: Record<string, number>;
@@ -22,12 +24,16 @@ export type YieldStats = {
   /** 今日の朝の夜温と、前の日の日照（式に入れた値） */
   nightMin: number | null;
   sun: number | null;
+  /** 去年の実績を使ったときの、その季節の名前と出荷の回数 */
+  prior: { season: string; n: number } | null;
 };
 
 /** 平均に使う日数 */
 const WINDOW = 7;
 /** 天気の式を作るのに要る日数 */
 const MIN_MODEL_DAYS = 14;
+/** 去年の天気の影響を、今年の記録の何日分と同じ重みにするか（今年の記録がこれより多くたまるほど今年の分が強くなる） */
+const PRIOR_DAYS = 14;
 /** 1日の株数がこれより少ない日は使わない（少しだけ収穫した日） */
 const MIN_PLANTS = 3000;
 
@@ -53,7 +59,7 @@ function solve3(m: number[][], v: number[]): number[] | null {
 }
 
 /** 最近の記録と天気から、今日の朝の見込みに使う数字を出す（today の分は使わない） */
-export function yieldFrom(daysIn: YieldDay[], weather: YieldWeather, today: string): YieldStats {
+export function yieldFrom(daysIn: YieldDay[], weather: YieldWeather, today: string, prior: YieldPrior | null = null): YieldStats {
   const days = daysIn.filter((d) => d.date < today && sum(d.groups).plants >= MIN_PLANTS).sort((a, b) => a.date.localeCompare(b.date));
   const recent = days.slice(-WINDOW);
   const groups: Record<string, number> = {};
@@ -79,7 +85,42 @@ export function yieldFrom(daysIn: YieldDay[], weather: YieldWeather, today: stri
     if (base > 0 && night != null && sun != null) rows.push({ y: rate(sum(d.groups))! / base, night, sun });
   });
   let model: YieldModel | null = null;
-  if (rows.length >= MIN_MODEL_DAYS) {
+  if (prior) {
+    // 去年の天気の影響を出発点にして、今年の記録で直す（今年の記録が PRIOR_DAYS 日分で半々）。
+    // 今年の記録がまだないときは、最近の収穫した日の天気を「ふだん」として、去年の影響をそのまま使う
+    const recentW = recent
+      .map((d) => ({ night: weather[d.date]?.nightMin, sun: weather[shift(d.date, -1)]?.sun }))
+      .filter((w): w is { night: number; sun: number } => w.night != null && w.sun != null);
+    const center = rows.length ? rows : recentW.map((w) => ({ ...w, y: 1 }));
+    if (center.length) {
+      const n = center.length;
+      const mn = center.reduce((s, r) => s + r.night, 0) / n;
+      const ms = center.reduce((s, r) => s + r.sun, 0) / n;
+      const my = center.reduce((s, r) => s + r.y, 0) / n;
+      const ln = PRIOR_DAYS * Math.max(prior.varNight, 0.01);
+      const ls = PRIOR_DAYS * Math.max(prior.varSun, 0.01);
+      let sxx = ln;
+      let sss = ls;
+      let sxs = 0;
+      let sxy = ln * prior.b;
+      let ssy = ls * prior.c;
+      for (const r of rows) {
+        const dn = r.night - mn;
+        const ds = r.sun - ms;
+        sxx += dn * dn;
+        sss += ds * ds;
+        sxs += dn * ds;
+        sxy += dn * (r.y - my);
+        ssy += ds * (r.y - my);
+      }
+      const det = sxx * sss - sxs * sxs;
+      if (Math.abs(det) > 1e-9) {
+        const b = (sss * sxy - sxs * ssy) / det;
+        const c = (sxx * ssy - sxs * sxy) / det;
+        model = { n: rows.length, a: my - b * mn - c * ms, b, c };
+      }
+    }
+  } else if (rows.length >= MIN_MODEL_DAYS) {
     const m = [
       [0, 0, 0],
       [0, 0, 0],
@@ -104,5 +145,14 @@ export function yieldFrom(daysIn: YieldDay[], weather: YieldWeather, today: stri
   const raw = model && nightMin != null && sun != null ? model.a + model.b * nightMin + model.c * sun : 1;
   // 外れた値にならないよう、ふだんの7割〜1.3倍におさめる
   const factor = Math.round(Math.min(1.3, Math.max(0.7, raw)) * 1000) / 1000;
-  return { groups, all: all == null ? null : Math.round(all * 100) / 100, days: recent.length, factor, model, nightMin, sun };
+  return {
+    groups,
+    all: all == null ? null : Math.round(all * 100) / 100,
+    days: recent.length,
+    factor,
+    model,
+    nightMin,
+    sun,
+    prior: prior && model ? { season: prior.season, n: prior.n } : null,
+  };
 }

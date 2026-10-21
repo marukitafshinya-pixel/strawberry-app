@@ -518,6 +518,14 @@ service cloud.firestore {
     match /stats/harvestYield {
       allow read: if isStaff() || isWorker();
     }
+    // 去年の出荷実績から出した天気の影響（出荷の合計kgもふくむので管理者だけ）。サーバーだけが書く
+    match /stats/pastYield {
+      allow read: if isAdmin();
+    }
+    // 去年の出荷実績（日ごとの合計重量）：経営の数字なので管理者だけが読める。保存はサーバー（savePastShipments）だけ
+    match /pastShipments/{season} {
+      allow read: if isAdmin();
+    }
     match /config/shift {
       allow read: if isStaff() || isWorker();
       allow write: if isAdmin()
