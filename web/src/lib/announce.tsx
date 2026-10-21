@@ -106,6 +106,8 @@ export function unlockSound() {
     u.lang = "ja-JP";
     u.volume = 0;
     window.speechSynthesis?.speak(u);
+    // すぐ止めておく（このあとの本当の案内を、待たずにすぐ読めるように）
+    setTimeout(() => window.speechSynthesis?.cancel(), 0);
   } catch {
     // 読み上げのない携帯は、音だけ
   }
@@ -151,11 +153,13 @@ function pickVoice(): SpeechSynthesisVoice | undefined {
 }
 
 /** 読み上げる（前の読み上げは止める）。選んだ声が鳴らなければ（1.5秒たってもしゃべり始めなければ）、ふだんの声で言い直す */
-export function speak(text: string, useChosen = true) {
+export function speak(text: string, useChosen = true, onEnd?: () => void) {
   try {
     const s = window.speechSynthesis;
-    if (!s) return;
-    s.cancel();
+    if (!s) return onEnd?.();
+    // しゃべっている途中なら止める（止めたすぐあとに読むと、しゃべらない携帯があるので少し待つ）
+    const busy = s.speaking || s.pending;
+    if (busy) s.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "ja-JP";
     u.pitch = VOICE_PITCH;
@@ -168,33 +172,74 @@ export function speak(text: string, useChosen = true) {
       // 声を選べなくても、ふだんの声で読み上げる
     }
     let started = false;
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      onEnd?.();
+    };
     u.onstart = () => (started = true);
-    // cancel のすぐあとに speak すると、しゃべらない携帯があるので、少しだけ待つ
-    setTimeout(() => s.speak(u), 60);
-    if (voice)
-      setTimeout(() => {
-        if (!started && !s.speaking) speak(text, false);
-      }, 1500);
+    u.onend = end;
+    u.onerror = end;
+    if (busy) setTimeout(() => s.speak(u), 60);
+    else s.speak(u);
+    setTimeout(() => {
+      if (started || s.speaking) return;
+      // 選んだ声が鳴らなければ、ふだんの声で言い直す。それでもだめなら、あとの効果音だけは鳴らす
+      if (voice) speak(text, false, end);
+      else end();
+    }, 1500);
   } catch {
     // 読み上げのない携帯は、なにもしない
+    onEnd?.();
   }
 }
 
-/** 効果音を鳴らして、鳴り終わったら読み上げる。vibrate＝振動もする（Android。iPhone は振動できない） */
-export function announce(text: string, opts: { sound?: SoundKind; vibrate?: boolean } = {}) {
-  if (opts.vibrate) navigator.vibrate?.([300, 150, 300, 150, 300]);
-  if (!opts.sound) return speak(text);
-  const a = getSound(opts.sound);
+// ---------- 音と声の順番（携帯ごと） ----------
+/** soundFirst＝音→声、voiceFirst＝声→音、voiceOnly＝声だけ */
+export type VoiceOrder = "soundFirst" | "voiceFirst" | "voiceOnly";
+const ORDER_KEY = "harvestVoiceOrder";
+/** iPhone・iPad か（iPhone は効果音のすぐあとだと声が出ないことがあるので、ふだんは声→音） */
+const isIOS = () =>
+  typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1));
+export function voiceOrder(): VoiceOrder {
+  try {
+    const v = localStorage.getItem(ORDER_KEY);
+    if (v === "soundFirst" || v === "voiceFirst" || v === "voiceOnly") return v;
+  } catch {
+    // 覚えていなければ、ふだんの順番
+  }
+  return isIOS() ? "voiceFirst" : "soundFirst";
+}
+export function saveVoiceOrder(v: VoiceOrder) {
+  try {
+    localStorage.setItem(ORDER_KEY, v);
+  } catch {
+    // 覚えられなくても、その場は使える
+  }
+}
+const playSound = (k: SoundKind, then?: () => void) => {
+  const a = getSound(k);
   a.currentTime = 0;
   let done = false;
   const next = () => {
     if (done) return;
     done = true;
-    speak(text);
+    then?.();
   };
   a.onended = next;
-  setTimeout(next, 2000); // 音が鳴らなかったときも読み上げる
+  setTimeout(next, 2000); // 音が鳴らなかったときも先へ
   void a.play().catch(next);
+};
+
+/** 効果音と読み上げ（順番は携帯ごとの設定：音→声・声→音・声だけ）。vibrate＝振動もする（Android。iPhone は振動できない） */
+export function announce(text: string, opts: { sound?: SoundKind; vibrate?: boolean } = {}) {
+  if (opts.vibrate) navigator.vibrate?.([300, 150, 300, 150, 300]);
+  const order = voiceOrder();
+  const sound = opts.sound;
+  if (!sound || order === "voiceOnly") return speak(text);
+  if (order === "voiceFirst") return speak(text, true, () => playSound(sound));
+  playSound(sound, () => speak(text));
 }
 
 /** 案内のことば（楽しく元気に） */
@@ -311,6 +356,7 @@ export function VoiceSettings() {
   const [open, setOpen] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string>(() => (typeof window === "undefined" ? "" : (savedVoice() ?? "")));
+  const [order, setOrder] = useState<VoiceOrder>(() => (typeof window === "undefined" ? "soundFirst" : voiceOrder()));
   useEffect(() => {
     if (!open) return;
     // 携帯によっては、声の一覧があとから届く
@@ -352,6 +398,21 @@ export function VoiceSettings() {
         </select>
       )}
       <p className="mt-1 text-xs text-gray-500">声によっては、携帯にダウンロードされていないと鳴りません。鳴らないときは「おまかせ」にしてください。</p>
+      <label className="mt-3 block font-bold">音と声の順番</label>
+      <select
+        value={order}
+        onChange={(e) => {
+          setOrder(e.target.value as VoiceOrder);
+          saveVoiceOrder(e.target.value as VoiceOrder);
+        }}
+        className="mt-1 w-full rounded-lg border px-2 py-2 text-base"
+        aria-label="音と声の順番"
+      >
+        <option value="voiceFirst">声 → 効果音（iPhone のおすすめ）</option>
+        <option value="soundFirst">効果音 → 声</option>
+        <option value="voiceOnly">声だけ（効果音なし）</option>
+      </select>
+      <p className="mt-1 text-xs text-gray-500">声が出ないときは、順番を変えて「この声で試す」を押してみてください。</p>
       <div className="mt-2 flex gap-2">
         <button
           onClick={() => {
