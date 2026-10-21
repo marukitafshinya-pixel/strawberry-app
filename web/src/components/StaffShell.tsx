@@ -77,8 +77,9 @@ function useNewVersion(): boolean {
 }
 
 const WORKER_PATH = "/staff/shift/me/";
-/** 経理担当が使う画面（現金出納帳） */
+/** 経理担当が使う画面（現金出納帳と帳簿） */
 const CASHBOOK_PATH = "/staff/cashbook/";
+const LEDGER_PATH = "/staff/ledger";
 /** 収穫管理の入力（集荷係の従業員も使う） */
 const HARVEST_PATH = "/staff/harvest/";
 
@@ -105,8 +106,8 @@ function Guard({ children }: { children: ReactNode }) {
     !!pathname?.startsWith("/staff/harvest/watch") ||
     !!pathname?.startsWith("/staff/harvest/tap");
   const workerAway = role === "worker" && !isLoginPage && !workerPage;
-  // 経理担当は、現金出納帳だけ
-  const accountingAway = role === "accounting" && !isLoginPage && !pathname?.startsWith(CASHBOOK_PATH);
+  // 経理担当は、現金出納帳と帳簿だけ
+  const accountingAway = role === "accounting" && !isLoginPage && !pathname?.startsWith(CASHBOOK_PATH) && !pathname?.startsWith(LEDGER_PATH);
   useEffect(() => {
     if (accountingAway) router.replace(CASHBOOK_PATH);
   }, [accountingAway, router]);

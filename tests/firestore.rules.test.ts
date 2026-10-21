@@ -746,7 +746,7 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
   });
 });
 
-describe("経理担当（現金出納帳を見るだけ）", () => {
+describe("経理担当（現金出納帳を見る・帳簿をつける）", () => {
   const acc = () => env.authenticatedContext("a1", { role: "accounting" }).firestore();
   const accOff = () => env.authenticatedContext("a2", { role: "accounting" }).firestore();
   it("現金出納帳は読めるが書けない。ほかは読めない", async () => {
@@ -760,5 +760,30 @@ describe("経理担当（現金出納帳を見るだけ）", () => {
     await assertFails(setDoc(doc(acc(), "cashbook/2026-10"), { entries: [] }));
     await assertFails(getDoc(doc(accOff(), "cashbook/2026-10")));
     for (const p of ["payrolls/2026-10", "employees/e1", "reservations/r1", "sales/s1", "harvest/2026-10-15", "staff/u1"]) await assertFails(getDoc(doc(acc(), p)));
+  });
+  it("帳簿（仕訳・勘定科目）は管理者と経理担当が読み書きできる", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "staff/a1"), { role: "accounting", active: true });
+      await setDoc(doc(db, "staff/a2"), { role: "accounting", active: false });
+    });
+    const entry = { date: "2026-10-05", debit: "110", credit: "400", amount: 12000, memo: "売上の入金" };
+    await assertSucceeds(setDoc(doc(acc(), "journal/2026-10"), { entries: [entry] }));
+    await assertSucceeds(getDoc(doc(acc(), "journal/2026-10")));
+    await assertSucceeds(setDoc(doc(admin(), "journal/2026-11"), { entries: [] }));
+    await assertFails(setDoc(doc(acc(), "journal/2026-1"), { entries: [] }));
+    await assertFails(setDoc(doc(acc(), "journal/2026-10"), { entries: [], secret: 1 }));
+    await assertFails(setDoc(doc(acc(), "journal/2026-10"), { entries: "x" }));
+    await assertFails(getDoc(doc(accOff(), "journal/2026-10")));
+    await assertFails(getDoc(doc(staff(), "journal/2026-10")));
+    await assertFails(setDoc(doc(staff(), "journal/2026-10"), { entries: [] }));
+
+    const config = { accounts: [{ code: "100", name: "現金", kind: "asset" }], itemMap: { 切手代: "549" }, fiscalStart: 4 };
+    await assertSucceeds(setDoc(doc(acc(), "config/accounts"), config));
+    await assertSucceeds(getDoc(doc(admin(), "config/accounts")));
+    await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, fiscalStart: 13 }));
+    await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, itemMap: [] }));
+    await assertFails(getDoc(doc(staff(), "config/accounts")));
+    await assertFails(setDoc(doc(accOff(), "config/accounts"), config));
   });
 });

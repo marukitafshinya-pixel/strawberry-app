@@ -75,6 +75,9 @@ function CashbookView() {
         <Link href="/staff/cashbook/payroll/" className="rounded-lg border border-berry bg-white px-3 py-1 text-sm font-bold text-berry">
           💴 給与（見るだけ）
         </Link>
+        <Link href="/staff/ledger/" className="rounded-lg border border-berry bg-white px-3 py-1 text-sm font-bold text-berry">
+          📒 帳簿（仕訳・決算書）
+        </Link>
       </h1>
       <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">

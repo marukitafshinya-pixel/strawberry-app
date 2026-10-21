@@ -26,7 +26,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId
           in get(/databases/$(database)/documents/haichi/$(date)).data.cells.get('pickup', {'members': []}).members;
     }
-    // 経理担当（現金出納帳を見るだけ）。ログインはスタッフと同じく管理者が作る
+    // 経理担当（現金出納帳を見る・帳簿をつける）。ログインはスタッフと同じく管理者が作る
     function isAccounting() {
       return signedIn()
         && request.auth.token.role == 'accounting'
@@ -272,6 +272,25 @@ service cloud.firestore {
         && request.resource.data.entries is list && request.resource.data.entries.size() <= 300
         && (!('opening' in request.resource.data) || request.resource.data.opening is number);
       allow delete: if isAdmin();
+    }
+    // 帳簿の仕訳（月ごと・手で入れた分）：管理者と経理担当が読み書きできる
+    match /journal/{month} {
+      allow read: if isAdmin() || isAccounting();
+      allow write: if (isAdmin() || isAccounting())
+        && month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['entries', 'updatedAt'])
+        && request.resource.data.entries is list && request.resource.data.entries.size() <= 500;
+      allow delete: if isAdmin() || isAccounting();
+    }
+    // 帳簿の勘定科目・決算月・現金出納帳の項目と科目の対応：管理者と経理担当
+    match /config/accounts {
+      allow read: if isAdmin() || isAccounting();
+      allow write: if (isAdmin() || isAccounting())
+        && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'updatedAt'])
+        && request.resource.data.accounts is list && request.resource.data.accounts.size() <= 300
+        && request.resource.data.itemMap is map && request.resource.data.itemMap.size() <= 1000
+        && request.resource.data.fiscalStart is int
+        && request.resource.data.fiscalStart >= 1 && request.resource.data.fiscalStart <= 12;
     }
     // タイムカード（タイムレコーダーの打刻・暦の月ごと）と、その計算のルール：管理者だけ
     match /timecards/{month} {

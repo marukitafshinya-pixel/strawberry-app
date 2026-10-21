@@ -4,7 +4,7 @@ import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getFirebase } from "./firebase";
 
-/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、accounting=経理（現金出納帳を見るだけ）、null=権限なし */
+/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、accounting=経理（現金出納帳を見る・帳簿をつける）、null=権限なし */
 export type Role = "admin" | "staff" | "worker" | "accounting" | null;
 
 /** ログインIDだけでログインする従業員のメールアドレスの形（サーバー側と同じ） */
