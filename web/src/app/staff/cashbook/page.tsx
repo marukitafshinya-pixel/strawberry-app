@@ -70,7 +70,12 @@ function CashbookView() {
           </Link>
         </p>
       )}
-      <h1 className="mt-2 text-xl font-bold print:hidden">現金出納帳</h1>
+      <h1 className="mt-2 flex items-center gap-3 text-xl font-bold print:hidden">
+        現金出納帳
+        <Link href="/staff/cashbook/payroll/" className="rounded-lg border border-berry bg-white px-3 py-1 text-sm font-bold text-berry">
+          💴 給与（見るだけ）
+        </Link>
+      </h1>
       <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
           ‹ 前月
