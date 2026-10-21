@@ -798,6 +798,17 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
     await assertSucceeds(getDoc(doc(admin(), "pastShipments/R7")));
     await assertFails(getDoc(doc(staff(), "pastShipments/R7")));
     await assertFails(setDoc(doc(admin(), "pastShipments/R7"), { days: {} }));
+    // 作業用フォルダ（総勘定元帳の明細）：管理者だけが読み書きできる
+    const acc = { code: "901", name: "見本資材費", entries: [{ no: "1", date: "2026-02-10", debit: 1000 }], monthTotals: [], grandTotal: null };
+    await assertSucceeds(setDoc(doc(admin(), "ledgers/2026-02-01"), { from: "2026-02-01", to: "2027-01-31" }));
+    await assertSucceeds(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/901"), acc));
+    await assertSucceeds(getDoc(doc(admin(), "ledgers/2026-02-01/accounts/901")));
+    await assertFails(getDoc(doc(staff(), "ledgers/2026-02-01/accounts/901")));
+    await assertFails(getDoc(doc(staff(), "ledgers/2026-02-01")));
+    await assertFails(setDoc(doc(staff(), "ledgers/2026-02-01/accounts/901"), acc));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/902"), acc));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/901"), { ...acc, memo: "x" }));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026"), { from: "2026-02-01", to: "2027-01-31" }));
   });
 });
 

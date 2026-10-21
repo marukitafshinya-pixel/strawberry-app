@@ -522,6 +522,24 @@ service cloud.firestore {
     match /stats/pastYield {
       allow read: if isAdmin();
     }
+    // 作業用フォルダ：総勘定元帳を読み取った明細（経費の仕分けに使う。経営の数字なので管理者だけ）。
+    // ledgers/{期間のはじめ}：期間、accounts/{科目コード}：その科目の明細・月度合計・総合計
+    match /ledgers/{period} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && period.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['from', 'to', 'updatedAt'])
+        && request.resource.data.from is string && request.resource.data.to is string;
+      match /accounts/{code} {
+        allow read: if isAdmin();
+        allow delete: if isAdmin();
+        allow create, update: if isAdmin() && code.size() <= 20
+          && request.resource.data.keys().hasOnly(['code', 'name', 'entries', 'monthTotals', 'grandTotal', 'updatedAt'])
+          && request.resource.data.code == code
+          && request.resource.data.name is string && request.resource.data.name.size() <= 40
+          && request.resource.data.entries is list && request.resource.data.entries.size() <= 3000
+          && request.resource.data.monthTotals is list && request.resource.data.monthTotals.size() <= 24;
+      }
+    }
     // 去年の出荷実績（日ごとの合計重量）：経営の数字なので管理者だけが読める。保存はサーバー（savePastShipments）だけ
     match /pastShipments/{season} {
       allow read: if isAdmin();
