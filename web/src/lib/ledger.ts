@@ -3,10 +3,12 @@
 // 帳簿（経理）：複式簿記の仕訳帳・勘定科目・試算表・損益計算書・貸借対照表・総勘定元帳。
 // - 仕訳は「借方の科目・貸方の科目・金額」の1行ずつ。月ごとに保存する（journal/{YYYY-MM}）
 // - 現金出納帳の出入りは、項目ごとに決めた勘定科目で、自動で仕訳にする（出納帳を直せば帳簿も変わる。二重に入れない）
-// - 勘定科目・出納帳の項目と科目の対応・決算月は config/accounts に保存する
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+// - レジの売上・売掛・給与からの仕訳は、サーバー（buildAutoJournal）で作って autoJournal/{YYYY-MM} に保存する
+// - 預金通帳のCSVは bank/{YYYY-MM} に取り込み、摘要の言葉ごとに決めた科目で仕訳にする
+// - 勘定科目・出納帳の項目と科目の対応・決算月・自動仕訳の科目・通帳の言葉と科目は config/accounts に保存する
+import { collection, doc, onSnapshot, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import type { CashMonth } from "./cashbook";
+import { useCashbook, type CashMonth } from "./cashbook";
 import { shiftMonth } from "./date";
 import { getFirebase } from "./firebase";
 
@@ -26,6 +28,7 @@ export const UNSORTED = "999";
 
 export const DEFAULT_ACCOUNTS: Account[] = [
   { code: CASH, name: "現金", kind: "asset" },
+  { code: "101", name: "レジ現金", kind: "asset" },
   { code: "110", name: "普通預金", kind: "asset" },
   { code: "120", name: "売掛金", kind: "asset" },
   { code: "130", name: "棚卸資産", kind: "asset" },
@@ -81,14 +84,59 @@ export const DEFAULT_ACCOUNTS: Account[] = [
 /** 消せない科目（自動の仕訳で使う） */
 export const FIXED_CODES = [CASH, OPENING, UNSORTED];
 
+/** 自動仕訳（レジの売上・売掛・給与）に使う科目。サーバー（functions/src/ledgerAuto.ts）の DEFAULT_AUTO と同じ */
+export const DEFAULT_AUTO = {
+  cashSales: "101",
+  creditSales: "120",
+  sales: "400",
+  collect: "110",
+  wages: "520",
+  officer: "521",
+  withheld: "220",
+  unpaid: "210",
+  welfare: "522",
+};
+export type AutoCodes = typeof DEFAULT_AUTO;
+export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[] = [
+  { key: "sales", label: "売上", note: "レジの売上・手で入れた売掛の相手" },
+  { key: "cashSales", label: "レジの現金売上", note: "現金で受け取った売上を入れておく科目（預金に入れたら通帳の取り込みで動く）" },
+  { key: "creditSales", label: "売掛", note: "売掛の会計・手で入れた売掛" },
+  { key: "collect", label: "売掛の入金先", note: "売掛管理で「入金済み」にしたとき、お金が入った科目" },
+  { key: "wages", label: "給料", note: "月給・時給・通勤費" },
+  { key: "officer", label: "役員報酬", note: "役員報酬" },
+  { key: "withheld", label: "天引きした分", note: "社会保険料・所得税・住民税（会社負担の社会保険料もここに入れ、納めたときに減らす）" },
+  { key: "unpaid", label: "振り込む給与", note: "手取り（通帳から振り込んだときに減らす）" },
+  { key: "welfare", label: "会社負担の社会保険料", note: "法定福利費" },
+];
+
+/** 通帳の摘要に keyword が入っていたら、code の科目にする（code が SKIP なら帳簿に入れない） */
+export type BankRule = { keyword: string; code: string };
+/** 帳簿に入れない（ほかの仕訳ですでに入っている入出金） */
+export const SKIP = "skip";
+
 export type LedgerConfig = {
   accounts: Account[];
   /** 現金出納帳の項目 → 勘定科目のコード */
   itemMap: Record<string, string>;
   /** 期首の月（1〜12）。4 なら 4月〜翌3月が1期 */
   fiscalStart: number;
+  auto: AutoCodes;
+  bankRules: BankRule[];
 };
-export const DEFAULT_CONFIG: LedgerConfig = { accounts: DEFAULT_ACCOUNTS, itemMap: {}, fiscalStart: 1 };
+export const DEFAULT_BANK_RULES: BankRule[] = [
+  { keyword: "給与", code: "210" },
+  { keyword: "社会保険", code: "220" },
+  { keyword: "厚生年金", code: "220" },
+  { keyword: "所得税", code: "220" },
+  { keyword: "住民税", code: "220" },
+  { keyword: "利息", code: "430" },
+  { keyword: "手数料", code: "531" },
+  { keyword: "電気", code: "540" },
+  { keyword: "電力", code: "540" },
+  { keyword: "水道", code: "540" },
+  { keyword: "NTT", code: "549" },
+];
+export const DEFAULT_CONFIG: LedgerConfig = { accounts: DEFAULT_ACCOUNTS, itemMap: {}, fiscalStart: 1, auto: DEFAULT_AUTO, bankRules: DEFAULT_BANK_RULES };
 
 export function useLedgerConfig() {
   const [state, setState] = useState<{ value: LedgerConfig | null; error: unknown }>({ value: null, error: null });
@@ -102,13 +150,17 @@ export function useLedgerConfig() {
         (s) => {
           if (!s.exists()) return setState({ value: DEFAULT_CONFIG, error: null });
           const accounts = (s.get("accounts") as Account[] | undefined) ?? [];
-          // 消せない科目が入っていなければ足す
-          const missing = DEFAULT_ACCOUNTS.filter((a) => FIXED_CODES.includes(a.code) && !accounts.some((b) => b.code === a.code));
+          const auto = { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
+          // 消せない科目と、自動仕訳に使う科目が入っていなければ足す（あとから足した「レジ現金」など）
+          const need = new Set([...FIXED_CODES, ...Object.values(auto)]);
+          const missing = DEFAULT_ACCOUNTS.filter((a) => need.has(a.code) && !accounts.some((b) => b.code === a.code));
           setState({
             value: {
               accounts: sortAccounts([...accounts, ...missing]),
               itemMap: (s.get("itemMap") as Record<string, string> | undefined) ?? {},
               fiscalStart: (s.get("fiscalStart") as number | undefined) ?? 1,
+              auto,
+              bankRules: (s.get("bankRules") as BankRule[] | undefined) ?? DEFAULT_BANK_RULES,
             },
             error: null,
           });
@@ -141,6 +193,11 @@ export async function saveLedgerConfig(c: LedgerConfig) {
       .map((a) => ({ code: a.code.trim().slice(0, 10), name: a.name.trim().slice(0, 40), kind: a.kind })),
     itemMap,
     fiscalStart: Math.min(12, Math.max(1, Math.round(c.fiscalStart))),
+    auto: Object.fromEntries(Object.entries(c.auto).filter(([, v]) => codes.has(v))),
+    bankRules: c.bankRules
+      .map((r) => ({ keyword: r.keyword.trim().slice(0, 40), code: r.code }))
+      .filter((r) => r.keyword && (r.code === SKIP || codes.has(r.code)))
+      .slice(0, 300),
     updatedAt: serverTimestamp(),
   });
 }
@@ -167,8 +224,8 @@ export type Posting = {
   credit: string;
   amount: number;
   memo: string;
-  /** cash＝現金出納帳から（item は出納帳の項目）。manual＝手で入れた仕訳 */
-  source: "cash" | "manual";
+  /** cash＝現金出納帳から（item は出納帳の項目）。manual＝手で入れた仕訳。auto＝レジ・売掛・給与から。bank＝預金通帳から */
+  source: "cash" | "manual" | "auto" | "bank";
   item?: string;
 };
 
@@ -247,17 +304,211 @@ export function manualPostings(journal: JournalMonth[], month: string): Posting[
     .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount ?? 0, memo: e.memo, source: "manual" as const }));
 }
 
-/** 現金出納帳と仕訳帳にある月（古い順） */
-export function monthsWithData(cash: CashMonth[], journal: JournalMonth[]): string[] {
-  return [...new Set([...cash.map((x) => x.month), ...journal.map((x) => x.month)])].sort();
+/** 帳簿の元になるもの全部 */
+export type Books = { cash: CashMonth[]; journal: JournalMonth[]; auto: AutoMonth[]; bank: BankMonth[] };
+
+/** 帳簿の元になるデータがある月（古い順） */
+export function monthsWithData(b: Books): string[] {
+  return [...new Set([...b.cash, ...b.journal, ...b.auto, ...b.bank].map((x) => x.month))].sort();
+}
+
+/** その月の全部の仕訳 */
+export function monthPostings(b: Books, config: LedgerConfig, month: string): Posting[] {
+  return [...cashPostings(b.cash, month, config.itemMap), ...manualPostings(b.journal, month), ...autoPostings(b.auto, month), ...bankPostings(b.bank, month, config.bankRules)];
 }
 
 /** 期間（from〜to の月、両端を含む）の全部の仕訳（日付順） */
-export function postingsInRange(cash: CashMonth[], journal: JournalMonth[], itemMap: Record<string, string>, from: string, to: string): Posting[] {
-  return monthsWithData(cash, journal)
+export function postingsInRange(b: Books, config: LedgerConfig, from: string, to: string): Posting[] {
+  return monthsWithData(b)
     .filter((m) => m >= from && m <= to)
-    .flatMap((m) => [...cashPostings(cash, m, itemMap), ...manualPostings(journal, m)])
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .flatMap((m) => monthPostings(b, config, m))
+    .sort((x, y) => x.date.localeCompare(y.date));
+}
+
+// ---------- 自動仕訳（レジの売上・売掛・給与） ----------
+
+export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
+export type AutoMonth = { month: string; entries: AutoEntry[]; generatedAt: Date | null };
+export const AUTO_KIND_LABEL: Record<AutoEntry["kind"], string> = { sales: "レジ", receivable: "売掛", payroll: "給与" };
+
+export function autoPostings(auto: AutoMonth[], month: string): Posting[] {
+  return (auto.find((x) => x.month === month)?.entries ?? []).map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount, memo: e.memo, source: "auto" as const }));
+}
+
+export function useAutoJournal() {
+  return useMonthDocs<AutoMonth>("autoJournal", (id, d) => ({
+    month: id,
+    entries: (d.entries as AutoEntry[] | undefined) ?? [],
+    generatedAt: (d.generatedAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? null,
+  }));
+}
+
+// ---------- 預金通帳 ----------
+
+export type BankRow = {
+  date: string;
+  /** 摘要（通帳に書いてある取引の内容） */
+  desc: string;
+  deposit: number;
+  withdrawal: number;
+  balance: number | null;
+  /** どの預金の科目の行か（例 110 普通預金） */
+  account: string;
+  /** この行だけ科目を決めたとき（SKIP なら帳簿に入れない） */
+  code?: string;
+};
+export type BankMonth = { month: string; rows: BankRow[] };
+
+export function useBank() {
+  return useMonthDocs<BankMonth>("bank", (id, d) => ({ month: id, rows: (d.rows as BankRow[] | undefined) ?? [] }));
+}
+
+/** 全角・半角（ｶﾅ も）をそろえ、小文字にする */
+const normalize = (t: string) => t.normalize("NFKC").replace(/\s+/g, " ").toLowerCase();
+
+/** 摘要に合う言葉の科目（なければ null）。全角・半角（ｶﾅ も）、大文字・小文字は区別しない */
+export function ruleFor(desc: string, rules: BankRule[]): BankRule | null {
+  const d = normalize(desc);
+  return rules.find((r) => r.keyword.trim() && d.includes(normalize(r.keyword.trim()))) ?? null;
+}
+/** 通帳の行の科目（行で決めた科目 → 言葉の科目 → 未分類） */
+export const bankCodeOf = (r: BankRow, rules: BankRule[]) => r.code || ruleFor(r.desc, rules)?.code || UNSORTED;
+
+export function bankPostings(bank: BankMonth[], month: string, rules: BankRule[]): Posting[] {
+  const out: Posting[] = [];
+  for (const r of bank.find((x) => x.month === month)?.rows ?? []) {
+    const code = bankCodeOf(r, rules);
+    if (code === SKIP) continue;
+    if (r.deposit) out.push({ date: r.date, debit: r.account, credit: code, amount: r.deposit, memo: r.desc, source: "bank", item: r.desc });
+    if (r.withdrawal) out.push({ date: r.date, debit: code, credit: r.account, amount: r.withdrawal, memo: r.desc, source: "bank", item: r.desc });
+  }
+  return out;
+}
+
+const z2h = (s: string) => s.replace(/[０-９．／－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
+/** 通帳の日付（2026/10/5・2026-10-05・2026年10月5日・20261005・R8.10.5・令和8年10月5日）→ YYYY-MM-DD */
+export function parseBankDate(v: string): string | null {
+  const t = z2h(v);
+  let ymd: number[] | null = null;
+  let x: RegExpMatchArray | null;
+  if ((x = t.match(/^(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/))) ymd = [Number(x[1]), Number(x[2]), Number(x[3])];
+  else if ((x = t.match(/^(\d{4})(\d{2})(\d{2})$/))) ymd = [Number(x[1]), Number(x[2]), Number(x[3])];
+  else if ((x = t.match(/^(R|r|令和)\s*(\d{1,2})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/))) ymd = [2018 + Number(x[2]), Number(x[3]), Number(x[4])];
+  if (!ymd) return null;
+  const [y, m, d] = ymd;
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+const money = (v: string | undefined): number => {
+  const t = z2h(v ?? "").replace(/[,，\s￥¥円+]/g, "");
+  const n = Number(t);
+  return t && Number.isFinite(n) ? Math.round(n) : 0;
+};
+
+/** 通帳のCSVの列（-1 は無い） */
+export type BankColumns = { date: number; desc: number; deposit: number; withdrawal: number; balance: number; header: number };
+
+/** 見出しの行と列を探す（銀行ごとに名前が違うので、よくある名前で探す） */
+export function guessBankColumns(rows: string[][]): BankColumns | null {
+  const find = (row: string[], words: string[]) => row.findIndex((c) => words.some((w) => c.replace(/\s/g, "").includes(w)));
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const row = rows[i] ?? [];
+    const date = find(row, ["取引日", "年月日", "日付", "お取引日", "勘定日"]);
+    const deposit = find(row, ["お預り", "お預かり", "預入", "入金", "受入"]);
+    const withdrawal = find(row, ["お支払", "お引出", "引出", "出金", "払出", "支払"]);
+    if (date < 0 || (deposit < 0 && withdrawal < 0)) continue;
+    return { header: i, date, deposit, withdrawal, desc: find(row, ["摘要", "お取引内容", "取引内容", "内容", "お取引", "備考"]), balance: find(row, ["残高"]) };
+  }
+  return null;
+}
+
+/** 通帳のCSVを行にする（日付が読めない行と、入出金のない行は入れない） */
+export function readBankRows(rows: string[][], col: BankColumns, account: string): BankRow[] {
+  const out: BankRow[] = [];
+  for (const row of rows.slice(col.header + 1)) {
+    const date = parseBankDate(row[col.date] ?? "");
+    if (!date) continue;
+    const deposit = col.deposit >= 0 ? Math.abs(money(row[col.deposit])) : 0;
+    const withdrawal = col.withdrawal >= 0 ? Math.abs(money(row[col.withdrawal])) : 0;
+    if (!deposit && !withdrawal) continue;
+    const balance = col.balance >= 0 && (row[col.balance] ?? "").trim() ? money(row[col.balance]) : null;
+    out.push({ date, desc: col.desc >= 0 ? (row[col.desc] ?? "").trim().slice(0, 80) : "", deposit, withdrawal, balance, account });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * 取り込む：同じ預金の科目で、CSVの最初の日〜最後の日にある行は、CSVの行で置き換える（同じファイルを2回入れても二重にならない）。
+ * 前に行ごとに決めた科目は、日付・摘要・金額が同じ行に引き継ぐ
+ */
+export function mergeBankImport(bank: BankMonth[], rows: BankRow[], account: string): BankMonth[] {
+  if (rows.length === 0) return [];
+  const from = rows[0].date;
+  const to = rows[rows.length - 1].date;
+  const months = [...new Set(rows.map((r) => r.date.slice(0, 7)))];
+  const key = (r: BankRow) => `${r.date}|${r.desc}|${r.deposit}|${r.withdrawal}`;
+  return months.map((month) => {
+    const old = bank.find((x) => x.month === month)?.rows ?? [];
+    const replaced = old.filter((r) => r.account === account && r.date >= from && r.date <= to);
+    const codes = new Map(replaced.filter((r) => r.code).map((r) => [key(r), r.code!]));
+    const keep = old.filter((r) => !replaced.includes(r));
+    const added = rows.filter((r) => r.date.startsWith(month)).map((r) => (codes.has(key(r)) ? { ...r, code: codes.get(key(r)) } : r));
+    return { month, rows: [...keep, ...added].sort((a, b) => a.date.localeCompare(b.date)) };
+  });
+}
+
+export async function saveBankMonths(months: BankMonth[]) {
+  const { db } = await getFirebase();
+  const batch = writeBatch(db);
+  for (const m of months) {
+    const rows = m.rows.slice(0, 1000).map((r) => ({
+      date: r.date,
+      desc: r.desc.slice(0, 80),
+      deposit: Math.round(r.deposit),
+      withdrawal: Math.round(r.withdrawal),
+      balance: r.balance === null ? null : Math.round(r.balance),
+      account: r.account,
+      ...(r.code ? { code: r.code } : {}),
+    }));
+    if (rows.length === 0) batch.delete(doc(db, `bank/${m.month}`));
+    else batch.set(doc(db, `bank/${m.month}`), { rows, updatedAt: serverTimestamp() });
+  }
+  await batch.commit();
+}
+
+/** 月ごとのドキュメント（ID が YYYY-MM）を全部読む（古い順） */
+function useMonthDocs<T extends { month: string }>(name: string, read: (id: string, d: Record<string, unknown>) => T) {
+  const [state, setState] = useState<{ value: T[] | null; error: unknown }>({ value: null, error: null });
+  useEffect(() => {
+    let unsubscribe = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsubscribe = onSnapshot(
+        collection(db, name),
+        (snap) => setState({ value: snap.docs.map((d) => read(d.id, d.data())).sort((a, b) => a.month.localeCompare(b.month)), error: null }),
+        (error) => setState({ value: null, error }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name]);
+  return state;
+}
+
+/** 帳簿の元になるもの全部を読む */
+export function useBooks(): { value: Books | null; error: unknown } {
+  const cash = useCashbook();
+  const journal = useJournal();
+  const auto = useAutoJournal();
+  const bank = useBank();
+  const error = cash.error || journal.error || auto.error || bank.error;
+  if (error) return { value: null, error };
+  if (!cash.value || !journal.value || !auto.value || !bank.value) return { value: null, error: null };
+  return { value: { cash: cash.value, journal: journal.value, auto: auto.value, bank: bank.value }, error: null };
 }
 
 // ---------- 期（会計年度） ----------
@@ -317,10 +568,10 @@ export function profitOf(accounts: Account[], postings: Posting[]): number {
  * - 資産・負債・純資産は、はじめからの累計（期首の残高＋期中の動き）
  * - 収益・費用は、その期の分だけ。前の期までの利益は「繰越利益」として純資産に入れる
  */
-export function buildPeriod(cash: CashMonth[], journal: JournalMonth[], config: LedgerConfig, start: string, toMonth?: string) {
+export function buildPeriod(books: Books, config: LedgerConfig, start: string, toMonth?: string) {
   const end = toMonth ?? shiftMonth(start, 11);
-  const before = postingsInRange(cash, journal, config.itemMap, "0000-00", shiftMonth(start, -1));
-  const during = postingsInRange(cash, journal, config.itemMap, start, end);
+  const before = postingsInRange(books, config, "0000-00", shiftMonth(start, -1));
+  const during = postingsInRange(books, config, start, end);
   const accounts = config.accounts;
   const beforeT = totalsByAccount(before);
   const duringT = totalsByAccount(during);
@@ -345,9 +596,9 @@ export function buildPeriod(cash: CashMonth[], journal: JournalMonth[], config: 
 }
 
 /** 月ごとの科目別の金額（損益計算書の月別の表に使う。収益は貸方−借方、費用は借方−貸方） */
-export function monthlyAmounts(cash: CashMonth[], journal: JournalMonth[], config: LedgerConfig, months: string[]) {
+export function monthlyAmounts(books: Books, config: LedgerConfig, months: string[]) {
   return months.map((m) => {
-    const t = totalsByAccount(postingsInRange(cash, journal, config.itemMap, m, m));
+    const t = totalsByAccount(postingsInRange(books, config, m, m));
     const byCode = new Map<string, number>();
     for (const [code, v] of t) byCode.set(code, balanceOf(accountOf(config.accounts, code).kind, v));
     return byCode;

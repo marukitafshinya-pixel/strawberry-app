@@ -11,6 +11,7 @@ export const yen = (n: number) => n.toLocaleString("ja-JP");
 
 const TABS = [
   { href: "/staff/ledger/", label: "仕訳帳" },
+  { href: "/staff/ledger/bank/", label: "預金通帳" },
   { href: "/staff/ledger/reports/", label: "決算書・元帳" },
   { href: "/staff/ledger/accounts/", label: "勘定科目" },
 ];

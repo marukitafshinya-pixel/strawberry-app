@@ -4,8 +4,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { errorText } from "@/lib/callFunction";
-import { useCashbook, type CashMonth } from "@/lib/cashbook";
+import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
@@ -19,11 +18,11 @@ import {
   monthlyAmounts,
   monthsWithData,
   UNSORTED,
-  useJournal,
+  useBooks,
   useLedgerConfig,
   type Account,
   type AccountKind,
-  type JournalMonth,
+  type Books,
   type LedgerConfig,
 } from "@/lib/ledger";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
@@ -36,32 +35,32 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "tb", label: "試算表" },
   { key: "gl", label: "総勘定元帳" },
 ];
+const SOURCE_LABEL = { cash: "出納帳", auto: "自動", bank: "通帳", manual: "" };
 const mo = (ym: string) => `${Number(ym.slice(5))}月`;
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 const B = (v: string | number | null, o: { num?: boolean; bold?: boolean; left?: boolean } = {}): XCell => ({ v, border: true, ...o });
 
 export default function ReportsPage() {
   const { role } = useAuth();
-  const { value: cash, error: e1 } = useCashbook();
-  const { value: journal, error: e2 } = useJournal();
+  const { value: books, error: e1 } = useBooks();
   const { value: config, error: e3 } = useLedgerConfig();
   if (!canUseLedger(role)) return <p>この画面は管理者と経理担当だけが使えます。</p>;
-  const error = e1 || e2 || e3;
+  const error = e1 || e3;
   return (
     <div className="pb-24">
       <LedgerHeader title="決算書・元帳" />
       {error ? (
         <p className="mt-4 text-red-600">{errorText(error)}</p>
-      ) : !cash || !journal || !config ? (
+      ) : !books || !config ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Reports cash={cash} journal={journal} config={config} />
+        <Reports books={books} config={config} />
       )}
     </div>
   );
 }
 
-function Reports({ cash, journal, config }: { cash: CashMonth[]; journal: JournalMonth[]; config: LedgerConfig }) {
+function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
   const thisMonth = todayJST().slice(0, 7);
   const [start, setStart] = useState(() => fiscalStartOf(thisMonth, config.fiscalStart));
   // 決算月を変えたら、期のはじまりも合わせる
@@ -73,10 +72,10 @@ function Reports({ cash, journal, config }: { cash: CashMonth[]; journal: Journa
   const [tab, setTab] = useState<Tab>("pl");
   const [glCode, setGlCode] = useState(CASH);
 
-  const period = buildPeriod(cash, journal, config, fixedStart, end);
+  const period = buildPeriod(books, config, fixedStart, end);
   const unsorted = period.during.filter((p) => p.debit === UNSORTED || p.credit === UNSORTED).length;
   // 選べる期：データのある期と、いまの期
-  const starts = [...new Set([...monthsWithData(cash, journal), thisMonth].map((m) => fiscalStartOf(m, config.fiscalStart)))].sort().reverse();
+  const starts = [...new Set([...monthsWithData(books), thisMonth].map((m) => fiscalStartOf(m, config.fiscalStart)))].sort().reverse();
   const title = `${fiscalLabel(fixedStart)}${end !== months[11] ? `（${mo(end)}まで）` : ""}`;
 
   return (
@@ -106,13 +105,14 @@ function Reports({ cash, journal, config }: { cash: CashMonth[]; journal: Journa
           まで
         </label>
         <span className="flex-1" />
+        <Regenerate months={months.filter((m) => m <= end && m <= thisMonth)} />
         <button onClick={() => window.print()} className="rounded-lg border bg-white px-3 py-2 text-sm">
           🖨 印刷
         </button>
       </div>
       {unsorted > 0 && (
         <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900 print:hidden">
-          この期に、科目が決まっていない出納帳の行が {unsorted} 行あります（「未分類」の費用として数えています）。
+          この期に、科目が決まっていない出納帳・通帳の行が {unsorted} 行あります（「未分類」の費用として数えています）。
           <Link href="/staff/ledger/accounts/" className="ml-1 font-bold underline">
             科目を決める
           </Link>
@@ -130,7 +130,7 @@ function Reports({ cash, journal, config }: { cash: CashMonth[]; journal: Journa
         ))}
       </nav>
       <div className="mt-4">
-        {tab === "pl" && <ProfitLoss cash={cash} journal={journal} config={config} months={months.filter((m) => m <= end)} title={title} />}
+        {tab === "pl" && <ProfitLoss books={books} config={config} months={months.filter((m) => m <= end)} title={title} />}
         {tab === "bs" && <BalanceSheet period={period} title={title} />}
         {tab === "tb" && <TrialBalance period={period} title={title} />}
         {tab === "gl" && <GeneralLedger period={period} accounts={config.accounts} code={glCode} setCode={setGlCode} title={title} />}
@@ -140,6 +140,34 @@ function Reports({ cash, journal, config }: { cash: CashMonth[]; journal: Journa
 }
 
 type Period = ReturnType<typeof buildPeriod>;
+
+/** この期のレジ・売掛・給与の自動仕訳を、月ごとに作り直す */
+function Regenerate({ months }: { months: string[] }) {
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  async function run() {
+    setMsg("");
+    try {
+      for (const m of months) {
+        setBusy(mo(m));
+        await callFunction("buildAutoJournal", { month: m });
+      }
+      setMsg("作り直しました");
+    } catch (e) {
+      setMsg(errorText(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  return (
+    <span className="flex items-center gap-2 text-sm">
+      {msg && <span className="text-gray-600">{msg}</span>}
+      <button onClick={run} disabled={!!busy || months.length === 0} className="rounded-lg border border-berry bg-white px-3 py-2 text-berry disabled:opacity-50">
+        {busy ? `${busy}を作っています…` : "🔄 レジ・給与の仕訳を作り直す"}
+      </button>
+    </span>
+  );
+}
 
 function ExcelButton({ onClick }: { onClick: () => void }) {
   return (
@@ -162,8 +190,8 @@ function Heading({ name, title, onExcel }: { name: string; title: string; onExce
 }
 
 /** 損益計算書：収益・費用の科目ごとに、月別と期の合計 */
-function ProfitLoss({ cash, journal, config, months, title }: { cash: CashMonth[]; journal: JournalMonth[]; config: LedgerConfig; months: string[]; title: string }) {
-  const byMonth = monthlyAmounts(cash, journal, config, months);
+function ProfitLoss({ books, config, months, title }: { books: Books; config: LedgerConfig; months: string[]; title: string }) {
+  const byMonth = monthlyAmounts(books, config, months);
   const codesOf = (kind: AccountKind) =>
     [...new Set(byMonth.flatMap((m) => [...m.keys()]))]
       .map((c) => accountOf(config.accounts, c))
@@ -453,7 +481,7 @@ function GeneralLedger({ period, accounts, code, setCode, title }: { period: Per
                 <td className="px-2">{name(l.other)}</td>
                 <td className="px-2">
                   {l.memo}
-                  {l.source === "cash" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">出納帳</span>}
+                  {l.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[l.source]}</span>}
                 </td>
                 <td className="px-2 text-right">{l.debit ? yen(l.debit) : ""}</td>
                 <td className="px-2 text-right">{l.credit ? yen(l.credit) : ""}</td>

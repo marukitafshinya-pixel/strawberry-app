@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeEach, describe, it } from "vitest";
 
 let env: RulesTestEnvironment;
@@ -785,5 +785,27 @@ describe("経理担当（現金出納帳を見る・帳簿をつける）", () =
     await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, itemMap: [] }));
     await assertFails(getDoc(doc(staff(), "config/accounts")));
     await assertFails(setDoc(doc(accOff(), "config/accounts"), config));
+    await assertSucceeds(setDoc(doc(acc(), "config/accounts"), { ...config, auto: { sales: "400" }, bankRules: [{ keyword: "給与", code: "210" }] }));
+    await assertFails(setDoc(doc(acc(), "config/accounts"), { ...config, bankRules: "x" }));
+
+    // 自動仕訳は見るだけ（作るのはサーバー）
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "autoJournal/2026-10"), { entries: [] });
+    });
+    await assertSucceeds(getDoc(doc(acc(), "autoJournal/2026-10")));
+    await assertSucceeds(getDoc(doc(admin(), "autoJournal/2026-10")));
+    await assertFails(setDoc(doc(acc(), "autoJournal/2026-10"), { entries: [] }));
+    await assertFails(setDoc(doc(admin(), "autoJournal/2026-10"), { entries: [] }));
+    await assertFails(getDoc(doc(staff(), "autoJournal/2026-10")));
+
+    // 預金通帳
+    const row = { date: "2026-10-05", desc: "ﾃﾞﾝｷﾀﾞｲ", deposit: 0, withdrawal: 5400, balance: 100000, account: "110" };
+    await assertSucceeds(setDoc(doc(acc(), "bank/2026-10"), { rows: [row] }));
+    await assertSucceeds(getDoc(doc(admin(), "bank/2026-10")));
+    await assertSucceeds(deleteDoc(doc(acc(), "bank/2026-10")));
+    await assertFails(setDoc(doc(acc(), "bank/2026-10"), { rows: [row], x: 1 }));
+    await assertFails(setDoc(doc(acc(), "bank/202610"), { rows: [] }));
+    await assertFails(getDoc(doc(staff(), "bank/2026-10")));
+    await assertFails(setDoc(doc(accOff(), "bank/2026-10"), { rows: [] }));
   });
 });

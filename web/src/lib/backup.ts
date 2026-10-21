@@ -22,6 +22,8 @@ export const BACKUP_COLLECTIONS = [
   "cashCounts",
   "cashbook",
   "journal",
+  "autoJournal",
+  "bank",
   "itemReferences",
   "storeDaily",
   "shipments",

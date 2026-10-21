@@ -282,11 +282,26 @@ service cloud.firestore {
         && request.resource.data.entries is list && request.resource.data.entries.size() <= 500;
       allow delete: if isAdmin() || isAccounting();
     }
-    // 帳簿の勘定科目・決算月・現金出納帳の項目と科目の対応：管理者と経理担当
+    // 帳簿の自動仕訳（レジの売上・売掛・給与から）：管理者と経理担当が見る。作るのはサーバー（buildAutoJournal）だけ
+    match /autoJournal/{month} {
+      allow read: if isAdmin() || isAccounting();
+    }
+    // 取り込んだ預金通帳の入出金（月ごと）：管理者と経理担当
+    match /bank/{month} {
+      allow read: if isAdmin() || isAccounting();
+      allow write: if (isAdmin() || isAccounting())
+        && month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['rows', 'updatedAt'])
+        && request.resource.data.rows is list && request.resource.data.rows.size() <= 1000;
+      allow delete: if isAdmin() || isAccounting();
+    }
+    // 帳簿の勘定科目・決算月・現金出納帳の項目と科目の対応・自動仕訳の科目・通帳の言葉と科目：管理者と経理担当
     match /config/accounts {
       allow read: if isAdmin() || isAccounting();
       allow write: if (isAdmin() || isAccounting())
-        && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'auto', 'bankRules', 'updatedAt'])
+        && (!('auto' in request.resource.data) || (request.resource.data.auto is map && request.resource.data.auto.size() <= 20))
+        && (!('bankRules' in request.resource.data) || (request.resource.data.bankRules is list && request.resource.data.bankRules.size() <= 300))
         && request.resource.data.accounts is list && request.resource.data.accounts.size() <= 300
         && request.resource.data.itemMap is map && request.resource.data.itemMap.size() <= 1000
         && request.resource.data.fiscalStart is int

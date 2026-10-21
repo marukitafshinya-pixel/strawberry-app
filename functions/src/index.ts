@@ -15,6 +15,7 @@ export { saveGoveeKey, pollGovee, pollGoveeNow } from "./govee.js";
 export { refreshForecast } from "./forecast.js";
 export { refreshTempDiff } from "./tempDiff.js";
 export { viewPayroll } from "./payrollView.js";
+export { buildAutoJournal } from "./ledgerAuto.js";
 export { refreshHarvestSpeeds, harvestHelpHouse } from "./harvest.js";
 
 async function countActiveAdmins(): Promise<number> {

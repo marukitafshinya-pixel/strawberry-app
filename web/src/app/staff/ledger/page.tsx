@@ -7,21 +7,24 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { errorText } from "@/lib/callFunction";
-import { useCashbook, type CashMonth } from "@/lib/cashbook";
+import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
+  autoPostings,
+  bankPostings,
   cashPostings,
   emptyJournal,
   isBlankJournal,
   journalProblem,
   saveJournalMonth,
   UNSORTED,
-  useJournal,
+  useBooks,
   useLedgerConfig,
   type JournalEntry,
-  type JournalMonth,
+  type AutoMonth,
+  type Books,
+  type Posting,
   type LedgerConfig,
 } from "@/lib/ledger";
 import { reiwa } from "@/lib/payroll";
@@ -48,13 +51,12 @@ function JournalView() {
   const q = params.get("month");
   const month = q && /^\d{4}-\d{2}$/.test(q) ? q : todayJST().slice(0, 7);
   const setMonth = (m: string) => router.replace(`/staff/ledger/?month=${m}`);
-  const { value: cash, error: e1 } = useCashbook();
-  const { value: journal, error: e2 } = useJournal();
+  const { value: books, error: e1 } = useBooks();
   const { value: config, error: e3 } = useLedgerConfig();
   const [y, m] = month.split("-").map(Number);
 
   if (!canUseLedger(role)) return <p>この画面は管理者と経理担当だけが使えます。</p>;
-  const error = e1 || e2 || e3;
+  const error = e1 || e3;
   return (
     <div className="pb-24">
       <LedgerHeader title="仕訳帳" />
@@ -77,19 +79,19 @@ function JournalView() {
       </div>
       {error ? (
         <p className="mt-4 text-red-600">{errorText(error)}</p>
-      ) : !cash || !journal || !config ? (
+      ) : !books || !config ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Editor key={month} month={month} cash={cash} journal={journal} config={config} />
+        <Editor key={month} month={month} books={books} config={config} />
       )}
     </div>
   );
 }
 
-function Editor({ month, cash, journal, config }: { month: string; cash: CashMonth[]; journal: JournalMonth[]; config: LedgerConfig }) {
+function Editor({ month, books, config }: { month: string; books: Books; config: LedgerConfig }) {
   const today = todayJST();
   const defaultDate = today.startsWith(month) ? today : `${month}-01`;
-  const saved = journal.find((x) => x.month === month)?.entries ?? [];
+  const saved = books.journal.find((x) => x.month === month)?.entries ?? [];
   const [entries, setEntries] = useState<JournalEntry[]>(() => withBlankRow(saved, defaultDate));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,8 +107,9 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
 
   const { accounts } = config;
   const name = (code: string) => accountOf(accounts, code).name;
-  const fromCash = cashPostings(cash, month, config.itemMap);
-  const unsorted = fromCash.filter((p) => p.debit === UNSORTED || p.credit === UNSORTED);
+  const fromCash = cashPostings(books.cash, month, config.itemMap);
+  const fromAuto = autoPostings(books.auto, month);
+  const fromBank = bankPostings(books.bank, month, config.bankRules);
   const change = (next: JournalEntry[]) => {
     // 次の空の行は、直前の行と同じ日付にしておく（続けて入れやすいように）
     const body = next.filter((e) => !isBlankJournal(e));
@@ -118,7 +121,8 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
   const problems = entries.map((e) => journalProblem(e, month));
   const hasProblem = problems.some(Boolean);
   const manualTotal = entries.reduce((n, e) => n + (isBlankJournal(e) ? 0 : (e.amount ?? 0)), 0);
-  const cashTotal = fromCash.reduce((n, p) => n + p.amount, 0);
+  const autoAll = [...fromAuto, ...fromBank, ...fromCash];
+  const autoTotal = autoAll.reduce((n, p) => n + p.amount, 0);
 
   async function save() {
     setErr("");
@@ -138,7 +142,7 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
   function exportExcel() {
     const B = (v: string | number | null, o: { num?: boolean; bold?: boolean; left?: boolean } = {}): XCell => ({ v, border: true, ...o });
     const all = [
-      ...fromCash.map((p) => ({ ...p, from: "出納帳" })),
+      ...autoAll.map((p) => ({ ...p, from: p.source === "cash" ? "出納帳" : p.source === "bank" ? "通帳" : "自動" })),
       ...entries.filter((e) => !isBlankJournal(e)).map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount ?? 0, memo: e.memo, from: "" })),
     ].sort((a, b) => a.date.localeCompare(b.date));
     const rows: XCell[][] = [
@@ -146,7 +150,7 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
       [],
       ["日付", "借方科目", "貸方科目", "金額", "摘要", "元"].map((h) => B(h)),
       ...all.map((p) => [B(md(p.date)), B(name(p.debit), { left: true }), B(name(p.credit), { left: true }), B(p.amount, { num: true }), B(p.memo, { left: true }), B(p.from)]),
-      [B("合計", { bold: true }), B(null), B(null), B(cashTotal + manualTotal, { num: true, bold: true }), B(null), B(null)],
+      [B("合計", { bold: true }), B(null), B(null), B(autoTotal + manualTotal, { num: true, bold: true }), B(null), B(null)],
     ];
     downloadXlsx(`journal_${month}.xlsx`, month, rows, [8, 16, 16, 12, 40, 8]);
   }
@@ -238,6 +242,18 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
         {err && <span className="text-sm text-red-600">{err}</span>}
       </div>
 
+      <AutoSection month={month} auto={books.auto.find((x) => x.month === month)} postings={fromAuto} name={name} />
+
+      <h2 className="mt-8 font-bold">預金通帳からの仕訳（自動）</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        <Link href={`/staff/ledger/bank/?month=${month}`} className="underline">
+          預金通帳
+        </Link>
+        の画面で取り込んだ入出金です。科目は摘要の言葉で決まります。
+      </p>
+      <Unsorted count={fromBank.filter(isUnsorted).length} href={`/staff/ledger/bank/?month=${month}`} />
+      <PostingTable postings={fromBank} name={name} empty="この月の通帳の取り込みはありません。" />
+
       <h2 className="mt-8 font-bold">現金出納帳からの仕訳（自動）</h2>
       <p className="mt-1 text-xs text-gray-500">
         出納帳の「項目」ごとに、
@@ -246,54 +262,110 @@ function Editor({ month, cash, journal, config }: { month: string; cash: CashMon
         </Link>
         の画面で決めた科目で仕訳にしています。直すときは出納帳か、科目の対応を直してください。
       </p>
-      {unsorted.length > 0 && (
-        <p className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">
-          科目が決まっていない項目が {unsorted.length} 行あります（「未分類」になっています）。
-          <Link href="/staff/ledger/accounts/" className="ml-1 font-bold underline">
-            科目を決める
-          </Link>
-        </p>
-      )}
-      {fromCash.length === 0 ? (
-        <p className="mt-2 text-sm text-gray-500">この月の現金出納帳はありません。</p>
-      ) : (
-        <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
-          <table className="w-full min-w-[44rem] text-sm tabular-nums">
-            <thead className="bg-gray-50 text-xs text-gray-600">
-              <tr>
-                <th className="w-16 px-2 py-2 text-left">日付</th>
-                <th className="px-2 py-2 text-left">借方</th>
-                <th className="px-2 py-2 text-left">貸方</th>
-                <th className="w-28 px-2 py-2 text-right">金額</th>
-                <th className="px-2 py-2 text-left">摘要</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fromCash.map((p, i) => {
-                const bad = p.debit === UNSORTED || p.credit === UNSORTED;
-                return (
-                  <tr key={i} className={`border-t ${bad ? "bg-amber-50" : ""}`}>
-                    <td className="px-2 py-1.5">{md(p.date)}</td>
-                    <td className={`px-2 ${p.debit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.debit)}</td>
-                    <td className={`px-2 ${p.credit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.credit)}</td>
-                    <td className="px-2 text-right">{yen(p.amount)}</td>
-                    <td className="px-2 py-1.5">{p.memo}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot className="border-t-2 bg-gray-50 font-bold">
-              <tr>
-                <td colSpan={3} className="px-2 py-2">
-                  合計
-                </td>
-                <td className="px-2 text-right">{yen(cashTotal)}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
+      <Unsorted count={fromCash.filter(isUnsorted).length} href="/staff/ledger/accounts/" />
+      <PostingTable postings={fromCash} name={name} empty="この月の現金出納帳はありません。" />
     </>
+  );
+}
+
+const isUnsorted = (p: Posting) => p.debit === UNSORTED || p.credit === UNSORTED;
+
+function Unsorted({ count, href }: { count: number; href: string }) {
+  if (!count) return null;
+  return (
+    <p className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">
+      科目が決まっていない行が {count} 行あります（「未分類」になっています）。
+      <Link href={href} className="ml-1 font-bold underline">
+        科目を決める
+      </Link>
+    </p>
+  );
+}
+
+/** レジの売上・売掛・給与からの仕訳。開いたときに、その月の分を作り直す（売上や給与が変わっていても合うように） */
+function AutoSection({ month, auto, postings, name }: { month: string; auto: AutoMonth | undefined; postings: Posting[]; name: (c: string) => string }) {
+  const future = month > todayJST().slice(0, 7);
+  const [busy, setBusy] = useState(!future);
+  const [err, setErr] = useState("");
+  async function run() {
+    setErr("");
+    setBusy(true);
+    try {
+      await callFunction("buildAutoJournal", { month });
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (future) return;
+    callFunction("buildAutoJournal", { month })
+      .catch((e) => setErr(errorText(e)))
+      .finally(() => setBusy(false));
+  }, [month, future]);
+  return (
+    <>
+      <div className="mt-8 flex flex-wrap items-center gap-3">
+        <h2 className="font-bold">レジの売上・売掛・給与からの仕訳（自動）</h2>
+        <button onClick={run} disabled={busy} className="rounded-lg border border-berry bg-white px-3 py-1 text-sm text-berry disabled:opacity-50 print:hidden">
+          {busy ? "作っています…" : "🔄 作り直す"}
+        </button>
+        {auto?.generatedAt && !busy && (
+          <span className="text-xs text-gray-500">
+            {auto.generatedAt.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に作成
+          </span>
+        )}
+        {err && <span className="text-sm text-red-600">{err}</span>}
+      </div>
+      <p className="mt-1 text-xs text-gray-500">
+        レジの会計（現金・売掛）、売掛管理（手で入れた売掛・入金）、給与（支給日の月）から作ります。使う科目は
+        <Link href="/staff/ledger/accounts/" className="underline">
+          勘定科目
+        </Link>
+        の画面で変えられます。
+      </p>
+      <PostingTable postings={postings} name={name} empty={busy ? "作っています…" : "この月のレジの売上・給与はありません。"} />
+    </>
+  );
+}
+
+function PostingTable({ postings, name, empty }: { postings: Posting[]; name: (c: string) => string; empty: string }) {
+  if (postings.length === 0) return <p className="mt-2 text-sm text-gray-500">{empty}</p>;
+  const total = postings.reduce((n, p) => n + p.amount, 0);
+  return (
+    <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
+      <table className="w-full min-w-[44rem] text-sm tabular-nums">
+        <thead className="bg-gray-50 text-xs text-gray-600">
+          <tr>
+            <th className="w-16 px-2 py-2 text-left">日付</th>
+            <th className="px-2 py-2 text-left">借方</th>
+            <th className="px-2 py-2 text-left">貸方</th>
+            <th className="w-28 px-2 py-2 text-right">金額</th>
+            <th className="px-2 py-2 text-left">摘要</th>
+          </tr>
+        </thead>
+        <tbody>
+          {postings.map((p, i) => (
+            <tr key={i} className={`border-t ${isUnsorted(p) ? "bg-amber-50" : ""}`}>
+              <td className="px-2 py-1.5">{md(p.date)}</td>
+              <td className={`px-2 ${p.debit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.debit)}</td>
+              <td className={`px-2 ${p.credit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.credit)}</td>
+              <td className="px-2 text-right">{yen(p.amount)}</td>
+              <td className="px-2 py-1.5">{p.memo}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="border-t-2 bg-gray-50 font-bold">
+          <tr>
+            <td colSpan={3} className="px-2 py-2">
+              合計
+            </td>
+            <td className="px-2 text-right">{yen(total)}</td>
+            <td />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }

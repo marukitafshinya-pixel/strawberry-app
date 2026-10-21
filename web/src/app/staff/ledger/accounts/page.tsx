@@ -6,12 +6,15 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { useCashbook, type CashMonth } from "@/lib/cashbook";
 import {
+  AUTO_LABELS,
   cashItemsUsage,
   DEFAULT_ACCOUNTS,
+  DEFAULT_AUTO,
   FIXED_CODES,
   KIND_LABEL,
   KINDS,
   saveLedgerConfig,
+  SKIP,
   sortAccounts,
   UNSORTED,
   useLedgerConfig,
@@ -67,7 +70,8 @@ function Editor({ initial, cash }: { initial: LedgerConfig; cash: CashMonth[] })
   const isSorted = (item: string) => !!c.itemMap[item] && c.itemMap[item] !== UNSORTED;
   const unsortedCount = usage.filter((u) => !isSorted(u.item)).length;
   const shown = onlyUnsorted ? usage.filter((u) => !isSorted(u.item)) : usage;
-  const usedCodes = new Set(Object.values(c.itemMap));
+  const usedCodes = new Set([...Object.values(c.itemMap), ...c.bankRules.map((r) => r.code)]);
+  const autoCodes = new Set(Object.values(c.auto));
 
   const addProblem = !add.code.trim()
     ? ""
@@ -109,6 +113,26 @@ function Editor({ initial, cash }: { initial: LedgerConfig; cash: CashMonth[] })
           </select>
           <span className="text-gray-500">（決算は {c.fiscalStart === 1 ? 12 : c.fiscalStart - 1}月）</span>
         </label>
+      </section>
+
+      <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
+        <h2 className="font-bold">レジの売上・売掛・給与の仕訳に使う科目</h2>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {AUTO_LABELS.map((x) => (
+            <label key={x.key} className="text-sm">
+              <span className="font-semibold">{x.label}</span>
+              <AccountSelect
+                accounts={c.accounts.filter((a) => a.code !== UNSORTED)}
+                value={c.auto[x.key]}
+                label={x.label}
+                onChange={(v) => v && update({ auto: { ...c.auto, [x.key]: v } })}
+                className="mt-0.5 w-full"
+              />
+              <span className="text-xs text-gray-500">{x.note}</span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-gray-500">変えたら、仕訳帳か決算書の画面で「作り直す」を押すと、前の月にも使われます。</p>
       </section>
 
       <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
@@ -171,7 +195,7 @@ function Editor({ initial, cash }: { initial: LedgerConfig; cash: CashMonth[] })
 
       <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">勘定科目の一覧</h2>
-        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」は自動の仕訳で使うので消せません。</p>
+        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」と、レジ・給与の仕訳に使っている科目は消せません。</p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[32rem] text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
@@ -199,16 +223,17 @@ function Editor({ initial, cash }: { initial: LedgerConfig; cash: CashMonth[] })
                     <KindSelect value={a.kind} disabled={FIXED_CODES.includes(a.code)} onChange={(k) => setAccount(a.code, { kind: k })} label={`${a.code}の種類`} />
                   </td>
                   <td className="px-1 text-center">
-                    {!FIXED_CODES.includes(a.code) && (
+                    {!FIXED_CODES.includes(a.code) && !autoCodes.has(a.code) && (
                       <button
                         onClick={() => {
                           const msg = usedCodes.has(a.code)
-                            ? `「${a.name}」は出納帳の項目に使っています。消すと、その項目は未分類になります。消しますか？`
+                            ? `「${a.name}」は出納帳の項目か通帳の言葉に使っています。消すと、それは未分類になります。消しますか？`
                             : `「${a.name}」を消しますか？（この科目の仕訳は「未登録」として残ります）`;
                           if (!window.confirm(msg)) return;
                           update({
                             accounts: c.accounts.filter((b) => b.code !== a.code),
                             itemMap: Object.fromEntries(Object.entries(c.itemMap).filter(([, v]) => v !== a.code)),
+                            bankRules: c.bankRules.filter((r) => r.code !== a.code),
                           });
                         }}
                         className="px-1 text-gray-400 hover:text-red-600"
@@ -271,9 +296,14 @@ function Editor({ initial, cash }: { initial: LedgerConfig; cash: CashMonth[] })
         </div>
         <button
           onClick={() => {
-            if (!window.confirm("勘定科目をはじめの一覧に戻しますか？（出納帳の項目との対応と決算月はそのまま）")) return;
+            if (!window.confirm("勘定科目と、レジ・給与の仕訳に使う科目を、はじめのものに戻しますか？（出納帳の項目との対応と決算月はそのまま）")) return;
             const codes = new Set(DEFAULT_ACCOUNTS.map((a) => a.code));
-            update({ accounts: DEFAULT_ACCOUNTS, itemMap: Object.fromEntries(Object.entries(c.itemMap).filter(([, v]) => codes.has(v))) });
+            update({
+              accounts: DEFAULT_ACCOUNTS,
+              itemMap: Object.fromEntries(Object.entries(c.itemMap).filter(([, v]) => codes.has(v))),
+              auto: DEFAULT_AUTO,
+              bankRules: c.bankRules.filter((r) => r.code === SKIP || codes.has(r.code)),
+            });
           }}
           className="mt-3 text-sm text-gray-500 underline"
         >
