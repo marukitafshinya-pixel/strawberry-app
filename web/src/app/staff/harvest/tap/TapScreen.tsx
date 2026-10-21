@@ -3,7 +3,7 @@
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { announce, DimScreen, unlockSound, useIdleDim, useWakeLock, voiceTest } from "@/lib/announce";
+import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings, voiceTest } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
@@ -266,7 +266,7 @@ export function TapScreen({
     if (preview) return;
     if (allDone) {
       // 全部のハウスが終わった（自分で最後に押したときも、ほかの人が最後に終えたときも）
-      if (!doneSaid.current) announce("収穫作業はすべて終わりました。おつかれさまでした。", { chime: afterOut.current == null });
+      if (!doneSaid.current) announce(SAY.done, { sound: "done" });
       doneSaid.current = true;
       afterOut.current = null;
       return;
@@ -276,11 +276,11 @@ export function TapScreen({
     if (out != null) {
       // 「終わった」のあと：次のハウス（予定・応援先）がわかったら読み上げる
       if (target != null && target !== out && (!free || helpNow != null)) {
-        announce(`${out}番、おつかれさまです。次は${target}番ハウス、お願いします！`);
+        announce(SAY.out(out, target), { sound: "out" });
         afterOut.current = null;
         spoken.current = target;
       } else if (free && helpNow != null && helpHouse == null) {
-        announce(`${out}番、おつかれさまです。`);
+        announce(SAY.outOnly(out), { sound: "out" });
         afterOut.current = null;
         spoken.current = null;
       }
@@ -288,8 +288,8 @@ export function TapScreen({
     }
     if (!free || inNow || isChosen || helpHouse == null || helpHouse === spoken.current) return;
     // 向かっている途中で応援先が変わった・待っている間に応援先が決まった
-    const text = spoken.current ? `応援先が変更になりました。${helpHouse}番へ向かってください。` : `応援をお願いします。${helpHouse}番へ向かってください。`;
-    announce(text, { chime: true, vibrate: true });
+    const text = spoken.current ? SAY.change(helpHouse) : SAY.help(helpHouse);
+    announce(text, { sound: "change", vibrate: true });
     spoken.current = helpHouse;
     setTimeout(() => setNotice(spoken.current === helpHouse ? text : null), 0);
   }, [preview, allDone, target, free, helpNow, helpHouse, inNow, isChosen]);
@@ -416,7 +416,7 @@ export function TapScreen({
                 await tapIn(target);
                 setChosen(null);
                 if (!preview) {
-                  announce(`${target}番ハウス、収穫がんばってください！`);
+                  announce(SAY.in(target), { sound: "in" });
                   spoken.current = null;
                 }
               })
@@ -460,6 +460,7 @@ export function TapScreen({
           <Link href="/staff/harvest/tap/practice/" className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
             🎓 練習モード
           </Link>
+          <VoiceSettings />
         </div>
       )}
     </div>

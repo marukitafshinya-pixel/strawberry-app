@@ -4,7 +4,7 @@
 // 流れ：予定のハウス（1番→2番）→ 応援（3番。向かっている途中に「応援先を変える」で4番に変わる）→ 全部終わる
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { announce, DimScreen, unlockSound, useIdleDim, useWakeLock } from "@/lib/announce";
+import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings } from "@/lib/announce";
 
 const PLANNED = ["1", "2"];
 const HELP_FIRST = "3";
@@ -28,7 +28,7 @@ export default function PracticePage() {
   function tapIn() {
     if (done || step.inNow) return;
     setStep({ ...step, inNow: true });
-    announce(`${step.house}番ハウス、収穫がんばってください！`);
+    announce(SAY.in(step.house), { sound: "in" });
   }
   function tapOut() {
     if (done) return;
@@ -36,22 +36,22 @@ export default function PracticePage() {
     if (step.kind === "plan" && PLANNED.indexOf(h) < PLANNED.length - 1) {
       const next = PLANNED[PLANNED.indexOf(h) + 1];
       setStep({ house: next, kind: "plan", inNow: false });
-      announce(`${h}番、おつかれさまです。次は${next}番ハウス、お願いします！`);
+      announce(SAY.out(h, next), { sound: "out" });
     } else if (step.kind === "plan") {
       setStep({ house: HELP_FIRST, kind: "help", inNow: false });
-      announce(`${h}番、おつかれさまです。次は${HELP_FIRST}番ハウス、お願いします！`);
+      announce(SAY.out(h, HELP_FIRST), { sound: "out" });
     } else {
       setStep({ done: true });
-      announce("収穫作業はすべて終わりました。おつかれさまでした。");
+      announce(SAY.done, { sound: "done" });
     }
   }
   /** 向かっている途中に応援先が変わったことにする */
   function changeHelp() {
     if (done || step.kind !== "help" || step.inNow) return;
     const to = step.house === HELP_FIRST ? HELP_CHANGED : HELP_FIRST;
-    const text = `応援先が変更になりました。${to}番へ向かってください。`;
+    const text = SAY.change(to);
     setStep({ house: to, kind: "help", inNow: false });
-    announce(text, { chime: true, vibrate: true });
+    announce(text, { sound: "change", vibrate: true });
     setNotice(text);
   }
 
@@ -113,6 +113,9 @@ export default function PracticePage() {
           )}
         </>
       )}
+      <div className="flex justify-center">
+        <VoiceSettings />
+      </div>
       <p className="text-sm text-gray-500">
         練習の流れ：1番 → 2番（予定のハウス）→
         3番（応援）。応援に向かっている途中で「応援先が変わったことにする」を押すと、音と声と黄色い画面で知らせます。音量は携帯の音量（音楽・動画の音量）で変わります。

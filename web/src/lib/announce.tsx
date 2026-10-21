@@ -1,18 +1,21 @@
 "use client";
 
-// 収穫報告の音声案内：知らせの音（ピンポン）・読み上げ（携帯に入っている日本語の声）・振動（Android）、画面を消さない。
+// 収穫報告の音声案内：効果音・読み上げ（携帯に入っている日本語の声を、高め・少し速めで若く楽しく）・振動（Android）、画面を消さない。
 // 携帯のブラウザは、画面を一度押したあとでないと音や声を出せないので、最初に押したときに unlockSound() を呼ぶ
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-/** 知らせの音（ピン・ポンの2つの高さ）を作る。外から音のファイルを読まないので、電波が弱くても鳴る */
-function chimeUrl(): string {
+/** 効果音の種類：in＝入った（ピロリン↑）、out＝終わった（ピンポンピンポン）、done＝全部終わった（ファンファーレ）、change＝応援先の知らせ（ピンポン） */
+export type SoundKind = "in" | "out" | "done" | "change";
+
+/** 音（高さ Hz・始まり秒・長さ秒）を並べた効果音を作る。外から音のファイルを読まないので、電波が弱くても鳴る */
+function toneUrl(notes: [number, number, number][], gain = 0.6): string {
   const rate = 22050;
-  const secs = 0.9;
+  const secs = Math.max(...notes.map(([, t, d]) => t + d)) + 0.05;
   const n = Math.floor(rate * secs);
   const buf = new ArrayBuffer(44 + n * 2);
   const v = new DataView(buf);
-  const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  const str = (o: number, x: string) => [...x].forEach((c, k) => v.setUint8(o + k, c.charCodeAt(0)));
   str(0, "RIFF");
   v.setUint32(4, 36 + n * 2, true);
   str(8, "WAVE");
@@ -28,37 +31,75 @@ function chimeUrl(): string {
   v.setUint32(40, n * 2, true);
   for (let i = 0; i < n; i++) {
     const t = i / rate;
-    const first = t < secs / 2;
-    const f = first ? 1318 : 1047;
-    const tt = first ? t : t - secs / 2;
-    // だんだん小さくなる音（鐘のような音）
-    const env = Math.exp(-tt * 6) * Math.min(1, tt / 0.005);
-    v.setInt16(44 + i * 2, Math.sin(2 * Math.PI * f * tt) * env * 0.8 * 32767, true);
+    let x = 0;
+    for (const [f, st, d] of notes) {
+      const tt = t - st;
+      if (tt < 0 || tt > d) continue;
+      // 木琴のような明るい音（倍音を少し足して、だんだん小さく）
+      const env = Math.min(1, tt / 0.004) * Math.exp(-tt * 5) * Math.min(1, (d - tt) / 0.02);
+      x += (Math.sin(2 * Math.PI * f * tt) + 0.3 * Math.sin(4 * Math.PI * f * tt)) * env;
+    }
+    v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x * gain)) * 32767, true);
   }
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
-let chime: HTMLAudioElement | null = null;
-const getChime = () => (chime ??= new Audio(chimeUrl()));
+// ド=523 ミ=659 ソ=784 ド'=1047 ミ'=1319 ソ'=1568
+const SOUNDS: Record<SoundKind, () => string> = {
+  in: () =>
+    toneUrl([
+      [784, 0, 0.18],
+      [1047, 0.1, 0.18],
+      [1568, 0.2, 0.4],
+    ]),
+  out: () =>
+    toneUrl([
+      [1319, 0, 0.25],
+      [1047, 0.22, 0.3],
+      [1319, 0.5, 0.25],
+      [1047, 0.72, 0.4],
+    ]),
+  done: () =>
+    toneUrl(
+      [
+        [784, 0, 0.14],
+        [784, 0.14, 0.14],
+        [784, 0.28, 0.14],
+        [1047, 0.45, 0.7],
+        [1319, 0.45, 0.7],
+        [1568, 0.45, 0.7],
+      ],
+      0.35,
+    ),
+  change: () =>
+    toneUrl([
+      [1319, 0, 0.45],
+      [1047, 0.45, 0.5],
+    ]),
+};
+const audios: Partial<Record<SoundKind, HTMLAudioElement>> = {};
+const getSound = (k: SoundKind) => (audios[k] ??= new Audio(SOUNDS[k]()));
 let unlocked = false;
 
 /** 画面を押したときに呼ぶ：音と声を出せるようにしておく（携帯のブラウザの決まり） */
 export function unlockSound() {
   if (unlocked || typeof window === "undefined") return;
   unlocked = true;
-  const a = getChime();
-  a.muted = true;
-  void a
-    .play()
-    .then(() => {
-      a.pause();
-      a.currentTime = 0;
-      a.muted = false;
-    })
-    .catch(() => {
-      a.muted = false;
-      unlocked = false;
-    });
+  for (const k of Object.keys(SOUNDS) as SoundKind[]) {
+    const a = getSound(k);
+    a.muted = true;
+    void a
+      .play()
+      .then(() => {
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
+      })
+      .catch(() => {
+        a.muted = false;
+        unlocked = false;
+      });
+  }
   try {
     const u = new SpeechSynthesisUtterance(" ");
     u.volume = 0;
@@ -66,6 +107,48 @@ export function unlockSound() {
   } catch {
     // 読み上げのない携帯は、音だけ
   }
+}
+
+// ---------- 声（若く楽しい声：高め・少し速め。携帯ごとに声を選べる） ----------
+const VOICE_KEY = "harvestVoice";
+/** 声の高さ（1＝ふつう）と速さ */
+export const VOICE_PITCH = 1.35;
+export const VOICE_RATE = 1.1;
+
+/** この携帯で使える日本語の声 */
+export function japaneseVoices(): SpeechSynthesisVoice[] {
+  try {
+    return (window.speechSynthesis?.getVoices() ?? []).filter((x) => x.lang.replace("_", "-").toLowerCase().startsWith("ja"));
+  } catch {
+    return [];
+  }
+}
+/** この携帯で選んだ声の名前（選んでいなければ null） */
+export function savedVoice(): string | null {
+  try {
+    return localStorage.getItem(VOICE_KEY);
+  } catch {
+    return null;
+  }
+}
+export function saveVoice(name: string | null) {
+  try {
+    if (name) localStorage.setItem(VOICE_KEY, name);
+    else localStorage.removeItem(VOICE_KEY);
+  } catch {
+    // 覚えられなくても、その場は使える
+  }
+}
+/** 使う声：選んだ声、なければ女性らしい名前の声、なければ最初の日本語の声 */
+function pickVoice(): SpeechSynthesisVoice | undefined {
+  const list = japaneseVoices();
+  const name = savedVoice();
+  return (
+    list.find((x) => x.name === name) ??
+    list.find((x) => /kyoko|o-ren|nanami|female|女性|haruka|ayumi|sayaka/i.test(x.name)) ??
+    list.find((x) => /google/i.test(x.name)) ??
+    list[0]
+  );
 }
 
 /** 読み上げる（前の読み上げは止める） */
@@ -76,21 +159,26 @@ export function speak(text: string) {
     s.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "ja-JP";
-    u.rate = 1;
+    u.pitch = VOICE_PITCH;
+    u.rate = VOICE_RATE;
     u.volume = 1;
-    const ja = s.getVoices().find((x) => x.lang.startsWith("ja"));
-    if (ja) u.voice = ja;
+    const voice = pickVoice();
+    try {
+      if (voice) u.voice = voice;
+    } catch {
+      // 声を選べなくても、いつもの声で読み上げる
+    }
     s.speak(u);
   } catch {
     // 読み上げのない携帯は、なにもしない
   }
 }
 
-/** 知らせの音を鳴らして、鳴り終わったら読み上げる。vibrate＝振動もする（Android。iPhone は振動できない） */
-export function announce(text: string, opts: { chime?: boolean; vibrate?: boolean } = {}) {
+/** 効果音を鳴らして、鳴り終わったら読み上げる。vibrate＝振動もする（Android。iPhone は振動できない） */
+export function announce(text: string, opts: { sound?: SoundKind; vibrate?: boolean } = {}) {
   if (opts.vibrate) navigator.vibrate?.([300, 150, 300, 150, 300]);
-  if (!opts.chime) return speak(text);
-  const a = getChime();
+  if (!opts.sound) return speak(text);
+  const a = getSound(opts.sound);
   a.currentTime = 0;
   let done = false;
   const next = () => {
@@ -99,9 +187,19 @@ export function announce(text: string, opts: { chime?: boolean; vibrate?: boolea
     speak(text);
   };
   a.onended = next;
-  setTimeout(next, 1200); // 音が鳴らなかったときも読み上げる
+  setTimeout(next, 2000); // 音が鳴らなかったときも読み上げる
   void a.play().catch(next);
 }
+
+/** 案内のことば（楽しく元気に） */
+export const SAY = {
+  in: (h: string) => `${h}番ハウス、いってらっしゃい！収穫がんばってください！`,
+  out: (h: string, next: string) => `${h}番、おつかれさまでした！次は${next}番ハウス、よろしくお願いしまーす！`,
+  outOnly: (h: string) => `${h}番、おつかれさまでした！`,
+  done: "今日の収穫はすべて終わりました！みなさん、おつかれさまでした！",
+  change: (h: string) => `応援先が変更になりました！${h}番へ向かってください！`,
+  help: (h: string) => `応援をお願いします！${h}番へ向かってください！`,
+};
 
 /** active の間、画面が消えないようにする（ほかのアプリから戻ったときも、もう一度たのむ） */
 export function useWakeLock(active: boolean) {
@@ -137,18 +235,17 @@ export function useWakeLock(active: boolean) {
 /** 音声案内のテスト：実際の案内を順番に流す（記録はなにも変えない）。onNotice＝応援先が変わったときの画面の知らせを出す */
 export function voiceTest(onNotice: (text: string | null) => void): () => void {
   unlockSound();
-  const change = "応援先が変更になりました。8番へ向かってください。";
   const steps: [number, () => void][] = [
-    [0, () => announce("24番ハウス、収穫がんばってください！")],
-    [4500, () => announce("24番、おつかれさまです。次は25番ハウス、お願いします！")],
+    [0, () => announce(SAY.in("24"), { sound: "in" })],
+    [5000, () => announce(SAY.out("24", "25"), { sound: "out" })],
     [
-      10500,
+      11500,
       () => {
-        announce(change, { chime: true, vibrate: true });
-        onNotice(change);
+        announce(SAY.change("8"), { sound: "change", vibrate: true });
+        onNotice(SAY.change("8"));
       },
     ],
-    [17000, () => announce("収穫作業はすべて終わりました。おつかれさまでした。")],
+    [18000, () => announce(SAY.done, { sound: "done" })],
   ];
   const timers = steps.map(([ms, f]) => setTimeout(f, ms));
   return () => timers.forEach(clearTimeout);
@@ -200,5 +297,68 @@ export function DimScreen({ text, onWake }: { text: string; onWake: () => void }
       </p>
     </div>,
     document.body,
+  );
+}
+
+/** 声の設定：この携帯で使える日本語の声から選ぶ（選んだ声はこの携帯に覚える）。「この声で試す」で聞ける */
+export function VoiceSettings() {
+  const [open, setOpen] = useState(false);
+  const [voices, setVoices] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<string>(() => (typeof window === "undefined" ? "" : (savedVoice() ?? "")));
+  useEffect(() => {
+    if (!open) return;
+    // 携帯によっては、声の一覧があとから届く
+    const load = () => setVoices(japaneseVoices().map((x) => x.name));
+    const t = setTimeout(load, 0);
+    window.speechSynthesis?.addEventListener?.("voiceschanged", load);
+    return () => {
+      clearTimeout(t);
+      window.speechSynthesis?.removeEventListener?.("voiceschanged", load);
+    };
+  }, [open]);
+  if (!open)
+    return (
+      <button onClick={() => setOpen(true)} className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
+        🎙 声の設定
+      </button>
+    );
+  return (
+    <div className="w-full rounded-xl border bg-white p-3 text-sm">
+      <p className="font-bold">🎙 声の設定（この携帯だけ）</p>
+      {voices.length === 0 ? (
+        <p className="mt-1 text-gray-500">この携帯で選べる日本語の声が見つかりません（いつもの声で読み上げます）。</p>
+      ) : (
+        <select
+          value={chosen}
+          onChange={(e) => {
+            setChosen(e.target.value);
+            saveVoice(e.target.value || null);
+          }}
+          className="mt-1 w-full rounded-lg border px-2 py-2 text-base"
+          aria-label="声"
+        >
+          <option value="">おまかせ（明るい声を自動で選ぶ）</option>
+          {voices.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      )}
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => {
+            unlockSound();
+            announce(SAY.in("24"), { sound: "in" });
+          }}
+          className="rounded-lg bg-sky-600 px-4 py-2 font-bold text-white"
+        >
+          ▶ この声で試す
+        </button>
+        <button onClick={() => setOpen(false)} className="rounded-lg border px-4 py-2">
+          閉じる
+        </button>
+      </div>
+    </div>
   );
 }
