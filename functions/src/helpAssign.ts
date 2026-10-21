@@ -103,15 +103,31 @@ export function helpRanking(i: HelpInput): { house: string; finish: number; crew
     .sort((a, b) => b.finish - a.finish);
 }
 
-/** 手のあいた人（me）の応援先：いまのままだといちばん終わるのがおそいハウス。終わっていないハウスがなければ null */
+/** ハウスの地区（離れている）：1〜10番・17〜20番・21〜27番。それ以外は null */
+export function areaOf(h: string): string | null {
+  const n = Number(h);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 1 && n <= 10) return "1-10";
+  if (n >= 17 && n <= 20) return "17-20";
+  if (n >= 21 && n <= 27) return "21-27";
+  return null;
+}
+
+/**
+ * 手のあいた人（me）の応援先：いまのままだといちばん終わるのがおそいハウス。終わっていないハウスがなければ null。
+ * ただし1位が別の地区で、2位がいまいる地区（最後に「終わった」を押したハウスの地区）にあれば、移動が少ないよう2位にする
+ */
 export function pickHelp(i: HelpInput, me: string): string | null {
-  let best: string | null = null;
-  let bestF = -Infinity;
-  for (const h of helpCandidates(i)) {
+  const list = helpCandidates(i)
     // 自分が「終わった」を押したハウスには戻さない（ハウスの「終わった」が入る前に聞かれたときのため）
-    if (i.taps[me]?.[h]?.end != null) continue;
-    const f = finishOf(i, h, me);
-    if (f > bestF) [best, bestF] = [h, f];
-  }
-  return best;
+    .filter((h) => i.taps[me]?.[h]?.end == null)
+    .map((h) => ({ h, f: finishOf(i, h, me) }))
+    .sort((x, y) => y.f - x.f);
+  if (!list.length) return null;
+  const last = Object.entries(i.taps[me] ?? {})
+    .filter(([, v]) => v?.end != null)
+    .sort((x, y) => y[1].end! - x[1].end!)[0]?.[0];
+  const here = last ? areaOf(last) : null;
+  if (here && areaOf(list[0].h) !== here && list[1] && areaOf(list[1].h) === here) return list[1].h;
+  return list[0].h;
 }
