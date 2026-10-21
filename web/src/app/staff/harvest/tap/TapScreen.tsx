@@ -3,7 +3,7 @@
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { announce, unlockSound, useWakeLock } from "@/lib/announce";
+import { announce, unlockSound, useWakeLock, voiceTest } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
@@ -446,6 +446,17 @@ export function TapScreen({
         <button disabled={preview || busy} onClick={() => void run(undo)} className="block w-full text-center text-sm text-gray-500 underline">
           まちがえて押したとき（{last.house}番の「{last.kind === "in" ? "入った" : "終わった"}」を取り消す）
         </button>
+      )}
+      {!preview && (
+        // 音声案内を試す（記録は変えない）・練習モード
+        <div className="flex flex-wrap justify-center gap-3 border-t pt-4">
+          <button onClick={() => voiceTest(setNotice)} className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
+            🔊 音声案内のテスト
+          </button>
+          <Link href="/staff/harvest/tap/practice/" className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
+            🎓 練習モード
+          </Link>
+        </div>
       )}
     </div>
   );

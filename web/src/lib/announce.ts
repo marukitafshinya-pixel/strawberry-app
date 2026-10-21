@@ -132,3 +132,23 @@ export function useWakeLock(active: boolean) {
     };
   }, [active]);
 }
+
+/** 音声案内のテスト：実際の案内を順番に流す（記録はなにも変えない）。onNotice＝応援先が変わったときの画面の知らせを出す */
+export function voiceTest(onNotice: (text: string | null) => void): () => void {
+  unlockSound();
+  const change = "応援先が変更になりました。8番へ向かってください。";
+  const steps: [number, () => void][] = [
+    [0, () => announce("24番ハウス、収穫がんばってください！")],
+    [4500, () => announce("24番、おつかれさまです。次は25番ハウス、お願いします！")],
+    [
+      10500,
+      () => {
+        announce(change, { chime: true, vibrate: true });
+        onNotice(change);
+      },
+    ],
+    [17000, () => announce("収穫作業はすべて終わりました。おつかれさまでした。")],
+  ];
+  const timers = steps.map(([ms, f]) => setTimeout(f, ms));
+  return () => timers.forEach(clearTimeout);
+}

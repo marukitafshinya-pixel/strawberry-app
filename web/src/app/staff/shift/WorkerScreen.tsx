@@ -89,6 +89,12 @@ export function WorkerScreen({
           🍓 収穫報告（入った・終わった）
         </Link>
       )}
+      {!picking && !preview && (
+        // 収穫の予定がない日でも、収穫報告の練習（音声案内のテスト）ができる
+        <Link href="/staff/harvest/tap/practice/" className="block rounded-2xl border-2 border-sky-600 bg-white p-3 text-center font-bold text-sky-800">
+          🎓 収穫報告の練習（音声案内のテスト）
+        </Link>
+      )}
       {harvest && (
         <Link href="/staff/harvest/" className="block rounded-2xl bg-berry p-4 text-center text-xl font-bold text-white shadow">
           🍓 収穫管理（今日の集荷）を開く
