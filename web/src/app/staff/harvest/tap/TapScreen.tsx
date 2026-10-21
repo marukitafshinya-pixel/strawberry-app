@@ -2,7 +2,8 @@
 
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { announce, unlockSound, useWakeLock } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
@@ -150,9 +151,12 @@ export function TapScreen({
             alive && setHelp((h) => ({ house: null, assign: h?.assign ?? {}, open: true, forecast: true, done: [], members: h?.members ?? {}, n: doneCount })),
         );
     void ask();
+    // ほかの人の「終わった」は、本人の記録のあとにハウスの「終わった」が入るので、少しあとにもう一度聞く
+    const again = setTimeout(ask, 4000);
     const t = setInterval(ask, 60_000);
     return () => {
       alive = false;
+      clearTimeout(again);
       clearInterval(t);
     };
   }, [doneCount, tapKey, askFree, pressed]);
@@ -235,6 +239,57 @@ export function TapScreen({
   const target = inNow ? current : (chosen ?? current ?? (free ? helpHouse : null));
   const isChosen = !inNow && chosen != null;
   const isHelp = !isChosen && current == null && target != null;
+
+  // ---------- 音声案内と、画面を消さない（本人の携帯だけ。見るだけの画面ではしない） ----------
+  /** 自分の収穫も、ほかのハウスも全部終わった */
+  const allDone = (planned.length > 0 || helped.length > 0) && target == null && free && helpNow != null && !helpNow.open;
+  // 収穫報告を開いている間は画面を消さない（全部終わったら元に戻す）
+  useWakeLock(!preview && (planned.length > 0 || helped.length > 0) && !allDone);
+  // 画面を一度押したら、音と声を出せるようにしておく
+  useEffect(() => {
+    if (preview) return;
+    document.addEventListener("pointerdown", unlockSound, { once: true });
+    return () => document.removeEventListener("pointerdown", unlockSound);
+  }, [preview]);
+  /** 画面いっぱいに出す知らせ（「わかった」で消す） */
+  const [notice, setNotice] = useState<string | null>(null);
+  /** 「終わった」を押したあと、次のハウスがわかったら読み上げる（押したハウス） */
+  const afterOut = useRef<string | null>(null);
+  /** 最後に読み上げた行き先（同じ行き先を2回言わない） */
+  const spoken = useRef<string | null>(null);
+  /** 「すべて終わりました」を言ったか */
+  const doneSaid = useRef(false);
+  useEffect(() => {
+    if (preview) return;
+    if (allDone) {
+      // 全部のハウスが終わった（自分で最後に押したときも、ほかの人が最後に終えたときも）
+      if (!doneSaid.current) announce("収穫作業はすべて終わりました。おつかれさまでした。", { chime: afterOut.current == null });
+      doneSaid.current = true;
+      afterOut.current = null;
+      return;
+    }
+    doneSaid.current = false;
+    const out = afterOut.current;
+    if (out != null) {
+      // 「終わった」のあと：次のハウス（予定・応援先）がわかったら読み上げる
+      if (target != null && target !== out && (!free || helpNow != null)) {
+        announce(`${out}番、おつかれさまです。次は${target}番ハウス、お願いします！`);
+        afterOut.current = null;
+        spoken.current = target;
+      } else if (free && helpNow != null && helpHouse == null) {
+        announce(`${out}番、おつかれさまです。`);
+        afterOut.current = null;
+        spoken.current = null;
+      }
+      return;
+    }
+    if (!free || inNow || isChosen || helpHouse == null || helpHouse === spoken.current) return;
+    // 向かっている途中で応援先が変わった・待っている間に応援先が決まった
+    const text = spoken.current ? `応援先が変更になりました。${helpHouse}番へ向かってください。` : `応援をお願いします。${helpHouse}番へ向かってください。`;
+    announce(text, { chime: true, vibrate: true });
+    spoken.current = helpHouse;
+    setTimeout(() => setNotice(spoken.current === helpHouse ? text : null), 0);
+  }, [preview, allDone, target, free, helpNow, helpHouse, inNow, isChosen]);
   /** 「ほかのハウスに行く」を開く（もう終わったハウスをサーバーに聞く） */
   function openOthers() {
     setOthers({ done: undefined });
@@ -291,6 +346,15 @@ export function TapScreen({
   const big = "w-full rounded-3xl py-8 text-4xl font-bold shadow disabled:opacity-40";
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
+      {notice && (
+        // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-amber-400 p-6 text-center">
+          <p className="text-3xl leading-snug font-bold text-gray-900">{notice}</p>
+          <button onClick={() => setNotice(null)} className="rounded-2xl bg-white px-10 py-5 text-3xl font-bold shadow">
+            わかった
+          </button>
+        </div>
+      )}
       {preview ? (
         <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">{me.name} さんの携帯に出ている画面です（ここでは見るだけで、押せません）</p>
       ) : (
@@ -347,6 +411,10 @@ export function TapScreen({
               void run(async () => {
                 await tapIn(target);
                 setChosen(null);
+                if (!preview) {
+                  announce(`${target}番ハウス、収穫がんばってください！`);
+                  spoken.current = null;
+                }
               })
             }
             className={`${big} bg-sky-600 text-white`}
@@ -355,7 +423,18 @@ export function TapScreen({
           </button>
           <button
             disabled={preview || busy || (!inNow && (isHelp || isChosen))}
-            onClick={() => void run(() => tapOut(target))}
+            onClick={() =>
+              void run(async () => {
+                // 次のハウスがわかったら読み上げる（下の音声案内）。押している間に画面が変わることがあるので、先に覚えておく
+                if (!preview) afterOut.current = target;
+                try {
+                  await tapOut(target);
+                } catch (e) {
+                  afterOut.current = null;
+                  throw e;
+                }
+              })
+            }
             className={`${big} bg-berry text-white`}
           >
             終わった
