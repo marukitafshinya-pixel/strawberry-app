@@ -1,6 +1,6 @@
 "use client";
 
-// 収穫報告の音声案内：効果音・読み上げ（携帯に入っている日本語の声を、高め・少し速めで若く楽しく）・振動（Android）、画面を消さない。
+// 収穫報告の音声案内：効果音・読み上げ（携帯に入っている日本語の声を、高めで若く楽しく。速さは少しゆっくり）・振動（Android）、画面を消さない。
 // 携帯のブラウザは、画面を一度押したあとでないと音や声を出せないので、最初に押したときに unlockSound() を呼ぶ
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -113,11 +113,11 @@ export function unlockSound() {
   }
 }
 
-// ---------- 声（若く楽しい声：高め・少し速め。携帯ごとに声を選べる） ----------
+// ---------- 声（若く楽しい声：高め・せかさない速さ。携帯ごとに声を選べる） ----------
 const VOICE_KEY = "harvestVoice";
 /** 声の高さ（1＝ふつう）と速さ */
-export const VOICE_PITCH = 1.35;
-export const VOICE_RATE = 1.1;
+export const VOICE_PITCH = 1.25;
+export const VOICE_RATE = 0.95;
 
 /** この携帯で使える日本語の声 */
 export function japaneseVoices(): SpeechSynthesisVoice[] {
@@ -245,7 +245,7 @@ export function announce(text: string, opts: { sound?: SoundKind; vibrate?: bool
 /** 案内のことば（楽しく元気に） */
 export const SAY = {
   in: (h: string) => `${h}番ハウス、いってらっしゃい！収穫がんばってください！`,
-  out: (h: string, next: string) => `${h}番、おつかれさまでした！次は${next}番ハウス、よろしくお願いしまーす！`,
+  out: (h: string, next: string) => `${h}番、おつかれさまでした！次は${next}番ハウス、よろしくお願いします！`,
   outOnly: (h: string) => `${h}番、おつかれさまでした！`,
   done: "今日の収穫はすべて終わりました！みなさん、おつかれさまでした！",
   change: (h: string) => `応援先が変更になりました！${h}番へ向かってください！`,
