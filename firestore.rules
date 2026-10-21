@@ -434,6 +434,15 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
         && request.resource.data.houses is map && request.resource.data.houses.size() <= 40;
     }
+    // 休憩の合図（harvest/{date}/calls/break）：収穫管理を使える人（管理者・スタッフ・集荷係）が押す。今日の分は従業員も見られる（押した時刻だけ）
+    match /harvest/{date}/calls/{id} {
+      allow read: if isStaff() || (isWorker() && nearToday(date));
+      allow write: if id == 'break'
+        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
+        && request.resource.data.keys().hasOnly(['at', 'by'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid;
+    }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
       allow read: if isStaff() || isWorker();

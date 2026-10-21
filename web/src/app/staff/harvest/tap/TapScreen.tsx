@@ -9,6 +9,7 @@ import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
 import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
 import { refreshHarvestSpeeds } from "@/lib/harvestForecast";
 import {
+  useBreakCall,
   fetchDayTaps,
   fetchHelpHouse,
   NO_HARVEST,
@@ -254,6 +255,11 @@ export function TapScreen({
   }, [preview]);
   /** 画面いっぱいに出す知らせ（「わかった」で消す） */
   const [notice, setNotice] = useState<string | null>(null);
+  // 休憩の合図：管理者・集荷係が押したら、効果音と声と画面で知らせる（見るだけの画面では鳴らさない）
+  useBreakCall(date, !preview, () => {
+    announce(SAY.break, { sound: "break", vibrate: true });
+    setNotice("☕ おつかれさまです！ただいまから休憩の時間です。");
+  });
   // 30秒触らないと画面を黒くする（電池の節約）。知らせが出ているときは黒くしない
   const { dim, wake } = useIdleDim(keepAwake && !notice, 30_000);
   /** 「終わった」を押したあと、次のハウスがわかったら読み上げる（押したハウス） */

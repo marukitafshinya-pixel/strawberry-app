@@ -626,6 +626,19 @@ describe("収穫管理：収穫者の「入った・終わった」", () => {
     await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01"), { tapHouse: "17", houses: { "17": { start: 400 } } }, { merge: true }));
   });
 
+  it("休憩の合図：収穫管理を使える人だけ押せる。今日の分は従業員も見られる", async () => {
+    await seed();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `haichi/${today}`), { cells: { pickup: { members: ["m8"], memo: "" } }, note: "", done: false });
+    });
+    await assertSucceeds(setDoc(doc(w("w8"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w8" }));
+    await assertFails(setDoc(doc(w("w7"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w7" }));
+    await assertFails(setDoc(doc(w("w8"), `harvest/${today}/calls/other`), { at: serverTimestamp(), by: "w8" }));
+    await assertFails(setDoc(doc(w("w8"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w7" }));
+    await assertSucceeds(getDoc(doc(w("w7"), `harvest/${today}/calls/break`)));
+    await assertFails(getDoc(doc(guest(), `harvest/${today}/calls/break`)));
+  });
+
   it("自分の押した記録は本人だけ書ける。今日の分は従業員どうしで見られる", async () => {
     await seed();
     const tap = { houses: { "17": { start: 400 } } };

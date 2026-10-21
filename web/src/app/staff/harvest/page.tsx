@@ -52,7 +52,8 @@ import {
   type Forecast,
 } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
-import { useDayTaps, type DayTaps } from "@/lib/harvestTap";
+import { announce, SAY, unlockSound } from "@/lib/announce";
+import { callBreak, nowMinJST, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
@@ -121,6 +122,12 @@ export default function HarvestPage() {
   const yld = useHarvestYield();
   /** 収穫する人が携帯で押した「入った」「終わった」（今いる場所の緑に使う） */
   const taps = useDayTaps(date);
+  // 休憩の合図：この画面でも鳴らす（画面を一度押したあとから音が出せる）
+  useEffect(() => {
+    document.addEventListener("pointerdown", unlockSound, { once: true });
+    return () => document.removeEventListener("pointerdown", unlockSound);
+  }, []);
+  useBreakCall(date, date === todayJST(), () => announce(SAY.break, { sound: "break" }));
   const plan = template && haichi ? planHarvest(template, haichi) : null;
   const houses = template ? harvestHouses(template) : [];
   const jst = new Date(tick + 9 * 3600e3);
@@ -226,6 +233,20 @@ export default function HarvestPage() {
     saveHarvestBreak(date, b)
       .then(() => logHarvest(date, { break: b }))
       .catch(() => alert("保存できませんでした"));
+  /** 休憩の合図：収穫報告を開いている全員の携帯で鳴らし、押した時刻を今日の休憩の始まりにする（長さはそのまま） */
+  const breakCall = day && date === todayJST() && (
+    <button
+      onClick={() => {
+        if (!confirm("休憩の合図を送りますか？（収穫報告を開いている全員の携帯で鳴ります。今の時刻を休憩の始まりにします）")) return;
+        unlockSound();
+        void callBreak(date).catch(() => alert("送れませんでした"));
+        void saveBreak({ ...brk, start: nowMinJST() });
+      }}
+      className="rounded-lg border-2 border-amber-500 bg-amber-50 px-3 py-1.5 text-sm font-bold whitespace-nowrap text-amber-800"
+    >
+      ☕ 休憩の合図
+    </button>
+  );
   const breakBox = day && (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       休憩
@@ -347,7 +368,10 @@ export default function HarvestPage() {
             {endBox}
           </div>
           {unassignedNote}
-          <div className="mt-1 flex justify-end">{breakBox}</div>
+          <div className="mt-1 flex items-center justify-between gap-2">
+            {breakCall || <span />}
+            {breakBox}
+          </div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
             <Link href={isWorker ? "/staff/shift/me/" : "/staff/"} className="text-sm text-gray-600 underline">
               {isWorker ? "← 勤務の画面" : "← メニュー"}
@@ -442,6 +466,7 @@ export default function HarvestPage() {
         {endBox}
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {breakBox}
+        {breakCall}
         {toggle}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">
