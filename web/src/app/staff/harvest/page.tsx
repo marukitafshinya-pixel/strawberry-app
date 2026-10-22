@@ -538,10 +538,10 @@ function Sheet({
     ...(rec[h]?.start === undefined && plannedStart(h) != null ? { start: plannedStart(h), startAuto: true } : {}),
   });
   /**
-   * 本当に入ったハウスか：本人が携帯で「入った」を押したか、管理者・集荷係が「入った」に時刻を入れた（前のハウスを終えて自動で入った時刻もふくむ）。
-   * 収穫の開始時刻を画面が自動で入れただけのハウスは、まだ入っていない（名前を薄い緑にする）
+   * その人が「入った」を押したか：本人が携帯で「入った」を押したか、管理者・集荷係が「入った」の欄に時刻を入れた。
+   * 収穫の開始時刻・前のハウスの終わった時刻を画面が自動で入れただけなら、まだ（押し忘れがわかるように、名前は緑のまま。押したらピンク）
    */
-  const entered = (h: string) => rec[h]?.start != null && (rec[h].startAuto !== true || Object.values(taps ?? {}).some((t) => t[h]?.start != null));
+  const entered = (h: string, id: string) => taps?.[id]?.[h]?.start != null || (rec[h]?.start != null && rec[h].startAuto === false);
   const run = (p: Promise<unknown>) => {
     setError("");
     p.catch((e) => setError(errorText(e)));
@@ -582,7 +582,7 @@ function Sheet({
       const next = route.slice(route.indexOf(h) + 1).find((x) => route.includes(h) && !NO_HARVEST.includes(usageOf(x)));
       if (next && !done.has(next) && rec[next]?.start == null) {
         done.add(next);
-        await save(next, { start: end }, true);
+        await save(next, { start: end, startAuto: true }, true);
       }
     }
   }
@@ -650,7 +650,7 @@ function Sheet({
   function dropTo(id: string, from: string, to: string) {
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
     const cur = who(to);
-    const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end } : {};
+    const startAt = rec[to]?.start == null && rec[from]?.end != null ? { start: rec[from].end, startAuto: true } : {};
     run(
       (async () => {
         await save(to, {
@@ -749,7 +749,7 @@ function Sheet({
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
       here={(id) => hereOf(id) === h}
-      waiting={() => !entered(h)}
+      tapped={(id) => entered(h, id)}
       moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
@@ -772,11 +772,11 @@ function Sheet({
       <TextCell
         key={`s${startOf(h)}`}
         value={clock(startOf(h))}
-        planned={!entered(h) && startOf(h) != null}
+        planned={rec[h]?.start == null && startOf(h) != null}
         placeholder="600"
         small={small}
         parse={parseClock}
-        onCommit={(v) => run(save(h, { start: v, ...(rec[h]?.startAuto ? { startAuto: false } : {}) }))}
+        onCommit={(v) => run(save(h, { start: v, startAuto: false }))}
       />
       {startOf(h) == null && forecast?.houseStart[h] != null && (
         <span className="text-[11px] leading-tight text-sky-700">予測 {clock(forecast.houseStart[h])}</span>
@@ -976,7 +976,7 @@ function Members({
   ids,
   planned,
   here,
-  waiting,
+  tapped,
   moved,
   finished,
   names,
@@ -987,8 +987,8 @@ function Members({
   ids: string[];
   planned: boolean;
   here: (id: string) => boolean;
-  /** 今いるハウスの予定だが、まだ本当に入っていない（最初のハウスで、開始時刻を画面が入れただけ）。薄い緑にする */
-  waiting: (id: string) => boolean;
+  /** その人が「入った」を押した（または管理者・集荷係が時刻を入れた）。今いるハウスの名前をピンクにする（押すまでは緑） */
+  tapped: (id: string) => boolean;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -1006,10 +1006,10 @@ function Members({
           onPointerDown={(e) => onPick(id, e)}
           title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
           className={`touch-none select-none rounded-full border px-2 py-1 ${
-            here(id) && waiting(id)
-              ? "border-dashed border-emerald-500 bg-emerald-50 font-bold text-emerald-800"
+            here(id) && tapped(id)
+              ? "border-pink-600 bg-pink-500 font-bold text-white"
               : here(id)
-                ? "border-emerald-700 bg-emerald-600 font-bold text-white"
+                ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
                 : finished || moved(id)
                   ? "border-gray-400 bg-gray-300 text-gray-600"
                   : planned
