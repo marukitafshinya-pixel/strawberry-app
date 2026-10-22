@@ -3,7 +3,7 @@
 // 経費の仕分け（管理者だけ）：総勘定元帳のスキャン（TIFF・PDF・写真）を1ページずつAIで読み取り、科目ごとに確かめて保存する。
 // このあと、保存した明細を仕入れ先ごとにまとめ、「今年だけ」「毎年かかる（修繕費・店舗消耗品・ホーブ出荷資材・ホーブ生産資材）」に分ける
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import {
@@ -19,6 +19,7 @@ import {
   type SavedAccount,
 } from "@/lib/ledger";
 import type { Page } from "@/lib/shikiri";
+import { KeyBox } from "../../shipping/Shikiri";
 import { Classify } from "./Classify";
 
 const yen = (n: number) => n.toLocaleString("ja-JP");
@@ -58,6 +59,13 @@ function ImportLedger() {
   const [view, setView] = useState<number | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [saved, setSaved] = useState("");
+  // AIの鍵が登録されているか（仕切書の読み取りと同じ鍵）
+  const [key, setKey] = useState<{ set: boolean; last4: string } | null>(null);
+  useEffect(() => {
+    callFunction<object, { set: boolean; last4: string }>("aiKeyStatus", {})
+      .then(setKey)
+      .catch(() => {});
+  }, []);
 
   async function pick(files: File[]) {
     setError("");
@@ -168,7 +176,13 @@ function ImportLedger() {
         )}
         {busy && <span className="text-sm text-gray-600">{busy}</span>}
       </div>
+      {key && <KeyBox status={key} admin onChange={setKey} />}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {errors > 0 && !busy && (
+        <p className="mt-2 rounded-lg bg-red-50 p-2 text-sm text-red-700">
+          読めなかったページがあります：{[...new Set(states.filter((s) => s.status === "error").map((s) => s.error))].join(" ／ ")}
+        </p>
+      )}
       {saved && <p className="mt-2 rounded-lg bg-green-50 p-2 text-sm text-green-800">✅ {saved}</p>}
 
       {pages.length > 0 && (
