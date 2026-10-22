@@ -63,6 +63,7 @@ export function AccountSelect({
   onChange,
   label,
   empty: emptyLabel,
+  only,
   className = "",
 }: {
   accounts: Account[];
@@ -70,15 +71,18 @@ export function AccountSelect({
   onChange: (code: string) => void;
   label: string;
   empty?: string;
+  /** 出す科目だけ（空・なしなら全部）。選んである科目はいつも出す */
+  only?: string[];
   className?: string;
 }) {
+  const shown = only && only.length ? accounts.filter((a) => only.includes(a.code) || a.code === value) : accounts;
   return (
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)} className={`rounded border bg-white px-1 py-1 ${className}`}>
       <option value="">{emptyLabel ?? "（科目を選ぶ）"}</option>
       {value && !accounts.some((a) => a.code === value) && <option value={value}>（未登録 {value}）</option>}
-      {KINDS.map((k) => (
+      {KINDS.filter((k) => shown.some((a) => a.kind === k)).map((k) => (
         <optgroup key={k} label={KIND_LABEL[k]}>
-          {accounts
+          {shown
             .filter((a) => a.kind === k && (!a.hidden || a.code === value))
             .map((a) => (
               <option key={a.code} value={a.code}>

@@ -262,7 +262,13 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
 
       <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">勘定科目の一覧</h2>
-        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」と、レジ・給与の仕訳に使っている科目は消せません。</p>
+        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」と、レジ・給与の仕訳に使っている科目は消せません。「仕訳帳に出す」にチェックした科目だけが、仕訳帳の科目のプルダウンに出ます（1つもチェックしなければ全部出ます）。
+          {c.pick.length > 0 && (
+            <button onClick={() => update({ pick: [] })} className="ml-2 underline">
+              チェックを全部外す（{c.pick.length}）
+            </button>
+          )}
+        </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[48rem] text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600">
@@ -272,6 +278,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 <th className="w-24 px-2 py-2 text-left">種類</th>
                 <th className="w-44 px-2 py-2 text-left">損益計算書の区分</th>
                 <th className="w-44 px-2 py-2 text-left">補助科目の親</th>
+                <th className="w-20 px-2 py-2 text-center">仕訳帳に出す</th>
                 <th className="w-10" />
               </tr>
             </thead>
@@ -303,6 +310,15 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                   </td>
                   <td className="px-1 py-1">
                     <ParentSelect accounts={c.accounts} account={a} onChange={(parent) => setAccount(a.code, { parent })} />
+                  </td>
+                  <td className="px-1 text-center">
+                    <input
+                      type="checkbox"
+                      checked={c.pick.includes(a.code)}
+                      aria-label={`${a.name}を仕訳帳のプルダウンに出す`}
+                      onChange={(e) => update({ pick: e.target.checked ? [...c.pick, a.code] : c.pick.filter((x) => x !== a.code) })}
+                      className="h-4 w-4"
+                    />
                   </td>
                   <td className="px-1 text-center">
                     {!FIXED_CODES.includes(a.code) && !autoCodes.has(a.code) && (
@@ -361,6 +377,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 <td className="px-1 py-2">
                   <ParentSelect accounts={c.accounts} account={add} onChange={(parent) => setAdd({ ...add, parent })} />
                 </td>
+                <td />
                 <td className="px-1 py-2">
                   <button
                     disabled={!add.code.trim() || !!addProblem}
@@ -376,7 +393,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
               </tr>
               {addProblem && (
                 <tr>
-                  <td colSpan={6} className="px-2 text-xs text-red-600">
+                  <td colSpan={7} className="px-2 text-xs text-red-600">
                     {addProblem}
                   </td>
                 </tr>

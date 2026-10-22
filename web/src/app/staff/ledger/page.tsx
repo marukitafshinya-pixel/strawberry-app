@@ -126,6 +126,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   const problems = entries.map((e) => journalProblem(e, month));
   const unsortedCount = entries.filter(isUnsortedJournal).length;
   const [onlyUnsorted, setOnlyUnsorted] = useState(false);
+  const [allAccounts, setAllAccounts] = useState(false);
   const hasProblem = problems.some(Boolean);
   const manualTotal = entries.reduce((n, e) => n + (isBlankJournal(e) ? 0 : (e.amount ?? 0)), 0);
   const autoAll = [...fromAuto, ...fromBank, ...fromCash];
@@ -197,6 +198,19 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
             </label>
           </>
         )}
+        {config.pick.length > 0 && (
+          <label className="flex items-center gap-1 text-sm print:hidden">
+            <input type="checkbox" checked={allAccounts} onChange={(x) => setAllAccounts(x.target.checked)} />
+            科目を全部出す
+            <span className="text-xs text-gray-500">
+              （ふだんは
+              <Link href="/staff/ledger/accounts/" className="underline">
+                勘定科目
+              </Link>
+              で選んだ{config.pick.length}科目だけ）
+            </span>
+          </label>
+        )}
       </div>
       <p className="mt-1 text-xs text-gray-500">
         預金の出し入れ・売上の入金・給与・借入の返済など、現金出納帳にない取引を入れます。例：売上が預金に入った → 借方「普通預金」／貸方「売上高」
@@ -234,6 +248,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     value={e.debit}
                     onChange={(v) => set(i, { debit: v })}
                     label={`${i + 1}行目の借方`}
+                    only={allAccounts ? undefined : config.pick}
                     empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
                     className={`w-full ${isUnsortedJournal(e) && !e.debit ? "border-amber-400 font-bold text-amber-800" : ""}`}
                   />
@@ -244,6 +259,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     value={e.credit}
                     onChange={(v) => set(i, { credit: v })}
                     label={`${i + 1}行目の貸方`}
+                    only={allAccounts ? undefined : config.pick}
                     empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
                     className={`w-full ${isUnsortedJournal(e) && !e.credit ? "border-amber-400 font-bold text-amber-800" : ""}`}
                   />

@@ -278,6 +278,8 @@ export type LedgerConfig = {
   salesMap: Record<string, string>;
   /** 消した科目のコード（試算表を取り込んでも足し直さない） */
   removed: string[];
+  /** 仕訳帳の科目のプルダウンに出す科目（空なら全部出す） */
+  pick: string[];
 };
 /**
  * 勘定科目の版。3＝丸北農場の会計ソフトの科目コード（これより前に保存した科目は、はじめの科目に置き換えて読む）。
@@ -310,6 +312,7 @@ export const DEFAULT_CONFIG: LedgerConfig = {
   bankRules: DEFAULT_BANK_RULES,
   salesMap: DEFAULT_SALES_MAP,
   removed: [],
+  pick: [],
 };
 
 export function useLedgerConfig() {
@@ -347,6 +350,7 @@ export function useLedgerConfig() {
               bankRules: old ? DEFAULT_BANK_RULES : ((s.get("bankRules") as BankRule[] | undefined) ?? DEFAULT_BANK_RULES),
               salesMap: old ? DEFAULT_SALES_MAP : ((s.get("salesMap") as Record<string, string> | undefined) ?? DEFAULT_SALES_MAP),
               removed,
+              pick: (s.get("pick") as string[] | undefined) ?? [],
             },
             error: null,
           });
@@ -390,6 +394,7 @@ export async function saveLedgerConfig(c: LedgerConfig) {
       }),
     chartVersion: CHART_VERSION,
     removed: [...new Set(c.removed.filter((x) => !codes.has(x)))].slice(0, 200),
+    pick: [...new Set(c.pick.filter((x) => codes.has(x)))].slice(0, 300),
     itemMap,
     fiscalStart: Math.min(12, Math.max(1, Math.round(c.fiscalStart))),
     auto: Object.fromEntries(Object.entries(c.auto).filter(([, v]) => codes.has(v))),
