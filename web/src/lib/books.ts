@@ -88,9 +88,9 @@ export const RETAINED = "490";
 const ADDED_V4: Account[] = [
   { code: "A21", name: "販売資材", kind: "expense", section: "sgaOther" },
   { code: "A22", name: "雑貨仕入れ", kind: "expense", section: "sgaOther" },
-  { code: "A31", name: "ベンチ資材", kind: "expense", section: "overhead" },
-  { code: "A32", name: "ホーブ資材", kind: "expense", section: "overhead" },
-  { code: "A33", name: "ハウス資材", kind: "expense", section: "overhead" },
+  { code: "A31", name: "(製)ベンチ資材", kind: "expense", section: "overhead" },
+  { code: "A32", name: "(製)ホーブ資材", kind: "expense", section: "overhead" },
+  { code: "A33", name: "(製)ハウス資材", kind: "expense", section: "overhead" },
 ];
 /** 版4で使わなくした科目（仕分けし直しで金額を移し終わるまで、決算書には元の区分で出す） */
 const HIDDEN_V4 = ["865"];
@@ -283,9 +283,10 @@ export type LedgerConfig = {
 };
 /**
  * 勘定科目の版。3＝丸北農場の会計ソフトの科目コード（これより前に保存した科目は、はじめの科目に置き換えて読む）。
- * 4＝販売資材・雑貨仕入れ・ベンチ資材・ホーブ資材・ハウス資材を足し、(製)農具費を消した（版3で保存した科目に足し引きする）
+ * 4＝販売資材・雑貨仕入れ・ベンチ資材・ホーブ資材・ハウス資材を足し、(製)農具費を消した（版3で保存した科目に足し引きする）。
+ * 5＝製造原価に足した3つの名前に「(製)」を付けた（版4で保存した科目の名前が足したときのままなら付ける）
  */
-export const CHART_VERSION = 4;
+export const CHART_VERSION = 5;
 export const DEFAULT_BANK_RULES: BankRule[] = [
   // ホーブへの出荷は入金のときに売上にする（会計ソフトと同じ入金ベース。入金は手数料を引いた額のまま）
   { keyword: "ホーブ", code: "500-3" },
@@ -335,6 +336,11 @@ export function useLedgerConfig() {
           if (version === 3) {
             // 版3 → 4：足した科目を入れ、(製)農具費を使わなくする
             accounts = [...accounts.map((a) => (HIDDEN_V4.includes(a.code) ? { ...a, hidden: true } : a)), ...ADDED_V4.filter((a) => !accounts.some((b) => b.code === a.code))];
+          }
+          if (version === 3 || version === 4) {
+            // 版4 → 5：製造原価に足した科目に「(製)」を付ける
+            const v5 = new Map(ADDED_V4.filter((a) => a.name.startsWith("(製)")).map((a) => [a.code, a.name]));
+            accounts = accounts.map((a) => (v5.has(a.code) && `(製)${a.name}` === v5.get(a.code) ? { ...a, name: v5.get(a.code)! } : a));
           }
           const auto = old ? DEFAULT_AUTO : { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
           const itemMap = (s.get("itemMap") as Record<string, string> | undefined) ?? {};

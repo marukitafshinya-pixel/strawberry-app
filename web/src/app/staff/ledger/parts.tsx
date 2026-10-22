@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fullName, KIND_LABEL, KINDS, type Account } from "@/lib/books";
+import { fullName, KIND_LABEL, KINDS, sectionOf, SECTIONS, type Account } from "@/lib/books";
 
 export const yen = (n: number) => n.toLocaleString("ja-JP");
 
@@ -56,7 +56,21 @@ export function canUseLedger(role: string | null) {
   return role === "admin" || role === "accounting";
 }
 
-/** 勘定科目のプルダウン（種類ごとにまとめる） */
+/**
+ * 科目を、プルダウンで見やすいようにまとめる：資産・負債・純資産は種類ごと、収益・費用は損益計算書の区分ごと
+ * （例「販管費：その他経費」「製造原価：製造経費」）
+ */
+export function accountGroups(list: Account[]): { label: string; accounts: Account[] }[] {
+  const groups: { label: string; accounts: Account[] }[] = [];
+  for (const k of KINDS) {
+    if (k === "revenue" || k === "expense") {
+      for (const sec of SECTIONS.filter((x) => x.kind === k)) groups.push({ label: sec.label, accounts: list.filter((a) => a.kind === k && sectionOf(a) === sec.key) });
+    } else groups.push({ label: KIND_LABEL[k], accounts: list.filter((a) => a.kind === k) });
+  }
+  return groups.filter((g) => g.accounts.length > 0);
+}
+
+/** 勘定科目のプルダウン（種類・区分ごとにまとめる） */
 export function AccountSelect({
   accounts,
   value,
@@ -80,10 +94,9 @@ export function AccountSelect({
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)} className={`rounded border bg-white px-1 py-1 ${className}`}>
       <option value="">{emptyLabel ?? "（科目を選ぶ）"}</option>
       {value && !accounts.some((a) => a.code === value) && <option value={value}>（未登録 {value}）</option>}
-      {KINDS.filter((k) => shown.some((a) => a.kind === k)).map((k) => (
-        <optgroup key={k} label={KIND_LABEL[k]}>
-          {shown
-            .filter((a) => a.kind === k && (!a.hidden || a.code === value))
+      {accountGroups(shown.filter((a) => !a.hidden || a.code === value)).map((g) => (
+        <optgroup key={g.label} label={g.label}>
+          {g.accounts
             .map((a) => (
               <option key={a.code} value={a.code}>
                 {a.parent ? "　└ " : ""}
@@ -189,13 +202,20 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
               </button>
             </div>
             <ul className="mt-2 max-h-72 overflow-auto">
-              {shown.map((a) => (
-                <li key={a.code}>
-                  <label className={`flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50 ${a.parent ? "pl-5" : ""}`}>
-                    <input type="checkbox" checked={on.has(a.code)} onChange={(e) => set([a.code], e.target.checked)} />
-                    <span className="text-xs text-gray-400 tabular-nums">{a.code}</span>
-                    <span>{fullName(accounts, a)}</span>
-                  </label>
+              {accountGroups(shown).map((g) => (
+                <li key={g.label}>
+                  <p className="sticky top-0 bg-gray-100 px-1 py-0.5 text-xs font-bold text-gray-600">{g.label}</p>
+                  <ul>
+                    {g.accounts.map((a) => (
+                      <li key={a.code}>
+                        <label className={`flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50 ${a.parent ? "pl-5" : ""}`}>
+                          <input type="checkbox" checked={on.has(a.code)} onChange={(e) => set([a.code], e.target.checked)} />
+                          <span className="text-xs text-gray-400 tabular-nums">{a.code}</span>
+                          <span>{fullName(accounts, a)}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
                 </li>
               ))}
               {shown.length === 0 && <li className="px-1 py-2 text-xs text-gray-500">見つかりません</li>}
