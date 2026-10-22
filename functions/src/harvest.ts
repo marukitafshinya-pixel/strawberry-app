@@ -174,6 +174,29 @@ type Taps = Record<string, Record<string, { start?: number | null; end?: number 
 /** 向かっている途中の応援先を切り替えるのは、ほかのハウスがこの分以上おそく終わりそうなとき（指示がころころ変わらないように） */
 const REASSIGN_MIN = 15;
 
+/** 作業配置表のはじめの収穫の枠（config/haichi がないとき。画面側の DEFAULT_HAICHI と同じ） */
+const DEFAULT_HARVEST_SLOTS = ["1", "6", "8", "4", "5", "9", "10", ...Array.from({ length: 11 }, (_, i) => String(17 + i))].map((n) => ({
+  id: `h${n}`,
+  label: n,
+}));
+
+/** 作業配置表で、その日の収穫の枠に名前が入っているハウス → その人 */
+async function plannedMembers(date: string): Promise<Record<string, string[]>> {
+  const [tpl, day] = await Promise.all([db.doc("config/haichi").get(), db.doc(`haichi/${date}`).get()]);
+  type Sec = { id: string; arrows?: boolean; slots?: { id: string; label: string }[] };
+  const secs = tpl.get("sections") as Sec[] | undefined;
+  const slots = Array.isArray(secs)
+    ? secs.filter((s) => s.arrows ?? (s.id === "harvest" || s.id === "harvest2")).flatMap((s) => s.slots ?? [])
+    : DEFAULT_HARVEST_SLOTS;
+  const cells = (day.get("cells") as Record<string, { members?: string[] }> | undefined) ?? {};
+  const out: Record<string, string[]> = {};
+  for (const sl of slots) {
+    const ms = cells[sl.id]?.members ?? [];
+    if (ms.length) out[sl.label] = [...new Set([...(out[sl.label] ?? []), ...ms])];
+  }
+  return out;
+}
+
 /** 応援の割り当てを覚えておく場所（サーバーだけが読み書きする。画面からは読めない） */
 const assignDoc = (date: string) => db.doc(`harvest/${date}/helpAssign/all`);
 
@@ -196,7 +219,7 @@ export const harvestHelpHouse = onCall(async (req) => {
   const date = ymd(new Date());
   const jst = new Date(Date.now() + 9 * 3600e3);
   const now = jst.getUTCHours() * 60 + jst.getUTCMinutes();
-  const [day, taps, use, cfg, speed] = await Promise.all([
+  const [day, taps, use, cfg, speed, planned] = await Promise.all([
     db.doc(`harvest/${date}`).get(),
     db.collection(`harvest/${date}/taps`).get(),
     // ハウスの使い方は、その日の記録がなければ前の日（いちばん近い記録。60日前まで）を引きつぐ
@@ -207,6 +230,7 @@ export const harvestHelpHouse = onCall(async (req) => {
       .get(),
     db.doc("config/harvest").get(),
     db.doc("stats/harvestSpeed").get(),
+    plannedMembers(date),
   ]);
   const noHelp = (cfg.get("noHelp") as string[] | undefined) ?? [];
   const fh = (day.get("forecastHouses") as Record<string, HelpForecast> | undefined) ?? {};
@@ -223,6 +247,7 @@ export const harvestHelpHouse = onCall(async (req) => {
     plants: (cfg.get("plants") as Record<string, number> | undefined) ?? DEFAULT_PLANTS,
     avg: typeof speed.get("avg") === "number" ? (speed.get("avg") as number) : null,
     assigns: {},
+    planned,
   };
   const open = helpCandidates(input);
   /** まだ使える割り当て：そのハウスが終わっていなくて、その人がそこで「終わった」を押していなくて、ほかのハウスで収穫中でない */

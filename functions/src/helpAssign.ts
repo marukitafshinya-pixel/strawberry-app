@@ -38,15 +38,24 @@ export type HelpInput = {
   avg: number | null;
   /** ほかの人の応援の割り当て（従業員の id → ハウス） */
   assigns: Record<string, string>;
+  /** 作業配置表で、その日の収穫の枠に名前が入っているハウス → その人（朝の予測にないハウスも応援の候補にするため） */
+  planned?: Record<string, string[]>;
 };
 
 /** 収穫しない使い方 */
 const NO_HARVEST = ["picking", "reserve", "off"];
 
-/** 応援先になれるハウス：その日に収穫するハウス（予測があるか、入った・押した記録がある）で、まだ終わっていないもの */
+/**
+ * 応援先になれるハウス：その日に収穫するハウス（朝の予測にある・作業配置表か収穫管理に名前が入っている・入った・押した記録がある）で、まだ終わっていないもの。
+ * 朝の予測を保存したときに名前が入っていなかったハウスも、だれも入っていなければ応援の候補にする
+ */
 export function helpCandidates(i: HelpInput): string[] {
   const tapped = new Set(Object.values(i.taps).flatMap((t) => Object.keys(t).filter((h) => t[h]?.start != null)));
-  const all = [...new Set([...Object.keys(i.fh), ...Object.keys(i.houses).filter((h) => i.houses[h]?.start != null), ...tapped])];
+  const named = [
+    ...Object.keys(i.planned ?? {}).filter((h) => (i.planned?.[h] ?? []).length > 0),
+    ...Object.keys(i.houses).filter((h) => (i.houses[h]?.members ?? []).length > 0),
+  ];
+  const all = [...new Set([...Object.keys(i.fh), ...Object.keys(i.houses).filter((h) => i.houses[h]?.start != null), ...tapped, ...named])];
   return all.filter((h) => i.houses[h]?.end == null && !NO_HARVEST.includes(i.usage[h] ?? "harvest") && !i.noHelp.includes(h));
 }
 
@@ -81,7 +90,7 @@ function estimate(i: HelpInput, h: string, me: string | null): { finish: number;
   // 収穫管理で名前が入っている人（応援で足された人もふくむ。携帯を忘れた人の分を集荷係が入れたときも数える）。
   // そのハウスで「終わった」を押した人、ほかへ移った人、携帯でほかのハウスの「入った」を押している人は数えない
   // 🏁ここで終了のハウスで終えた人は、あとのハウスには来ない
-  const listed = [...new Set([...(i.houses[h]?.members ?? f?.members ?? []), ...(i.houses[h]?.helpers ?? [])])].filter(
+  const listed = [...new Set([...(i.houses[h]?.members ?? f?.members ?? i.planned?.[h] ?? []), ...(i.houses[h]?.helpers ?? [])])].filter(
     (id) =>
       i.taps[id]?.[h]?.end == null &&
       stoppedAt(i, id) == null &&
@@ -105,7 +114,7 @@ function estimate(i: HelpInput, h: string, me: string | null): { finish: number;
     // まだだれも入っていない：向かっている人がいればその人数で、いなければ朝の予測どおり（予定の人があとから入る）
     if (crew > 0) return { finish: i.now + work / crew, crew, started: false };
     // 予定の人がみんな🏁で終了したハウスは、だれも来ない（まだだれも入っていないハウスとして、応援を先に出す）
-    const planned = i.houses[h]?.members ?? f?.members ?? [];
+    const planned = i.houses[h]?.members ?? f?.members ?? i.planned?.[h] ?? [];
     if (planned.length > 0 && planned.every((id) => stoppedAt(i, id) != null)) return { finish: i.now + work, crew: 0, started: false };
     return { finish: f?.end ?? i.now + work, crew, started: false };
   }
