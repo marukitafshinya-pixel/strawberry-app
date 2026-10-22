@@ -297,7 +297,7 @@ function Unsorted({ count, href }: { count: number; href: string }) {
   );
 }
 
-/** レジの売上・売掛・給与からの仕訳。開いたときに、その月の分を作り直す（売上や給与が変わっていても合うように） */
+/** レジの売上・売掛・給与・出荷実績からの仕訳。開いたときに、その月の分を作り直す（売上や給与が変わっていても合うように） */
 function AutoSection({ month, auto, postings, name }: { month: string; auto: AutoMonth | undefined; postings: Posting[]; name: (c: string) => string }) {
   const future = month > todayJST().slice(0, 7);
   const [busy, setBusy] = useState(!future);
@@ -322,7 +322,7 @@ function AutoSection({ month, auto, postings, name }: { month: string; auto: Aut
   return (
     <>
       <div className="mt-8 flex flex-wrap items-center gap-3">
-        <h2 className="font-bold">レジの売上・売掛・給与からの仕訳（自動）</h2>
+        <h2 className="font-bold">レジの売上・売掛・給与・出荷実績からの仕訳（自動）</h2>
         <button onClick={run} disabled={busy} className="rounded-lg border border-berry bg-white px-3 py-1 text-sm text-berry disabled:opacity-50 print:hidden">
           {busy ? "作っています…" : "🔄 作り直す"}
         </button>
@@ -334,13 +334,13 @@ function AutoSection({ month, auto, postings, name }: { month: string; auto: Aut
         {err && <span className="text-sm text-red-600">{err}</span>}
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        レジの会計（現金・売掛）、売掛管理（手で入れた売掛・入金）、給与（支給日の月）から作ります。使う科目は
+        レジの会計（現金・売掛）、売掛管理（手で入れた売掛・入金）、給与（支給日の月）、出荷実績（ホーブなど。単価が入っている分）から作ります。使う科目は
         <Link href="/staff/ledger/accounts/" className="underline">
           勘定科目
         </Link>
         の画面で変えられます。
       </p>
-      <PostingTable postings={postings} name={name} empty={busy ? "作っています…" : "この月のレジの売上・給与はありません。"} />
+      <PostingTable postings={postings} name={name} empty={busy ? "作っています…" : "この月のレジの売上・給与・出荷はありません。"} />
     </>
   );
 }

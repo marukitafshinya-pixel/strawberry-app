@@ -228,6 +228,8 @@ export const DEFAULT_AUTO = {
   social: "854",
   incomeTax: "322-1",
   residentTax: "322-2",
+  shipSales: "500-3",
+  shipReceivable: "A02",
 };
 export type AutoCodes = typeof DEFAULT_AUTO;
 export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[] = [
@@ -242,6 +244,8 @@ export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[
   { key: "social", label: "天引きした社会保険料", note: "本人負担分。会計ソフトと同じく法定福利費から引く（納めたときに全額を法定福利費にする）" },
   { key: "incomeTax", label: "天引きした所得税", note: "源泉所得税（年末調整の還付もここ）" },
   { key: "residentTax", label: "天引きした住民税", note: "町民市民税" },
+  { key: "shipSales", label: "出荷の売上", note: "出荷実績（ホーブなど）の数量×単価＋消費税8％。出荷した日に入れる" },
+  { key: "shipReceivable", label: "出荷の代金（入金前）", note: "入金されたら、通帳の言葉「ホーブ」でこの科目から消す" },
 ];
 /** レジの分類（商品・プランの分類）→ 売上の科目。はじめの対応 */
 export const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
@@ -265,6 +269,7 @@ export type LedgerConfig = {
 /** 勘定科目の版。3＝丸北農場の会計ソフトの科目コード。これより前に保存した科目は、はじめの科目に置き換えて読む */
 export const CHART_VERSION = 3;
 export const DEFAULT_BANK_RULES: BankRule[] = [
+  { keyword: "ホーブ", code: "A02" },
   { keyword: "給与", code: "307" },
   { keyword: "社会保険", code: "854" },
   { keyword: "厚生年金", code: "854" },
@@ -497,10 +502,10 @@ export function postingsInRange(b: Books, config: LedgerConfig, from: string, to
 
 // ---------- 自動仕訳（レジの売上・売掛・給与） ----------
 
-export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
+export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" | "shipping" };
 /** categories：その月のレジの分類ごとの売上（分類と科目の対応を決める画面で使う） */
 export type AutoMonth = { month: string; entries: AutoEntry[]; generatedAt: Date | null; categories: Record<string, number> };
-export const AUTO_KIND_LABEL: Record<AutoEntry["kind"], string> = { sales: "レジ", receivable: "売掛", payroll: "給与" };
+export const AUTO_KIND_LABEL: Record<AutoEntry["kind"], string> = { sales: "レジ", receivable: "売掛", payroll: "給与", shipping: "出荷" };
 
 export function autoPostings(auto: AutoMonth[], month: string): Posting[] {
   return (auto.find((x) => x.month === month)?.entries ?? []).map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount, memo: e.memo, source: "auto" as const }));
