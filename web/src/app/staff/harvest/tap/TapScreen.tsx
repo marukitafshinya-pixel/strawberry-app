@@ -44,6 +44,8 @@ export function tapStateOf(a: {
   houseDone?: string[];
   /** 収穫管理で「入った」が入っていて「終わった」がまだのハウス（入った時刻・移った人） */
   houseStarted?: Record<string, { start: number; left: string[] }>;
+  /** 🏁ここで終了のハウス */
+  stops?: string[];
 }) {
   const { plan, template, use, taps, meId } = a;
   /** そのハウスの収穫者：集荷係が収穫管理で入れ直したハウスはその人、それ以外は作業配置表の人 */
@@ -74,7 +76,16 @@ export function tapStateOf(a: {
     seq
       .filter((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].left.includes(meId))
       .sort((x, y) => a.houseStarted![y].start - a.houseStarted![x].start)[0] ?? null;
-  const current = byTap ?? byRec ?? seq.find((h) => !isDone(h) && !takenByHelper(h)) ?? null;
+  // 🏁ここで終了のハウスで終えた（そのあとほかのハウスに入っていない）なら、今日の収穫はここまで
+  const later = (h: string, x: string) =>
+    mine[h]?.end != null ? mine[x]?.start != null && mine[x].start! >= mine[h].end! : mine[x]?.start != null && seq.indexOf(x) > seq.indexOf(h);
+  const stopped =
+    byTap || byRec
+      ? null
+      : ((a.stops ?? []).find(
+          (h) => isDone(h) && (mine[h]?.start != null || who(h).includes(meId)) && !Object.keys(mine).some((x) => x !== h && later(h, x)),
+        ) ?? null);
+  const current = stopped ? null : (byTap ?? byRec ?? seq.find((h) => !isDone(h) && !takenByHelper(h)) ?? null);
   const pos = current ? seq.indexOf(current) : seq.length;
   /** 自分で「入った」を押して収穫中か（「入った」のボタンを押せなくする） */
   const inByTap = current != null && current === byTap;
@@ -83,9 +94,9 @@ export function tapStateOf(a: {
   /** 収穫中のハウスに入った時刻 */
   const startAt = current == null ? null : (mine[current]?.start ?? a.houseStarted?.[current]?.start ?? null);
   /** 予定が全部終わって、応援に行けるか */
-  const free = planned.length > 0 && current == null;
+  const free = planned.length > 0 && current == null && stopped == null;
   const doneCount = seq.filter((h) => isDone(h)).length;
-  return { who, usageOf, mine, planned, helped, seq, current, pos, inNow, inByTap, startAt, free, doneCount, isDone };
+  return { who, usageOf, mine, planned, helped, seq, current, pos, inNow, inByTap, startAt, free, doneCount, isDone, stopped };
 }
 
 /** preview＝収穫管理から見るだけ（押せない） */
@@ -121,7 +132,9 @@ export function TapScreen({
 
   const plan = planHarvest(template, haichi);
   const cfg = useHarvestConfig();
-  const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount } = tapStateOf({
+  /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（1分ごとに聞くのを待たずに使う） */
+  const [freshStops, setFreshStops] = useState<string[]>([]);
+  const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount, stopped } = tapStateOf({
     plan,
     template,
     use,
@@ -130,6 +143,7 @@ export function TapScreen({
     edited: help?.members,
     houseDone: help?.done,
     houseStarted: help?.started,
+    stops: [...new Set([...(help?.stops ?? []), ...freshStops])],
   });
   /** 取り消せる最後の操作：今のハウスの「入った」か、その前に「終わった」を押したハウス */
   const lastOut = Object.keys(mine)
@@ -200,6 +214,7 @@ export function TapScreen({
     logHarvest(date, { house: h, end: now, tap: "out" });
     // 同じハウスの人が全員押したら、ハウスの「終わった」（最後の人の時刻）
     const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
+    if (info?.stops) setFreshStops(info.stops);
     const ends = crewOf(h, all).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
     // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）ときは、ハウスの「終わった」は入れない（ほかの人がまだ収穫している）
     const othersBefore = !who(h).includes(me.id) && info?.started?.[h] != null && info.started[h].start < (mine[h]?.start ?? now);
@@ -245,7 +260,7 @@ export function TapScreen({
   /** 自分の収穫も、ほかのハウスも全部終わった */
   const allDone = (planned.length > 0 || helped.length > 0) && target == null && free && helpNow != null && !helpNow.open;
   // 収穫報告を開いている間は画面を消さない（全部終わったら元に戻す）
-  const keepAwake = !preview && (planned.length > 0 || helped.length > 0) && !allDone;
+  const keepAwake = !preview && (planned.length > 0 || helped.length > 0) && !allDone && stopped == null;
   useWakeLock(keepAwake);
   // 画面を一度押したら、音と声を出せるようにしておく
   useEffect(() => {
@@ -279,6 +294,13 @@ export function TapScreen({
     }
     doneSaid.current = false;
     const out = afterOut.current;
+    if (out != null && stopped === out) {
+      // 🏁ここで終了のハウスを終えた
+      announce(SAY.stop(out), { sound: "done" });
+      afterOut.current = null;
+      spoken.current = null;
+      return;
+    }
     if (out != null) {
       // 「終わった」のあと：次のハウス（予定・応援先）がわかったら読み上げる
       if (target != null && target !== out && (!free || helpNow != null)) {
@@ -298,7 +320,7 @@ export function TapScreen({
     announce(text, { sound: "change", vibrate: true });
     spoken.current = helpHouse;
     setTimeout(() => setNotice(spoken.current === helpHouse ? text : null), 0);
-  }, [preview, allDone, target, free, helpNow, helpHouse, inNow, isChosen]);
+  }, [preview, allDone, target, free, helpNow, helpHouse, inNow, isChosen, stopped]);
   /** 「ほかのハウスに行く」を開く（もう終わったハウスをサーバーに聞く） */
   function openOthers() {
     setOthers({ done: undefined });
@@ -381,7 +403,11 @@ export function TapScreen({
         <p className="rounded-2xl bg-white p-5 text-lg text-gray-700">今日の収穫の予定はまだありません。作業配置表に名前が入ると、ここに出ます。</p>
       ) : target == null ? (
         <>
-          {free && (helpNow == null || helpNow.open) ? (
+          {stopped ? (
+            <p className="rounded-2xl bg-green-50 p-6 text-center text-2xl font-bold text-green-800">
+              🏁 {stopped}番で、今日の収穫はここまでです。おつかれさまでした
+            </p>
+          ) : free && (helpNow == null || helpNow.open) ? (
             // 終わっていないハウスがあるうちは、応援先が決まるまで待つ（1分ごとに聞き直す）
             <p className="rounded-2xl bg-white p-5 text-center text-lg text-gray-500">
               次の応援先をさがしています…
@@ -546,7 +572,9 @@ export function TapList({
   // 応援の行き先と応援が必要な順を聞く（1分ごと。だれかが押したときと、収穫管理の入力が変わったときはすぐ）
   const changeKey =
     JSON.stringify(taps) +
-    JSON.stringify(Object.entries(rec).map(([h, r]) => [h, r.start ?? null, r.end ?? null, r.members ?? null, r.helpers ?? null, r.left ?? null]));
+    JSON.stringify(
+      Object.entries(rec).map(([h, r]) => [h, r.start ?? null, r.end ?? null, r.members ?? null, r.helpers ?? null, r.left ?? null, r.stopHere ?? false]),
+    );
   useEffect(() => {
     let alive = true;
     const ask = () =>
@@ -580,24 +608,27 @@ export function TapList({
       .filter(([, r]) => r.start != null && r.end == null)
       .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [] }]),
   );
+  const stops = Object.keys(rec).filter((h) => rec[h]?.stopHere);
   const rows = people.map((m) => {
-    const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited, houseDone, houseStarted });
+    const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited, houseDone, houseStarted, stops });
     const h = st.current;
-    const text = st.inNow
-      ? `${h}番を収穫中`
-      : h
-        ? st.pos === 0 && st.doneCount === 0
-          ? `今日は${h}番から`
-          : `次は${h}番`
-        : st.free
-          ? m.uid && help?.assign[m.id]
-            ? `応援：${help.assign[m.id]}番`
-            : help?.open === false
-              ? "おわり"
-              : m.uid
-                ? "応援先待ち（携帯を開くと決まります）"
-                : "おわり"
-          : "予定なし";
+    const text = st.stopped
+      ? `🏁 終了（${st.stopped}番まで）`
+      : st.inNow
+        ? `${h}番を収穫中`
+        : h
+          ? st.pos === 0 && st.doneCount === 0
+            ? `今日は${h}番から`
+            : `次は${h}番`
+          : st.free
+            ? m.uid && help?.assign[m.id]
+              ? `応援：${help.assign[m.id]}番`
+              : help?.open === false
+                ? "おわり"
+                : m.uid
+                  ? "応援先待ち（携帯を開くと決まります）"
+                  : "おわり"
+            : "予定なし";
     return {
       m,
       text: m.uid ? text : `${text}（ログインなし）`,

@@ -21,6 +21,8 @@ export type HouseHarvest = {
   cases?: number;
   left?: string[];
   helpers?: string[];
+  /** 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（管理者・集荷係が付ける。その日だけ） */
+  stopHere?: boolean;
 };
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;

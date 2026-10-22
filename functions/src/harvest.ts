@@ -5,7 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
-import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
+import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, stoppedAt, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldPrior, type YieldWeather } from "./harvestYield.js";
 import type { PastModel } from "./pastYield.js";
 
@@ -38,7 +38,16 @@ const DEFAULT_PLANTS: Record<string, number> = {
   "20": 1344,
 };
 
-type House = { members?: string[]; membersEdited?: boolean; start?: number | null; end?: number | null; cases?: number; left?: string[] };
+type House = {
+  members?: string[];
+  membersEdited?: boolean;
+  start?: number | null;
+  end?: number | null;
+  cases?: number;
+  left?: string[];
+  helpers?: string[];
+  stopHere?: boolean;
+};
 
 /** 画面側（web/src/lib/harvest.ts）と同じ、はじめのハウスのまとまり */
 const DEFAULT_GROUPS: { name: string; houses: string[] }[] = [
@@ -214,7 +223,11 @@ export const harvestHelpHouse = onCall(async (req) => {
   const open = helpCandidates(input);
   /** まだ使える割り当て：そのハウスが終わっていなくて、その人がそこで「終わった」を押していなくて、ほかのハウスで収穫中でない */
   const valid = (id: string, h: string | undefined) =>
-    !!h && open.includes(h) && t[id]?.[h]?.end == null && !Object.entries(t[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v?.end == null);
+    !!h &&
+    open.includes(h) &&
+    stoppedAt(input, id) == null &&
+    t[id]?.[h]?.end == null &&
+    !Object.entries(t[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v?.end == null);
   const assign = await db.runTransaction(async (tx) => {
     const raw = ((await tx.get(assignDoc(date))).get("assign") as Record<string, { house: string; at: number }> | undefined) ?? {};
     const cur: Record<string, { house: string; at: number }> = Object.fromEntries(Object.entries(raw).filter(([id, a]) => valid(id, a?.house)));
@@ -259,5 +272,19 @@ export const harvestHelpHouse = onCall(async (req) => {
   );
   // 応援が必要な順（向かっている人も人数に数える）：収穫管理（スタッフ・管理者・集荷係）の指示一覧に出す
   const ranking = helpRanking({ ...input, assigns: assign });
-  return { house: me ? (assign[me] ?? null) : null, assign, open: open.length > 0, forecast: Object.keys(fh).length > 0, done, members, started, ranking };
+  // 🏁ここで終了のハウス（そのハウスを終えた人は、その日の収穫をここまでにする）
+  const stops = Object.entries(houses)
+    .filter(([, v]) => v?.stopHere === true)
+    .map(([h]) => h);
+  return {
+    house: me ? (assign[me] ?? null) : null,
+    assign,
+    open: open.length > 0,
+    forecast: Object.keys(fh).length > 0,
+    done,
+    members,
+    started,
+    ranking,
+    stops,
+  };
 });

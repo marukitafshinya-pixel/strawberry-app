@@ -610,6 +610,33 @@ function Sheet({
     );
   };
 
+  /**
+   * 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（次のハウス・応援を出さない）。
+   * 収穫管理を使う人（管理者・集荷係）が押して付け外しする。その日だけ
+   */
+  const stopMark = (h: string) => {
+    const on = rec[h]?.stopHere === true;
+    return (
+      <button
+        onClick={() => {
+          if (
+            !confirm(
+              on
+                ? `No.${h} の「ここで終了」を外しますか？（このハウスを終えた人に、次のハウスを知らせます）`
+                : `No.${h} を「ここで終了」にしますか？（このハウスを終えた人は、今日の収穫をここまでにします）`,
+            )
+          )
+            return;
+          run(save(h, { stopHere: !on }));
+        }}
+        title="ここで終了：このハウスを終えた人は、今日の収穫をここまでにする（次のハウス・応援を出さない）"
+        className={`rounded-full px-2 py-0.5 text-xs whitespace-nowrap ${on ? "bg-emerald-700 font-bold text-white" : "border border-gray-300 text-gray-400"}`}
+      >
+        🏁{on ? "終了" : ""}
+      </button>
+    );
+  };
+
   /** 名前を別のハウスへ入れる（元のハウスにも残す）。入ったが空なら、元のハウスの終わった時刻を入れる */
   function dropTo(id: string, from: string, to: string) {
     if (to === from || NO_HARVEST.includes(usageOf(to))) return;
@@ -831,7 +858,11 @@ function Sheet({
                 <div className="flex items-center gap-2">
                   <span className="w-14 text-lg font-bold">No.{h}</span>
                   {usageSelect(h, "py-1 text-sm")}
-                  {noHelpMark(h)}
+                  {/* 応援なし・ここで終了の印は、縦に並べる（携帯の幅に収める） */}
+                  <span className="flex flex-col items-start gap-0.5">
+                    {noHelpMark(h)}
+                    {stopMark(h)}
+                  </span>
                   {isAdmin && <span className="text-xs text-sky-800">{rateOf(h)}</span>}
                   {/* 確定数：押すと直接打てる（5.3 など） */}
                   <span className="ml-auto">{casesCell(h)}</span>
@@ -879,6 +910,7 @@ function Sheet({
                 <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">
                   No.{h}
                   <span className="ml-1 align-middle">{noHelpMark(h)}</span>
+                  <span className="ml-1 align-middle">{stopMark(h)}</span>
                 </td>
                 <td className="px-2 py-1.5">{usageSelect(h)}</td>
                 {isOff(h) ? (
