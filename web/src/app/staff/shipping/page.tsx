@@ -347,7 +347,12 @@ function Grid({
                   </td>
                   {days.map((d) => (
                     <td key={d} className={`px-0.5 py-0.5 ${d === today ? "bg-berry/5" : ""}`}>
-                      <Cell value={data[d]?.[g.id]?.[mode]} onChange={(v) => setCell(d, g.id, mode, v)} label={`${Number(d.slice(8))}日 ${g.group}${g.name} ${mode === "qty" ? "数量" : "単価"}`} />
+                      <Cell
+                        value={data[d]?.[g.id]?.[mode]}
+                        onChange={(v) => setCell(d, g.id, mode, v)}
+                        label={`${Number(d.slice(8))}日 ${g.group}${g.name} ${mode === "qty" ? "数量" : "単価"}`}
+                        pos={{ day: d, row: i }}
+                      />
                     </td>
                   ))}
                   <td className="bg-berry/5 px-2 text-right font-semibold tabular-nums">{s.qty.toLocaleString("ja-JP")}</td>
@@ -859,7 +864,18 @@ function Tile({ label, value, strong }: { label: string; value: string; strong?:
 }
 
 /** 数字だけの小さな入力欄 */
-function Cell({ value, onChange, label }: { value: number | undefined; onChange: (v: number | undefined) => void; label: string }) {
+/** pos＝表の中の場所（日付と、上から何行目か）。Enter を押すと、1つ下のマス（いちばん下なら次の日のいちばん上）へ移る */
+function Cell({
+  value,
+  onChange,
+  label,
+  pos,
+}: {
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+  label: string;
+  pos?: { day: string; row: number };
+}) {
   const [text, setText] = useState(value === undefined ? "" : String(value));
   const [prev, setPrev] = useState(value);
   if (prev !== value) {
@@ -869,8 +885,20 @@ function Cell({ value, onChange, label }: { value: number | undefined; onChange:
   return (
     <input
       inputMode="numeric"
+      enterKeyHint="next"
       aria-label={label}
+      data-cell={pos ? `${pos.day}:${pos.row}` : undefined}
       value={text}
+      onKeyDown={(e) => {
+        // 日本語入力の変換中の Enter は、確定だけ
+        if (e.key !== "Enter" || e.nativeEvent.isComposing || !pos) return;
+        e.preventDefault();
+        const next =
+          document.querySelector<HTMLInputElement>(`input[data-cell="${pos.day}:${pos.row + 1}"]`) ??
+          document.querySelector<HTMLInputElement>(`input[data-cell="${addDays(pos.day, 1)}:0"]`);
+        next?.focus();
+        next?.select();
+      }}
       onChange={(e) => {
         const t = e.target.value.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, "");
         setText(t);
