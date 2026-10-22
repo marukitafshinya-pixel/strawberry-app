@@ -167,7 +167,7 @@ function Regenerate({ months }: { months: string[] }) {
     <span className="flex items-center gap-2 text-sm">
       {msg && <span className="text-gray-600">{msg}</span>}
       <button onClick={run} disabled={!!busy || months.length === 0} className="rounded-lg border border-berry bg-white px-3 py-2 text-berry disabled:opacity-50">
-        {busy ? `${busy}を作っています…` : "🔄 レジ・給与・出荷の仕訳を作り直す"}
+        {busy ? `${busy}を作っています…` : "🔄 レジ・給与の仕訳を作り直す"}
       </button>
     </span>
   );

@@ -1,7 +1,7 @@
-// 帳簿の自動仕訳：レジの売上・売掛・給与・出荷実績（ホーブなど）から、その月の仕訳を作って autoJournal/{YYYY-MM} に保存する（管理者と経理担当）。
+// 帳簿の自動仕訳：レジの売上・売掛・給与から、その月の仕訳を作って autoJournal/{YYYY-MM} に保存する（管理者と経理担当）。
 // 売上・売掛・給与のデータは経理担当には読めないので、サーバーで読んで、仕訳（科目・金額・摘要）だけを保存する。
 // 作り直すたびに、その月の自動仕訳をまるごと置き換える（会計を取り消した・給与を直したときは、作り直せば合う）
-import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
 
@@ -18,8 +18,6 @@ const DEFAULT_AUTO = {
   social: "854",
   incomeTax: "322-1",
   residentTax: "322-2",
-  shipSales: "500-3",
-  shipReceivable: "A02",
 };
 /** レジの分類 → 売上の科目（画面側の DEFAULT_SALES_MAP と同じ） */
 const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
@@ -27,14 +25,12 @@ const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
 const CHART_VERSION = 3;
 type AutoCodes = typeof DEFAULT_AUTO;
 
-type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" | "shipping" };
+type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const lastDay = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0)).toISOString().slice(0, 10);
 const prevMonth = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5)) - 2, 1)).toISOString().slice(0, 7);
-/** 出荷の消費税率（画面側の shipping.ts の SHIP_TAX_RATE と同じ） */
-const SHIP_TAX_RATE = 8;
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 export const buildAutoJournal = onCall(async (req) => {
@@ -49,15 +45,13 @@ export const buildAutoJournal = onCall(async (req) => {
   const from = `${month}-01`;
   const to = lastDay(month);
 
-  const [config, sales, receivables, collected, payPrev, payThis, shipments, shipConfig] = await Promise.all([
+  const [config, sales, receivables, collected, payPrev, payThis] = await Promise.all([
     db.doc("config/accounts").get(),
     db.collection("sales").where("date", ">=", from).where("date", "<=", to).get(),
     db.collection("receivables").where("date", ">=", from).where("date", "<=", to).get(),
     db.collection("receivables").where("collectedDate", ">=", from).where("collectedDate", "<=", to).get(),
     db.doc(`payrolls/${prevMonth(month)}`).get(),
     db.doc(`payrolls/${month}`).get(),
-    db.collection("shipments").where(FieldPath.documentId(), ">=", from).where(FieldPath.documentId(), "<=", to).get(),
-    db.doc("shipping/config").get(),
   ]);
   const current = config.get("chartVersion") === CHART_VERSION;
   const saved = current ? ((config.get("auto") as Partial<AutoCodes> | undefined) ?? {}) : {};
@@ -155,25 +149,6 @@ export const buildAutoJournal = onCall(async (req) => {
     push(c.unpaid, c.social, social, "社会保険料の天引き");
     push(c.unpaid, c.incomeTax, incomeTax, "所得税の天引き");
     push(c.unpaid, c.residentTax, residentTax, "住民税の天引き");
-  }
-
-  // 出荷実績（ホーブなど）：出荷した日ごとに、数量×単価に消費税（8％）を足した額を売上にする（出荷実績の画面と同じ計算）。
-  // 単価がまだ入っていない規格は数えない（仕切書を取り込むと単価が入る）
-  const dest = String(shipConfig.get("destination") ?? "").trim() || "出荷";
-  for (const d of shipments.docs) {
-    let amount = 0;
-    let unpriced = 0;
-    for (const it of Object.values((d.get("items") as Record<string, { qty?: unknown; price?: unknown }> | undefined) ?? {})) {
-      const qty = n(it.qty);
-      if (!qty) continue;
-      if (typeof it.price !== "number") {
-        unpriced += qty;
-        continue;
-      }
-      const exTax = qty * it.price;
-      amount += exTax + Math.floor((exTax * SHIP_TAX_RATE) / 100);
-    }
-    if (amount) entries.push({ date: d.id, debit: c.shipReceivable, credit: c.shipSales, amount, memo: `${dest}への出荷${unpriced ? `（単価なし ${unpriced}個は入れていません）` : ""}`, kind: "shipping" });
   }
 
   entries.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
