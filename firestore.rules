@@ -97,7 +97,8 @@ service cloud.firestore {
     }
     function tapHouse(hb, ha, k) {
       return ha[k] is map
-        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end', 'helpers'])
+        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end', 'helpers', 'startAuto'])
+        && (!('startAuto' in ha[k]) || ha[k].startAuto is bool)
         && minuteOrNull(ha[k], 'start') && minuteOrNull(ha[k], 'end')
         && (!('helpers' in ha[k]) || onlyMeChanged(hb.get(k, {}).get('helpers', []), ha[k].helpers));
     }

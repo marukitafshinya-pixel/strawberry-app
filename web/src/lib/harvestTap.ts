@@ -55,7 +55,9 @@ export async function saveTap(date: string, memberId: string, house: string, pat
 /** 収穫管理のハウスの「入った・終わった」に入れる（1つのハウスだけ） */
 export async function saveTapToHouse(date: string, house: string, patch: { start?: number | null; end?: number | null }) {
   const { db } = await getFirebase();
-  await setDoc(doc(db, "harvest", date), { tapHouse: house, houses: { [house]: patch }, updatedAt: serverTimestamp() }, { merge: true });
+  // 携帯から入れた「入った」は startAuto（収穫管理の色：押した人だけを水色にする。ほかの人は本人が押すまで緑）
+  const p = patch.start != null ? { ...patch, startAuto: true } : patch;
+  await setDoc(doc(db, "harvest", date), { tapHouse: house, houses: { [house]: p }, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** 応援で入った人の名前を、収穫管理のハウスに足す・外す（予定の人の名前はそのまま。自分の名前だけ） */

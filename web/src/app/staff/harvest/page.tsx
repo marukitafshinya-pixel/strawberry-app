@@ -538,10 +538,10 @@ function Sheet({
     ...(rec[h]?.start === undefined && plannedStart(h) != null ? { start: plannedStart(h), startAuto: true } : {}),
   });
   /**
-   * その人が「入った」を押したか：本人が携帯で「入った」を押したか、管理者・集荷係が「入った」の欄に時刻を入れた。
-   * 収穫の開始時刻・前のハウスの終わった時刻を画面が自動で入れただけなら、まだ（押し忘れがわかるように、名前は緑のまま。押したら水色）
+   * その人が「入った」を押したか：本人が携帯で「入った」を押したか、管理者・集荷係が収穫管理の「入った」の欄に時刻を入れた。
+   * 収穫の開始時刻・前のハウスの終わった時刻を画面が自動で入れた（startAuto）だけなら、まだ（押し忘れがわかるように、名前は緑のまま。押したら水色）
    */
-  const entered = (h: string, id: string) => taps?.[id]?.[h]?.start != null || (rec[h]?.start != null && rec[h].startAuto === false);
+  const entered = (h: string, id: string) => taps?.[id]?.[h]?.start != null || (rec[h]?.start != null && rec[h].startAuto !== true);
   const run = (p: Promise<unknown>) => {
     setError("");
     p.catch((e) => setError(errorText(e)));
@@ -768,6 +768,8 @@ function Sheet({
         key={`s${startOf(h)}`}
         value={clock(startOf(h))}
         planned={rec[h]?.start == null && startOf(h) != null}
+        // 自動で入った時刻と同じ時刻を打ち込んでも「入った」にする
+        commitSame={rec[h]?.start == null || rec[h]?.startAuto === true}
         placeholder="600"
         small={small}
         parse={parseClock}
@@ -1043,9 +1045,12 @@ function TextCell<T>({
   big,
   parse,
   onCommit,
+  commitSame,
 }: {
   value: string;
   placeholder: string;
+  /** 同じ値を打ち込んでも保存する（自動で入った値を、手で入れたことにする） */
+  commitSame?: boolean;
   /** 作業配置表から入れた値（まだ保存していない）。点線で出す */
   planned?: boolean;
   /** 携帯の画面用の小さい欄 */
@@ -1057,8 +1062,11 @@ function TextCell<T>({
 }) {
   const [text, setText] = useState(value);
   const [bad, setBad] = useState(false);
+  const [typed, setTyped] = useState(false);
   const commit = () => {
-    if (text === value) return setBad(false);
+    // 打ち込んでいなければ（押して離れただけ）保存しない
+    if (text === value && !(commitSame && typed && text !== "")) return setBad(false);
+    setTyped(false);
     const v = parse(text);
     if (v === undefined) return setBad(true);
     setBad(false);
@@ -1071,7 +1079,10 @@ function TextCell<T>({
       value={text}
       inputMode={decimal ? "decimal" : "numeric"}
       placeholder={placeholder}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        setText(e.target.value);
+        setTyped(true);
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();

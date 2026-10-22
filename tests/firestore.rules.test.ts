@@ -643,6 +643,9 @@ describe("収穫管理：収穫者の「入った・終わった」", () => {
     await assertSucceeds(put({ tapHouse: "17", houses: { "17": { start: 400 } } }));
     await assertSucceeds(put({ tapHouse: "17", houses: { "17": { end: 450 } } }));
     await assertSucceeds(put({ tapHouse: "19", houses: { "19": { start: 450 } } }));
+    // 携帯から入れた「入った」には、自動の印（startAuto）を付けられる。ほかの値は不可
+    await assertSucceeds(put({ tapHouse: "19", houses: { "19": { start: 451, startAuto: true } } }));
+    await assertFails(put({ tapHouse: "19", houses: { "19": { start: 452, startAuto: "x" } } }));
     await assertSucceeds(put({ tapHouse: "17", houses: { "17": { end: null } } }));
     // 収穫管理のデータは読めない
     await assertFails(getDoc(doc(w("w7"), `harvest/${today}`)));
