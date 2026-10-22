@@ -4,7 +4,7 @@
 // 従業員は名前・社員番号・区分だけ。口座・タイムカード・従業員リスト（時給など）は見せない。サーバー（viewPayroll）から必要なものだけ受け取る
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import { EMPLOYEE_KINDS, EMPLOYER_ITEMS, PAY_ITEMS, computeRow, reiwa, type PayRow } from "@/lib/payroll";
@@ -21,7 +21,7 @@ type View = {
 };
 
 export default function PayrollViewPage() {
-  const { role } = useAuth();
+  const { can } = usePerms();
   // 給与はふつう前の月の分なので、最初は先月を開く
   const [month, setMonth] = useState(() => shiftMonth(todayJST().slice(0, 7), -1));
   const [data, setData] = useState<{ month: string; v: View | null; error: string } | null>(null);
@@ -35,7 +35,7 @@ export default function PayrollViewPage() {
     };
   }, [month]);
 
-  if (role !== "accounting" && role !== "admin") return <p>この画面は経理担当と管理者だけが見られます。</p>;
+  if (!can("payrollView")) return <p>この画面は使えません。</p>;
   const [y, m] = month.split("-").map(Number);
   const view = data?.month === month ? data : null;
   const v = view?.v;

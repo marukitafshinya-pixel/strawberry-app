@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { ackTempAlert, resetTempAlert, saveAlertTemp, saveTempWatchers, useGoveeConfig, useTempAlert, useTempWatchers } from "@/lib/govee";
 import { doc, getDoc } from "firebase/firestore";
 import { getFirebase } from "@/lib/firebase";
@@ -59,7 +60,9 @@ const NO = ["①", "②", "③"];
 
 export default function WatchPage() {
   const { role, user } = useAuth();
-  const isAdmin = role === "admin";
+  const { can } = usePerms();
+  // 管理者と、温度の見張りを見せている役割の人（スタッフ・経理）は、管理者と同じ画面
+  const isAdmin = role === "admin" || ((role === "staff" || role === "accounting") && can("tempWatch"));
   const members = useShiftMembers();
   const tw = useTempWatchers();
   const watchers = tw?.watchers ?? null;
@@ -122,7 +125,7 @@ export default function WatchPage() {
     } else a.pause();
   }, [ringing]);
 
-  if (role !== "admin" && role !== "worker") return <p>この画面は、管理者と見張り担当の従業員が使います。</p>;
+  if (!isAdmin && role !== "worker") return <p>この画面は、管理者と見張り担当の従業員が使います。</p>;
   if (members === null || watchers === null || alert === undefined) return <p className="text-gray-500">読み込み中…</p>;
   if (!isAdmin && myNo < 0 && !canReset)
     return <p className="rounded-xl bg-white p-4 text-gray-700">あなたは温度の見張り担当になっていません。管理者に確認してください。</p>;

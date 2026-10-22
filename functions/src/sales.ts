@@ -3,7 +3,7 @@
 // こうすることで「会計はあるのに売掛がない」といったずれが起きない。
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { assertStaff, db, requireString } from "./common.js";
+import { assertCan, db, requireString } from "./common.js";
 
 export type PaymentMethod = "cash" | "credit";
 
@@ -85,7 +85,7 @@ function parseLines(raw: unknown): SaleLine[] {
 // ---------- 会計の確定 ----------
 
 export const checkout = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["checkout", "receivables", "customers", "dashboard"]);
   const lines = parseLines(req.data?.lines);
   const payment = req.data?.payment as PaymentMethod;
   if (payment !== "cash" && payment !== "credit") throw new HttpsError("invalid-argument", "支払方法を選んでください");
@@ -176,7 +176,7 @@ export const checkout = onCall(async (req) => {
 // ---------- 会計の取消 ----------
 
 export const voidSale = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["checkout", "receivables", "customers", "dashboard"]);
   const id = requireString(req.data?.id, "会計", 64);
   const reason = typeof req.data?.reason === "string" ? req.data.reason.trim().slice(0, 200) : "";
   await db.runTransaction(async (tx) => {
@@ -200,7 +200,7 @@ export const voidSale = onCall(async (req) => {
 // ---------- 売掛（手入力の追加・変更・削除） ----------
 
 export const saveReceivable = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["checkout", "receivables", "customers", "dashboard"]);
   const id = req.data?.id === undefined ? null : requireString(req.data.id, "売掛", 64);
   const dueDate = req.data?.dueDate === null || req.data?.dueDate === "" ? null : req.data?.dueDate;
   if (dueDate !== null && dueDate !== undefined && (typeof dueDate !== "string" || !DATE_RE.test(dueDate))) {
@@ -266,7 +266,7 @@ export const saveReceivable = onCall(async (req) => {
 
 /** 請求書単位で、まとめて回収済み（または未回収に戻す）にする */
 export const setReceivablesStatus = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["checkout", "receivables", "customers", "dashboard"]);
   const ids = req.data?.ids;
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > 300 || !ids.every((x) => typeof x === "string" && x.length > 0 && x.length <= 64)) {
     throw new HttpsError("invalid-argument", "売掛の指定が正しくありません");
@@ -292,7 +292,7 @@ export const setReceivablesStatus = onCall(async (req) => {
 });
 
 export const deleteReceivable = onCall(async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["checkout", "receivables", "customers", "dashboard"]);
   const id = requireString(req.data?.id, "売掛", 64);
   const ref = db.doc(`receivables/${id}`);
   const snap = await ref.get();

@@ -122,6 +122,9 @@ export default function SettingsPage() {
         <Link href="/staff/members/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
           👥 スタッフ管理
         </Link>
+        <Link href="/staff/settings/perms/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+          🔐 役割ごとの見せる画面
+        </Link>
         <Link href="/staff/backup/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
           💾 データのバックアップ
         </Link>

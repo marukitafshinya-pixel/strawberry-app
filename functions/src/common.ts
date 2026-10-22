@@ -61,3 +61,30 @@ export async function assertStaff(req: CallableRequest): Promise<string> {
   if (!me.exists || me.get("active") !== true) throw new HttpsError("permission-denied", "スタッフだけが操作できます");
   return uid;
 }
+
+// ---------- 役割ごとに見せる画面（設定 →「役割ごとの見せる画面」。config/rolePerms） ----------
+// 画面の名前は web/src/lib/perms.ts と firestore.rules の permsOf と同じ
+
+/** 決めていないときの、はじめの見せ方 */
+export const DEFAULT_PERMS: Record<"staff" | "accounting", string[]> = {
+  staff: ["reservations", "checkout", "receivables", "customers", "dashboard", "reservationReport", "shift", "harvest", "shipping", "store", "weather"],
+  accounting: ["cashbook", "payrollView", "ledger"],
+};
+
+/**
+ * 呼び出した人が、fs のどれかの画面を使える人かを確認する（管理者はいつも使える）。
+ * スタッフ・経理は、スタッフ名簿で有効で、その役割に画面を見せているとき
+ */
+export async function assertCan(req: CallableRequest, fs: string[]): Promise<string> {
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "ログインしてください");
+  const role = req.auth?.token.role;
+  if (role !== "admin" && role !== "staff" && role !== "accounting") throw new HttpsError("permission-denied", "この操作はできません");
+  const me = await db.doc(`staff/${uid}`).get();
+  if (!me.exists || me.get("active") !== true || me.get("role") !== role) throw new HttpsError("permission-denied", "この操作はできません");
+  if (role === "admin") return uid;
+  const saved = (await db.doc("config/rolePerms").get()).get(role) as string[] | undefined;
+  const perms = Array.isArray(saved) ? saved : DEFAULT_PERMS[role as "staff" | "accounting"];
+  if (!fs.some((f) => perms.includes(f))) throw new HttpsError("permission-denied", "この画面は使えません。管理者に頼んでください");
+  return uid;
+}

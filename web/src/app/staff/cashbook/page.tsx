@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { errorText } from "@/lib/callFunction";
 import {
   carryInto,
@@ -47,6 +48,7 @@ export default function CashbookPage() {
 
 function CashbookView() {
   const { role } = useAuth();
+  const { can } = usePerms();
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("month");
@@ -58,9 +60,9 @@ function CashbookView() {
   /** 取り込んだら、表を読み込み直す */
   const [version, setVersion] = useState(0);
 
-  // 経理担当（accounting）は見るだけ：エクセルに書き出す・印刷はできるが、入力・修正・取り込みはできない
-  const readOnly = role === "accounting";
-  if (role !== "admin" && !readOnly) return <p>この画面は管理者だけが使えます。</p>;
+  // 管理者でない人（経理など、現金出納帳を見せている役割）は見るだけ：エクセルに書き出す・印刷はできるが、入力・修正・取り込みはできない
+  const readOnly = role !== "admin";
+  if (!can("cashbook")) return <p>この画面は使えません。</p>;
   return (
     <div className="pb-24">
       {!readOnly && (

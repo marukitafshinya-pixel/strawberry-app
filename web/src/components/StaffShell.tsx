@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
+import { featureOfPath, usePerms } from "@/lib/perms";
 
 const LOGIN_PATH = "/staff/login/";
 
@@ -77,9 +78,6 @@ function useNewVersion(): boolean {
 }
 
 const WORKER_PATH = "/staff/shift/me/";
-/** 経理担当が使う画面（現金出納帳と帳簿） */
-const CASHBOOK_PATH = "/staff/cashbook/";
-const LEDGER_PATH = "/staff/ledger";
 /** 収穫管理の入力（集荷係の従業員も使う） */
 const HARVEST_PATH = "/staff/harvest/";
 
@@ -106,11 +104,11 @@ function Guard({ children }: { children: ReactNode }) {
     !!pathname?.startsWith("/staff/harvest/watch") ||
     !!pathname?.startsWith("/staff/harvest/tap");
   const workerAway = role === "worker" && !isLoginPage && !workerPage;
-  // 経理担当は、現金出納帳と帳簿だけ
-  const accountingAway = role === "accounting" && !isLoginPage && !pathname?.startsWith(CASHBOOK_PATH) && !pathname?.startsWith(LEDGER_PATH);
-  useEffect(() => {
-    if (accountingAway) router.replace(CASHBOOK_PATH);
-  }, [accountingAway, router]);
+  // スタッフ・経理は、その役割に見せている画面だけ（設定 →「役割ごとの見せる画面」）。管理者だけの画面は入れない
+  const perms = usePerms();
+  const feature = pathname ? featureOfPath(pathname) : null;
+  const member = role === "staff" || role === "accounting";
+  const blocked = member && !isLoginPage && feature != null && (feature === "admin" || (perms.ready && !perms.can(feature)));
   useEffect(() => {
     if (workerAway) router.replace(WORKER_PATH);
   }, [workerAway, router]);
@@ -121,14 +119,14 @@ function Guard({ children }: { children: ReactNode }) {
   if (!role) return <NoRole />;
   // 従業員は、勤務管理表（自分の画面）だけ
   if (role === "worker" && !workerPage) return <p className="p-6 text-gray-500">読み込み中…</p>;
-  if (accountingAway) return <p className="p-6 text-gray-500">読み込み中…</p>;
+  if (member && feature != null && feature !== "admin" && !perms.ready) return <p className="p-6 text-gray-500">読み込み中…</p>;
   // 投影用の画面（勤務管理表をプロジェクターに映す）は、上の帯も余白も付けず、画面いっぱいに出す
   if (pathname?.startsWith(DISPLAY_PATH)) return <>{children}</>;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="flex items-center justify-between bg-berry px-4 py-3 text-white print:hidden">
-        <Link href={role === "worker" ? WORKER_PATH : role === "accounting" ? CASHBOOK_PATH : "/staff/"} className="font-bold">
+        <Link href={role === "worker" ? WORKER_PATH : "/staff/"} className="font-bold">
           🍓 スタッフ
         </Link>
         <div className="flex items-center gap-3 text-sm">
@@ -154,7 +152,16 @@ function Guard({ children }: { children: ReactNode }) {
       <main
         className={`mx-auto w-full flex-1 px-4 py-6 print:max-w-none print:p-0 ${pathname?.startsWith("/staff/checkout") ? "max-w-screen-2xl py-3" : pathname?.startsWith("/staff/shift") || pathname?.startsWith("/staff/total") || pathname?.startsWith("/staff/goals") || pathname?.startsWith("/staff/harvest/report") ? "max-w-screen-2xl" : "max-w-5xl"}`}
       >
-        {children}
+        {blocked ? (
+          <div className="space-y-3">
+            <p>この画面は使えません。必要なときは、管理者に「役割ごとの見せる画面」で見せてもらってください。</p>
+            <Link href="/staff/" className="inline-block rounded-lg border bg-white px-4 py-2">
+              ← メニューへ
+            </Link>
+          </div>
+        ) : (
+          children
+        )}
       </main>
     </div>
   );

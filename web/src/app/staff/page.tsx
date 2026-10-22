@@ -17,28 +17,32 @@ import {
   yen,
   type Reservation,
 } from "@/lib/reservations";
+import { usePerms, type Feature } from "@/lib/perms";
 import { useSales } from "@/lib/sales";
 
-type MenuItem = { label: string; href: string; adminOnly?: boolean; big?: boolean; color?: string };
+/** feature＝役割ごとに見せるかを決める画面の名前（lib/perms）。adminOnly＝管理者だけ（選べない） */
+type MenuItem = { label: string; href: string; feature?: Feature; adminOnly?: boolean; big?: boolean; color?: string };
 
 const MENU: MenuItem[] = [
-  { label: "予約管理", href: "/staff/reservations/", big: true, color: "border-berry bg-berry text-white" },
-  { label: "会計（レジ）", href: "/staff/checkout/", big: true, color: "border-emerald-700 bg-emerald-700 text-white" },
-  { label: "売掛管理", href: "/staff/receivables/" },
-  { label: "顧客リスト", href: "/staff/customers/" },
-  { label: "ダッシュボード", href: "/staff/dashboard/" },
-  { label: "予約の集計", href: "/staff/report/reservations/" },
-  { label: "勤務管理表", href: "/staff/shift/" },
-  { label: "収穫管理", href: "/staff/harvest/" },
-  { label: "温度の見張り", href: "/staff/harvest/watch/", adminOnly: true },
-  { label: "出荷実績", href: "/staff/shipping/" },
-  { label: "店舗実績", href: "/staff/store/" },
-  { label: "トータル実績", href: "/staff/total/", adminOnly: true },
-  { label: "目標と実績", href: "/staff/goals/", adminOnly: true },
-  { label: "気象データ", href: "/staff/weather/" },
+  { label: "予約管理", href: "/staff/reservations/", feature: "reservations", big: true, color: "border-berry bg-berry text-white" },
+  { label: "会計（レジ）", href: "/staff/checkout/", feature: "checkout", big: true, color: "border-emerald-700 bg-emerald-700 text-white" },
+  { label: "売掛管理", href: "/staff/receivables/", feature: "receivables" },
+  { label: "顧客リスト", href: "/staff/customers/", feature: "customers" },
+  { label: "ダッシュボード", href: "/staff/dashboard/", feature: "dashboard" },
+  { label: "予約の集計", href: "/staff/report/reservations/", feature: "reservationReport" },
+  { label: "勤務管理表", href: "/staff/shift/", feature: "shift" },
+  { label: "収穫管理", href: "/staff/harvest/", feature: "harvest" },
+  { label: "温度の見張り", href: "/staff/harvest/watch/", feature: "tempWatch" },
+  { label: "出荷実績", href: "/staff/shipping/", feature: "shipping" },
+  { label: "店舗実績", href: "/staff/store/", feature: "store" },
+  { label: "トータル実績", href: "/staff/total/", feature: "total" },
+  { label: "目標と実績", href: "/staff/goals/", feature: "goals" },
+  { label: "気象データ", href: "/staff/weather/", feature: "weather" },
   { label: "給与", href: "/staff/payroll/", adminOnly: true },
-  { label: "現金出納帳", href: "/staff/cashbook/", adminOnly: true },
-  { label: "帳簿（経理）", href: "/staff/ledger/", adminOnly: true },
+  // 管理者は「給与」を使うので出さない。経理などに見せるとき
+  { label: "給与（見るだけ）", href: "/staff/cashbook/payroll/", feature: "payrollView" },
+  { label: "現金出納帳", href: "/staff/cashbook/", feature: "cashbook" },
+  { label: "帳簿（経理）", href: "/staff/ledger/", feature: "ledger" },
   { label: "作業用フォルダ", href: "/staff/work/", adminOnly: true },
   { label: "商品設定", href: "/staff/products/", adminOnly: true },
   { label: "設定", href: "/staff/settings/", adminOnly: true },
@@ -50,7 +54,9 @@ const keyOf = (m: MenuItem) => m.href.split("/").filter(Boolean).slice(1).join("
 export default function StaffHome() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
-  const items = MENU.filter((m) => !m.adminOnly || isAdmin);
+  const { can } = usePerms();
+  // 管理者はすべて。スタッフ・経理は、その役割に見せている画面だけ（設定 →「役割ごとの見せる画面」）
+  const items = MENU.filter((m) => (isAdmin ? m.feature !== "payrollView" : !m.adminOnly && !!m.feature && can(m.feature)));
   const { value: requests } = usePendingRequests(todayJST());
   const { value: unseen } = useUnseenReservations();
   const saved = useMenuLayout();
@@ -162,8 +168,9 @@ export default function StaffHome() {
 
   return (
     <>
-      {unseen && unseen.length > 0 && <UnseenNotice list={unseen} />}
-      <Today requestCount={requests?.length ?? 0} />
+      {/* 予約の知らせと今日のようすは、予約管理を見せている人だけ */}
+      {can("reservations") && unseen && unseen.length > 0 && <UnseenNotice list={unseen} />}
+      {can("reservations") && <Today requestCount={requests?.length ?? 0} />}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold">メニュー</h2>

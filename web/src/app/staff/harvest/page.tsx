@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { addDays, formatJa, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
@@ -90,6 +91,7 @@ const NO_HARVEST: HouseUse[] = ["picking", "reserve", "off"];
 
 export default function HarvestPage() {
   const { role, user } = useAuth();
+  const { can } = usePerms();
   const [date, setDate] = useState(todayJST());
   const template = useHaichiTemplate();
   const haichi = useHaichiDay(date);
@@ -113,7 +115,7 @@ export default function HarvestPage() {
   // 開いたときに、人ごとの速さとケース数の見込みを最近の記録から計算し直してもらう。
   // 管理者・スタッフは、その前に夜温・日照（気象庁）を集めてもらう（ケース数の見込みの天気の影響に使う）
   useEffect(() => {
-    if (role === "admin" || role === "staff")
+    if (role === "admin" || role === "staff" || role === "accounting")
       void callFunction("refreshHarvestWeather", {})
         .catch(() => {})
         .finally(() => void refreshHarvestSpeeds());
@@ -208,7 +210,7 @@ export default function HarvestPage() {
   const me = isWorker ? members?.find((m) => m.uid === user?.uid) : undefined;
   const everyDay = me?.harvestEntry === true;
 
-  if (role !== "admin" && role !== "staff" && !isWorker) return <p>この画面はスタッフだけが使えます。</p>;
+  if (!can("harvest") && !isWorker) return <p>この画面は使えません。</p>;
   if (isWorker) {
     if (!members || haichi === null) return <p className="text-gray-500">読み込み中…</p>;
     if (!me || (!everyDay && (date !== todayJST() || !haichi.cells[PICKUP_SLOT]?.members.includes(me.id))))

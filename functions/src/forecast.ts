@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { diffAt } from "./tempDiff.js";
-import { db } from "./common.js";
+import { assertCan, db } from "./common.js";
 
 /** 上川・留萌地方（府県予報区）と、その中の上川地方（一次細分区域）、気温の地点（旭川） */
 export const FORECAST_AREA = { office: "012000", class10: "012010", class10Name: "上川地方", tempPoint: "旭川", city: "0145900", cityName: "美瑛" };
@@ -164,8 +164,9 @@ async function fetchJson(url: string, fixture: string): Promise<unknown> {
 
 /** 天気予報を新しくする（1時間以内に読み込んであれば、なにもしない）。スタッフ・従業員 */
 export const refreshForecast = onCall({ timeoutSeconds: 60 }, async (req) => {
-  const role = req.auth?.token.role;
-  if (!req.auth || !["admin", "staff", "worker"].includes(String(role))) throw new HttpsError("permission-denied", "ログインしてください");
+  // 従業員と、勤務管理表・収穫管理・気象データを使える人
+  if (!req.auth) throw new HttpsError("permission-denied", "ログインしてください");
+  if (req.auth.token.role !== "worker") await assertCan(req, ["shift", "harvest", "weather"]);
   const ref = db.doc("forecast/biei");
   const cur = await ref.get();
   const at = cur.get("fetchedAt") as Timestamp | undefined;

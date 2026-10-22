@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { applicationDefault } from "firebase-admin/app";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { assertAdmin, assertStaff, db } from "./common.js";
+import { assertAdmin, assertCan, db } from "./common.js";
 
 const KEY_DOC = "secrets/anthropic";
 export const MODEL = "claude-opus-5-5";
@@ -23,7 +23,7 @@ export async function loadKey(): Promise<string | null> {
 
 /** AIの鍵が登録されているか（鍵そのものは返さない。末尾4文字だけ） */
 export const aiKeyStatus = onCall(async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["shipping"]);
   const k = await loadKey();
   return { set: !!k, last4: k ? k.slice(-4) : "" };
 });
@@ -141,7 +141,7 @@ const MAX_TOTAL = 9_000_000; // base64 の合計（呼び出しの大きさの�
 
 /** 仕切書を読み取る（スタッフ） */
 export const readShikiri = onCall({ timeoutSeconds: 540, memory: "512MiB" }, async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["shipping"]);
   const files = (req.data as { files?: unknown })?.files;
   if (!Array.isArray(files) || files.length === 0) throw new HttpsError("invalid-argument", "仕切書のファイルを選んでください");
   if (files.length > MAX_FILES) throw new HttpsError("invalid-argument", `一度に読めるのは${MAX_FILES}ページまでです`);
@@ -215,7 +215,7 @@ type VisionResponse = {
 
 /** 仕切書の画像を、Google の文字読み取りで読む（スタッフ） */
 export const readShikiriOcr = onCall({ timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["shipping"]);
   const files = (req.data as { files?: unknown })?.files;
   if (!Array.isArray(files) || files.length === 0) throw new HttpsError("invalid-argument", "仕切書のファイルを選んでください");
   if (files.length > MAX_FILES) throw new HttpsError("invalid-argument", `一度に読めるのは${MAX_FILES}ページまでです`);

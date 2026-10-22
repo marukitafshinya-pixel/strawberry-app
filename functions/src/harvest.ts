@@ -4,7 +4,7 @@
 // その日の集荷係（作業配置表の「集荷係」の枠）が収穫にも入ったハウスは、集荷をしながらなので速さには入れない
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { db } from "./common.js";
+import { assertCan, db } from "./common.js";
 import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, stoppedAt, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldPrior, type YieldWeather } from "./harvestYield.js";
 import type { PastModel } from "./pastYield.js";
@@ -89,7 +89,9 @@ export function speedsFrom(records: SpeedRecord[]): { speeds: Record<string, num
 export const refreshHarvestSpeeds = onCall(async (req) => {
   const uid = req.auth?.uid;
   const role = req.auth?.token.role;
-  if (!uid || (role !== "admin" && role !== "staff" && role !== "worker")) throw new HttpsError("permission-denied", "使えません");
+  if (!uid) throw new HttpsError("permission-denied", "使えません");
+  // 従業員と、収穫管理を使える人
+  if (role !== "worker") await assertCan(req, ["harvest"]);
 
   const today = ymd(new Date());
   const from = ymd(new Date(Date.now() - DAYS * 86400e3));
@@ -184,7 +186,9 @@ export const harvestHelpHouse = onCall(async (req) => {
   const uid = req.auth?.uid;
   const role = req.auth?.token.role;
   // 収穫する従業員と、収穫管理から収穫報告の画面を見るスタッフ・管理者
-  if (!uid || (role !== "worker" && role !== "admin" && role !== "staff")) throw new HttpsError("permission-denied", "使えません");
+  if (!uid) throw new HttpsError("permission-denied", "使えません");
+  // 従業員と、収穫管理を使える人（管理者と、収穫管理を見せている役割の人）
+  if (role !== "worker") await assertCan(req, ["harvest"]);
   const w = await db.doc(role === "worker" ? `workers/${uid}` : `staff/${uid}`).get();
   if (w.get("active") !== true) throw new HttpsError("permission-denied", "使えません");
   const me = role === "worker" ? ((w.get("memberId") as string | undefined) ?? null) : null;

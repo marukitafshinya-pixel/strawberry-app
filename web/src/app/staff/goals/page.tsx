@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { errorText } from "@/lib/callFunction";
 import { todayJST } from "@/lib/date";
 import { GOAL_ITEMS, saveGoals, useGoals, useLaborCost, type GoalKey, type GoalMonths, type HobeMonths } from "@/lib/goals";
@@ -33,7 +33,7 @@ export default function GoalsPage() {
 }
 
 function GoalsView() {
-  const { role } = useAuth();
+  const { can } = usePerms();
   const params = useSearchParams();
   const router = useRouter();
   const thisYear = Number(todayJST().slice(0, 4));
@@ -49,7 +49,7 @@ function GoalsView() {
   const { value: sales } = useSales(to < REGI_START ? "9999-12-30" : from < REGI_START ? REGI_START : from, to < REGI_START ? "9999-12-31" : to);
   const { value: receivables } = useReceivablesInRange(from, to);
 
-  if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
+  if (!can("goals")) return <p>この画面は使えません。</p>;
   const ready = goals && labor && shipments && store && sales && receivables;
   // 月ごとの実績
   const inMonth = (d: string, m: string) => d.slice(5, 7) === m;

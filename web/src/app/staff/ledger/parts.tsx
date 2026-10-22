@@ -52,8 +52,9 @@ export function LedgerHeader({ title }: { title: string }) {
   );
 }
 
+/** 帳簿を使えるか：管理者・経理・スタッフ（スタッフ・経理は、帳簿を見せているかを画面の入口（StaffShell）で確かめる） */
 export function canUseLedger(role: string | null) {
-  return role === "admin" || role === "accounting";
+  return role === "admin" || role === "accounting" || role === "staff";
 }
 
 /**

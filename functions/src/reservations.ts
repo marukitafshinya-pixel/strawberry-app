@@ -3,7 +3,7 @@
 // これにより、同時に予約が入っても「残り人数」がずれない。
 import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { assertStaff, db, requireString } from "./common.js";
+import { assertCan, db, requireString } from "./common.js";
 
 /** request = 定員を超えたためのリクエスト（お店の承認待ち） */
 export type ReservationStatus = "request" | "tentative" | "confirmed" | "visited" | "cancelled";
@@ -191,7 +191,7 @@ export async function capacityFor(tx: Transaction, date: string, slotId: string,
 // ---------- スタッフ用：予約の追加・変更 ----------
 
 export const saveReservation = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["reservations", "checkout", "receivables", "customers", "dashboard", "reservationReport"]);
   const input = parseReservationInput(req.data);
   const id = req.data?.id === undefined ? null : requireString(req.data.id, "予約", 64);
   const force = req.data?.force === true;
@@ -251,7 +251,7 @@ export const saveReservation = onCall(async (req) => {
 // ---------- スタッフ用：予約の削除 ----------
 
 export const deleteReservation = onCall(async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["reservations", "checkout", "receivables", "customers", "dashboard", "reservationReport"]);
   const id = requireString(req.data?.id, "予約", 64);
   await db.runTransaction(async (tx) => {
     const ref = db.doc(`reservations/${id}`);
@@ -275,7 +275,7 @@ export const deleteReservation = onCall(async (req) => {
 // ---------- スタッフ用：ステータスだけを変える（「来店」ボタンなど） ----------
 
 export const setReservationStatus = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["reservations", "checkout", "receivables", "customers", "dashboard", "reservationReport"]);
   const id = requireString(req.data?.id, "予約", 64);
   const status = req.data?.status as ReservationStatus;
   if (!STATUSES.includes(status)) throw new HttpsError("invalid-argument", "ステータスが正しくありません");
@@ -314,7 +314,7 @@ export const setReservationStatus = onCall(async (req) => {
 // ---------- スタッフ用：新しい予約を「確認した」にする ----------
 
 export const markReservationsSeen = onCall(async (req) => {
-  const uid = await assertStaff(req);
+  const uid = await assertCan(req, ["reservations", "checkout", "receivables", "customers", "dashboard", "reservationReport"]);
   const all = req.data?.all === true;
   let refs;
   if (all) {

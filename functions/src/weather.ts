@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { assertStaff, db } from "./common.js";
+import { assertCan, db } from "./common.js";
 
 /** 美瑛のアメダス（気象庁の地点番号） */
 export const WEATHER_STATION = { name: "美瑛", precNo: 12, blockNo: "1052" };
@@ -141,7 +141,7 @@ export async function importMonth(year: number, month: number) {
 
 /** 1か月分の気象データを、気象庁から取り込んで保存する（スタッフ） */
 export const importWeatherMonth = onCall({ timeoutSeconds: 60 }, async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["weather", "harvest", "shipping"]);
   const year = Number(req.data?.year);
   const month = Number(req.data?.month);
   if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
@@ -211,7 +211,7 @@ const DAILY_MAX_AGE_MS = 6 * 3600_000;
  * ・夜温がまだない日を、新しい日から順に、1回に数ページずつ集める（足りない分は次に開いたときに続ける）
  */
 export const refreshHarvestWeather = onCall({ timeoutSeconds: 120 }, async (req) => {
-  await assertStaff(req);
+  await assertCan(req, ["weather", "harvest", "shipping"]);
   const now = new Date(Date.now() + 9 * 3600_000);
   const today = now.toISOString().slice(0, 10);
   const hhmm = now.toISOString().slice(11, 16);

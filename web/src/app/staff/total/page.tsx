@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { errorText } from "@/lib/callFunction";
 import { todayJST } from "@/lib/date";
 import { downloadCsv } from "@/lib/report";
@@ -49,7 +49,7 @@ export default function TotalPage() {
 }
 
 function TotalView() {
-  const { role } = useAuth();
+  const { can } = usePerms();
   const params = useSearchParams();
   const router = useRouter();
   const thisYear = Number(todayJST().slice(0, 4));
@@ -66,7 +66,7 @@ function TotalView() {
   const other = useOtherSales(year);
   const prevOther = useOtherSales(year - 1);
 
-  if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
+  if (!can("total")) return <p>この画面は使えません。</p>;
   return (
     <div className="pb-24">
       <p className="text-sm print:hidden">

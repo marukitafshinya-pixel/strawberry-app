@@ -18,6 +18,25 @@ service cloud.firestore {
     function isAdmin() {
       return isStaff() && request.auth.token.role == 'admin';
     }
+    // 管理者・スタッフ・経理のどれかで、スタッフ名簿で「有効」になっている人
+    function isMember() {
+      return signedIn()
+        && request.auth.token.role in ['admin', 'staff', 'accounting']
+        && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active == true;
+    }
+    // 役割ごとに見せる画面（設定 →「役割ごとの見せる画面」。config/rolePerms）。決めていなければ、はじめの見せ方
+    function permsOf() {
+      let role = request.auth.token.role;
+      let dflt = role == 'accounting'
+        ? ['cashbook', 'payrollView', 'ledger']
+        : ['reservations', 'checkout', 'receivables', 'customers', 'dashboard', 'reservationReport', 'shift', 'harvest', 'shipping', 'store', 'weather'];
+      let p = /databases/$(database)/documents/config/rolePerms;
+      return exists(p) ? get(p).data.get(role, dflt) : dflt;
+    }
+    // 画面（fs のどれか）を見せている役割の人か。管理者はいつも使える
+    function can(fs) {
+      return isAdmin() || (isMember() && request.auth.token.role != 'admin' && permsOf().hasAny(fs));
+    }
     // その日の作業配置表で「集荷係」（枠のID pickup）に名前が入っている従業員か（収穫管理をその日だけ使える）
     function isPickupOn(date) {
       return isWorker()
@@ -107,22 +126,22 @@ service cloud.firestore {
 
     // 予約：スタッフは見るだけ。追加・変更・削除はサーバー側で定員を確かめてから行う
     match /reservations/{id} {
-      allow read: if isStaff();
+      allow read: if can(['reservations', 'checkout', 'receivables', 'customers', 'dashboard', 'reservationReport']);
     }
     // 予約の連絡先（電話・メール）：スタッフだけが見られる。お客様本人も含め、他の人は読めない
     match /reservationContacts/{id} {
-      allow read: if isStaff();
+      allow read: if can(['reservations', 'checkout', 'receivables', 'customers', 'dashboard', 'reservationReport']);
     }
     // 会計・売掛：スタッフは見るだけ。確定・取消・変更はサーバー側でまとめて行う
     match /sales/{id} {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'receivables', 'customers', 'dashboard', 'reservationReport', 'store', 'total', 'goals']);
     }
     match /receivables/{id} {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'receivables', 'customers', 'dashboard']);
     }
     // 過去売上の取り込み（日ごとの合計）：スタッフは見るだけ、管理者が取り込む
     match /importedSales/{date} {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'receivables', 'customers', 'dashboard', 'reservationReport', 'store', 'total', 'goals']);
       allow write: if isAdmin()
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['amount', 'source', 'importedAt'])
@@ -132,7 +151,7 @@ service cloud.firestore {
 
     // 顧客リスト（名前・連絡先・顧客ごとの単価）：スタッフは見るだけ（会計で使う）、管理者が登録・変更する
     match /customers/{id} {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'customers', 'receivables', 'reservations']);
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['name', 'kana', 'phone', 'address', 'contract', 'payment', 'terms', 'memo', 'prices', 'products', 'active', 'updatedAt'])
         && request.resource.data.name is string
@@ -145,8 +164,8 @@ service cloud.firestore {
 
     // レジ精算（日ごと）：スタッフが記録する。決められた項目だけ
     match /cashCounts/{date} {
-      allow read: if isStaff();
-      allow write: if isStaff()
+      allow read: if can(['checkout']);
+      allow write: if can(['checkout'])
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['float', 'counts', 'cashSales', 'counted', 'diff', 'memo', 'updatedAt', 'updatedBy'])
         && request.resource.data.float is int
@@ -156,7 +175,7 @@ service cloud.firestore {
 
     // 請求書の設定（振込先など）：スタッフは見るだけ（請求書に印刷する）、変更は管理者
     match /config/invoice {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'receivables', 'customers', 'reservations']);
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['bankInfo', 'note', 'issuerName', 'updatedAt'])
         && request.resource.data.bankInfo is string
@@ -166,7 +185,7 @@ service cloud.firestore {
 
     // 請求書・納品書に押す印鑑（角印）の画像：スタッフは見るだけ（印刷する）、登録・削除は管理者
     match /config/invoiceSeal {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'receivables', 'customers', 'reservations']);
       allow delete: if isAdmin();
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['image', 'updatedAt'])
@@ -178,7 +197,7 @@ service cloud.firestore {
     // レジの共通設定（領収書の「扱者」に選ぶ名前のリスト）：スタッフが見て、直せる
     // メニューのタイルの配置：スタッフが読み、管理者が変える
     match /config/menu {
-      allow read: if isStaff();
+      allow read: if isMember();
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['slots', 'cols', 'updatedAt'])
         && request.resource.data.slots is map
@@ -188,15 +207,15 @@ service cloud.firestore {
     }
     // 現金出納帳の「項目」の候補（プルダウン）：管理者だけ
     match /config/cashbookItems {
-      allow read: if isAdmin();
+      allow read: if can(['cashbook']);
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['items', 'updatedAt'])
         && request.resource.data.items is list
         && request.resource.data.items.size() <= 500;
     }
     match /config/register {
-      allow read: if isStaff();
-      allow write: if isStaff()
+      allow read: if can(['checkout']);
+      allow write: if can(['checkout'])
         && request.resource.data.keys().hasOnly(['handlers', 'updatedAt'])
         && request.resource.data.handlers is list
         && request.resource.data.handlers.size() <= 30;
@@ -204,7 +223,7 @@ service cloud.firestore {
 
     // 去年の商品別の実績（Airレジの商品別CSV）：スタッフは見るだけ、管理者が取り込む
     match /itemReferences/{id} {
-      allow read: if isStaff();
+      allow read: if can(['checkout', 'store', 'dashboard', 'reservationReport']);
       allow write: if isAdmin()
         && id.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['from', 'to', 'items', 'importedAt'])
@@ -236,27 +255,27 @@ service cloud.firestore {
     // 月ごとの給与（payrolls/{YYYY-MM}）
     // 気象データ（気象庁のアメダス・月ごと）：スタッフが見る。取り込みはサーバー側だけ
     match /weather/{month} {
-      allow read: if isStaff();
+      allow read: if can(['weather', 'harvest', 'shipping']);
     }
     // 天気予報（気象庁・上川地方）。書き込みはサーバー側だけ
     match /forecast/{id} {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest', 'weather']) || isWorker();
     }
     // カフェの呼出番号（1日ごとの連番）。スタッフが1つずつ進めるだけ（戻したり飛ばしたりはできない）
     match /cafeCalls/{date} {
-      allow read: if isStaff();
-      allow create: if isStaff()
+      allow read: if can(['checkout']);
+      allow create: if can(['checkout'])
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['last', 'updatedAt'])
         && request.resource.data.last == 1;
-      allow update: if isStaff()
+      allow update: if can(['checkout'])
         && request.resource.data.keys().hasOnly(['last', 'updatedAt'])
         && request.resource.data.last == resource.data.last + 1;
     }
     // トータル実績の、ほかの売上（玉ねぎ・そば・作業委託＆冷蔵庫リース）の月ごとの金額：管理者だけ
     match /otherSales/{year} {
-      allow read: if isAdmin();
-      allow write: if isAdmin()
+      allow read: if can(['total']);
+      allow write: if can(['total'])
         && year.matches('^[0-9]{4}$')
         && request.resource.data.keys().hasOnly(['months', 'forecast', 'updatedAt'])
         && request.resource.data.months is map
@@ -265,7 +284,7 @@ service cloud.firestore {
     }
     // 現金出納帳（月ごと）：管理者だけが読み書きできる
     match /cashbook/{month} {
-      allow read: if isAdmin() || isAccounting();
+      allow read: if can(['cashbook']);
       allow write: if isAdmin()
         && month.matches('^[0-9]{4}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['entries', 'opening', 'updatedAt'])
@@ -275,40 +294,40 @@ service cloud.firestore {
     }
     // 帳簿の仕訳（月ごと・手で入れた分）：管理者と経理担当が読み書きできる
     match /journal/{month} {
-      allow read: if isAdmin() || isAccounting();
-      allow write: if (isAdmin() || isAccounting())
+      allow read: if can(['ledger']);
+      allow write: if can(['ledger'])
         && month.matches('^[0-9]{4}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['entries', 'updatedAt'])
         && request.resource.data.entries is list && request.resource.data.entries.size() <= 500;
-      allow delete: if isAdmin() || isAccounting();
+      allow delete: if can(['ledger']);
     }
     // 帳簿の自動仕訳（レジの売上・売掛・給与から）：管理者と経理担当が見る。作るのはサーバー（buildAutoJournal）だけ
     match /autoJournal/{month} {
-      allow read: if isAdmin() || isAccounting();
+      allow read: if can(['ledger']);
     }
     // いまの会計ソフトから取り込んだ合計残高試算表（月ごと）：管理者と経理担当
     match /tbImport/{month} {
-      allow read: if isAdmin() || isAccounting();
-      allow write: if (isAdmin() || isAccounting())
+      allow read: if can(['ledger']);
+      allow write: if can(['ledger'])
         && month.matches('^[0-9]{4}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['rows', 'fileName', 'updatedAt'])
         && request.resource.data.rows is list && request.resource.data.rows.size() <= 1000
         && (!('fileName' in request.resource.data) || (request.resource.data.fileName is string && request.resource.data.fileName.size() <= 100));
-      allow delete: if isAdmin() || isAccounting();
+      allow delete: if can(['ledger']);
     }
     // 取り込んだ預金通帳の入出金（月ごと）：管理者と経理担当
     match /bank/{month} {
-      allow read: if isAdmin() || isAccounting();
-      allow write: if (isAdmin() || isAccounting())
+      allow read: if can(['ledger']);
+      allow write: if can(['ledger'])
         && month.matches('^[0-9]{4}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['rows', 'updatedAt'])
         && request.resource.data.rows is list && request.resource.data.rows.size() <= 1000;
-      allow delete: if isAdmin() || isAccounting();
+      allow delete: if can(['ledger']);
     }
     // 帳簿の勘定科目・決算月・現金出納帳の項目と科目の対応・自動仕訳の科目・通帳の言葉と科目：管理者と経理担当
     match /config/accounts {
-      allow read: if isAdmin() || isAccounting();
-      allow write: if (isAdmin() || isAccounting())
+      allow read: if can(['ledger']);
+      allow write: if can(['ledger'])
         && request.resource.data.keys().hasOnly(['accounts', 'itemMap', 'fiscalStart', 'auto', 'bankRules', 'salesMap', 'chartVersion', 'removed', 'pick', 'updatedAt'])
         && (!('pick' in request.resource.data) || (request.resource.data.pick is list && request.resource.data.pick.size() <= 300))
         && (!('removed' in request.resource.data) || (request.resource.data.removed is list && request.resource.data.removed.size() <= 200))
@@ -350,8 +369,8 @@ service cloud.firestore {
     }
     // 目標と実績（goals/{年}）：月ごとの目標と、ホーブへの支払いの実績
     match /goals/{year} {
-      allow read: if isAdmin();
-      allow write: if isAdmin()
+      allow read: if can(['goals']);
+      allow write: if can(['goals'])
         && year.matches('^[0-9]{4}$')
         && request.resource.data.keys().hasOnly(['targets', 'hobe', 'updatedAt'])
         && request.resource.data.targets is map && request.resource.data.targets.size() <= 12
@@ -371,7 +390,7 @@ service cloud.firestore {
 
     // ---------- 出荷実績（スタッフが入力。規格の設定は管理者） ----------
     match /shipping/config {
-      allow read: if isStaff();
+      allow read: if can(['shipping', 'total', 'goals', 'store', 'dashboard']);
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['destination', 'grades', 'updatedAt'])
         && request.resource.data.grades is list;
@@ -379,26 +398,26 @@ service cloud.firestore {
     // 日ごとの出荷（shipments/{YYYY-MM-DD}）：規格ごとの数量と単価
     // 店舗実績（直売・カフェ・いちご狩りの売上と客数）：スタッフが入力する
     match /storeDaily/{date} {
-      allow read: if isStaff();
-      allow write: if isStaff()
+      allow read: if can(['store', 'total', 'goals', 'dashboard', 'reservationReport', 'checkout']);
+      allow write: if can(['store'])
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['direct', 'directCustomers', 'cafe', 'cafeCustomers', 'ichigo', 'ichigoCustomers', 'total', 'totalCustomers', 'discount', 'airregi', 'updatedAt']);
-      allow delete: if isStaff();
+      allow delete: if can(['store']);
     }
 
     match /shipments/{date} {
-      allow read: if isStaff();
-      allow write: if isStaff()
+      allow read: if can(['shipping', 'total', 'goals', 'store', 'dashboard']);
+      allow write: if can(['shipping'])
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['items', 'updatedAt', 'updatedBy'])
         && request.resource.data.items is map;
-      allow delete: if isStaff();
+      allow delete: if can(['shipping']);
     }
 
     // ---------- 勤務管理表（従業員も見られる。名前と勤務の記号だけで、連絡先や給与は入れない） ----------
     // 勤務の表に並ぶ人。ログイン（uid・loginId）はサーバー側だけが付け替える
     match /shiftMembers/{id} {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();
       allow create: if isAdmin()
         && request.resource.data.keys().hasOnly(['name', 'group', 'floor', 'harvest', 'harvestEntry', 'order', 'active', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 30;
@@ -411,7 +430,7 @@ service cloud.firestore {
     }
     // 日ごとの勤務（shiftDays/{YYYY-MM-DD}）：人ごとの記号と、その日の予定
     match /shiftDays/{date} {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();
       allow write: if isAdmin()
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['cells', 'note', 'updatedAt'])
@@ -420,13 +439,13 @@ service cloud.firestore {
     }
     // 作業配置表：枠の並び（ひな形）と、日ごとの割り振り。見るのはスタッフと従業員、書くのは管理者
     match /config/haichi {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['sections', 'updatedAt'])
         && request.resource.data.sections is list && request.resource.data.sections.size() <= 20;
     }
     match /haichi/{date} {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();
       allow write: if isAdmin()
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['cells', 'note', 'done', 'updatedAt'])
@@ -437,10 +456,10 @@ service cloud.firestore {
     // 勤務の記号・まとまり・希望の締め切り
     // 収穫の記録（だれがどのハウスで何ケース取ったか）：管理者は全部、スタッフは最近の日（8日前〜明日）、集荷係の従業員はその日だけ読み書きできる。集計は管理者だけ
     match /harvest/{date} {
-      allow read: if isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
+      allow read: if isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date);
       // 収穫する従業員（収穫報告）は、読めずに、今日のハウスの「入った・終わった」の時刻だけ書ける（tapWrite）
       allow write: if date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || tapWrite(date))
+        && (isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || tapWrite(date))
         && request.resource.data.keys().hasOnly(['houses', 'endTime', 'forecast', 'forecastHouses', 'casesForecast', 'break', 'tapHouse', 'updatedAt'])
         && (!('casesForecast' in request.resource.data) || (request.resource.data.casesForecast is number && request.resource.data.casesForecast >= 0 && request.resource.data.casesForecast < 100000))
         && (!('forecastHouses' in request.resource.data) || (request.resource.data.forecastHouses is map && request.resource.data.forecastHouses.size() <= 80))
@@ -457,7 +476,7 @@ service cloud.firestore {
     // 入れられるのは収穫管理を使える人、見られるのは管理者だけ。あとから直したり消したりはできない
     match /harvest/{date}/log/{id} {
       allow read: if isAdmin();
-      allow create: if (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || (isWorker() && nearToday(date)))
+      allow create: if (isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date) || (isWorker() && nearToday(date)))
         && request.resource.data.keys().hasOnly(['at', 'by', 'house', 'delta', 'cases', 'start', 'end', 'members', 'use', 'dayEnd', 'break', 'auto', 'tap'])
         && request.resource.data.at == request.time
         && request.resource.data.by == request.auth.uid
@@ -476,7 +495,7 @@ service cloud.firestore {
     // 収穫者が自分で押した「入った・終わった」（ハウス → 時刻）。書けるのは本人だけ（今日の分）。
     // 同じハウスの人が全員「終わった」を押したかを見るため、今日の分は従業員どうしで見られる（時刻だけで、個人情報は入れない）
     match /harvest/{date}/taps/{memberId} {
-      allow read: if isStaff() || (isWorker() && nearToday(date));
+      allow read: if can(['harvest']) || (isWorker() && nearToday(date));
       allow write: if isWorker() && nearToday(date)
         && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
@@ -484,24 +503,24 @@ service cloud.firestore {
     }
     // 休憩の合図（harvest/{date}/calls/break）：収穫管理を使える人（管理者・スタッフ・集荷係）が押す。今日の分は従業員も見られる（押した時刻だけ）
     match /harvest/{date}/calls/{id} {
-      allow read: if isStaff() || (isWorker() && nearToday(date));
+      allow read: if can(['harvest']) || (isWorker() && nearToday(date));
       allow write: if id == 'break'
-        && (isAdmin() || ((isStaff() || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
+        && (isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
         && request.resource.data.keys().hasOnly(['at', 'by'])
         && request.resource.data.at == request.time
         && request.resource.data.by == request.auth.uid;
     }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
-      allow read: if isStaff() || isWorker();
-      allow write: if (isStaff() || isHarvestWorker() || isPickupOn(date))
+      allow read: if can(['harvest', 'shift']) || isWorker();
+      allow write: if (can(['harvest']) || isHarvestWorker() || isPickupOn(date))
         && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
         && request.resource.data.houses is map && request.resource.data.houses.size() <= 80;
     }
     // ハウスのまとまり（集計で使う）
     match /config/harvest {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['harvest', 'shift']) || isWorker();
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['groups', 'startTime', 'plants', 'noHelp', 'updatedAt'])
         && (!('noHelp' in request.resource.data) || (request.resource.data.noHelp is list && request.resource.data.noHelp.size() <= 40))
@@ -512,8 +531,8 @@ service cloud.firestore {
     // ハウスの中の温度計（Govee）：一覧はサーバーが API キーで読んで入れる。管理者は、どの温度計がどのハウスかを決めるだけ。
     // API キーそのもの（secrets/govee）はルールを書かない＝画面からは誰も読み書きできない（サーバーだけが使う）
     match /config/govee {
-      allow read: if isAdmin();
-      allow write: if isAdmin()
+      allow read: if can(['tempWatch']);
+      allow write: if can(['tempWatch'])
         && request.resource.data.keys().hasOnly(['devices', 'houseOf', 'keySet', 'alertTemp', 'alertHigh', 'updatedAt'])
         && (!('alertHigh' in request.resource.data) || request.resource.data.alertHigh == null
           || (request.resource.data.alertHigh is number && request.resource.data.alertHigh >= 0 && request.resource.data.alertHigh <= 60))
@@ -534,8 +553,8 @@ service cloud.firestore {
     }
     // 温度の見張り担当（①②③の順。従業員リストの id）：従業員の携帯に「見張り画面を開く」を出すため、従業員も読める
     match /config/tempWatch {
-      allow read: if isStaff() || isWorker();
-      allow write: if isAdmin()
+      allow read: if can(['tempWatch', 'shift', 'harvest']) || isWorker();
+      allow write: if can(['tempWatch'])
         && request.resource.data.keys().hasOnly(['watchers', 'owner', 'updatedAt'])
         && request.resource.data.watchers is list && request.resource.data.watchers.size() <= 3
         && (!('owner' in request.resource.data) || (request.resource.data.owner is string && request.resource.data.owner.size() <= 40));
@@ -543,28 +562,28 @@ service cloud.firestore {
     // いま出ている温度の警報（サーバーが20分ごとに入れる）。見られるのは管理者と見張り担当だけ。
     // 担当ができるのは「止めた」（だれが・いつ）を入れることだけ
     match /alerts/temp {
-      allow read: if isAdmin() || isTempWatcher() || isTempOwner();
-      allow update: if ((isAdmin() || isTempWatcher())
+      allow read: if can(['tempWatch']) || isTempWatcher() || isTempOwner();
+      allow update: if ((can(['tempWatch']) || isTempWatcher())
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ackBy', 'ackAt'])
         && request.resource.data.ackAt == request.time
         && request.resource.data.ackBy is string && request.resource.data.ackBy.size() <= 40)
         // 管理者（と管理者本人＝平山さんの従業員のログイン）の「警報をリセット」：いまの警報を消すだけ（まだ下がっていれば、次の確認でまた①から鳴る）
-        || ((isAdmin() || isTempOwner())
+        || ((can(['tempWatch']) || isTempOwner())
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['items', 'startedAt', 'ackBy', 'ackAt'])
           && request.resource.data.items.size() == 0 && request.resource.data.startedAt == null
           && request.resource.data.ackBy == null && request.resource.data.ackAt == null);
     }
     // ハウスの中の夜の温度（houseTemp/{その夜が明けた日}）：サーバーが20分ごとに入れる。見られるのは管理者だけ
     match /houseTemp/{date} {
-      allow read: if isAdmin();
+      allow read: if can(['tempWatch']);
     }
     // 人ごとの収穫の速さ（1,000株あたりの分。収穫終了の予測に使う）：サーバーが毎日の記録から計算する。書き込みはサーバーだけ
     match /stats/harvestSpeed {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['harvest']) || isWorker();
     }
     // 収穫ケース数の見込みに使う数字（まとまりごとの 1,000株あたりのケース数・天気の影響）。サーバーだけが書く
     match /stats/harvestYield {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['harvest']) || isWorker();
     }
     // 去年の出荷実績から出した天気の影響（出荷の合計kgもふくむので管理者だけ）。サーバーだけが書く
     match /stats/pastYield {
@@ -601,7 +620,7 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
     match /config/shift {
-      allow read: if isStaff() || isWorker();
+      allow read: if can(['shift', 'harvest']) || isWorker();
       allow write: if isAdmin()
         && request.resource.data.keys().hasOnly(['codes', 'groups', 'cutoffDays', 'contact', 'updatedAt'])
         && (!('contact' in request.resource.data) || (request.resource.data.contact is string && request.resource.data.contact.size() <= 20))
@@ -611,11 +630,19 @@ service cloud.firestore {
     }
     // 休みの希望：従業員は自分の分だけ見られる。出す・取り消すはサーバー側。管理者は承認・却下だけ変えられる
     match /shiftRequests/{id} {
-      allow read: if isStaff() || (isWorker() && resource.data.uid == request.auth.uid);
+      allow read: if can(['shift']) || (isWorker() && resource.data.uid == request.auth.uid);
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'decidedBy'])
         && request.resource.data.status in ['approved', 'rejected', 'pending'];
       allow delete: if isAdmin();
+    }
+    // 役割ごとに見せる画面（スタッフ・経理）：管理者が設定で決める。メニューに出すかを決めるため、スタッフ・経理も読める
+    match /config/rolePerms {
+      allow read: if isMember();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['staff', 'accounting', 'updatedAt'])
+        && request.resource.data.staff is list && request.resource.data.staff.size() <= 40
+        && request.resource.data.accounting is list && request.resource.data.accounting.size() <= 40;
     }
     // 従業員のログインの情報：本人だけが見られる（書き込みはサーバー側）
     match /workers/{uid} {

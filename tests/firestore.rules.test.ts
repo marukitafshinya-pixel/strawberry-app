@@ -895,3 +895,49 @@ describe("経理担当（現金出納帳を見る・帳簿をつける）", () =
     await assertFails(setDoc(doc(accOff(), "bank/2026-10"), { rows: [] }));
   });
 });
+
+describe("役割ごとの見せる画面（config/rolePerms）", () => {
+  const acc = () => env.authenticatedContext("a1", { role: "accounting" }).firestore();
+  const setPerms = (p: { staff: string[]; accounting: string[] } | null) =>
+    env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "staff/a1"), { role: "accounting", active: true });
+      if (p) await setDoc(doc(db, "config/rolePerms"), p);
+      else await deleteDoc(doc(db, "config/rolePerms"));
+    });
+  it("決めていなければ、はじめの見せ方（スタッフは予約、経理は現金出納帳）", async () => {
+    await setPerms(null);
+    await assertSucceeds(getDoc(doc(staff(), "reservations/r1")));
+    await assertFails(getDoc(doc(staff(), "goals/2026")));
+    await assertSucceeds(getDoc(doc(acc(), "cashbook/2026-10")));
+    await assertFails(getDoc(doc(acc(), "otherSales/2026")));
+  });
+  it("見せない画面のデータは読めない・見せた画面のデータは使える", async () => {
+    await setPerms({ staff: ["harvest", "goals"], accounting: ["total", "ledger"] });
+    // スタッフ：予約を外したので、予約と連絡先は読めない。目標と実績は読み書きできる
+    await assertFails(getDoc(doc(staff(), "reservations/r1")));
+    await assertFails(getDoc(doc(staff(), "reservationContacts/r1")));
+    await assertSucceeds(getDoc(doc(staff(), "goals/2026")));
+    await assertSucceeds(setDoc(doc(staff(), "goals/2026"), { targets: {}, hobe: {} }));
+    await assertSucceeds(getDoc(doc(staff(), "harvest/" + new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10))));
+    // 経理：トータル実績を見せたので、ほかの売上を読み書きできる。現金出納帳は外したので読めない
+    await assertSucceeds(getDoc(doc(acc(), "otherSales/2026")));
+    await assertSucceeds(setDoc(doc(acc(), "otherSales/2026"), { months: {} }));
+    await assertFails(getDoc(doc(acc(), "cashbook/2026-10")));
+    // 管理者だけの画面（給与）は、どう決めても管理者だけ
+    await assertFails(getDoc(doc(staff(), "payrolls/2026-10")));
+    await assertFails(getDoc(doc(acc(), "employees/e1")));
+    await assertSucceeds(getDoc(doc(admin(), "reservations/r1")));
+    await setPerms(null);
+  });
+  it("見せ方を決められるのは管理者だけ", async () => {
+    const p = { staff: ["reservations"], accounting: ["cashbook"] };
+    await assertSucceeds(setDoc(doc(admin(), "config/rolePerms"), p));
+    await assertSucceeds(getDoc(doc(staff(), "config/rolePerms")));
+    await assertFails(setDoc(doc(staff(), "config/rolePerms"), p));
+    await assertFails(setDoc(doc(acc(), "config/rolePerms"), p));
+    await assertFails(setDoc(doc(admin(), "config/rolePerms"), { ...p, admin: [] }));
+    await assertFails(getDoc(doc(guest(), "config/rolePerms")));
+    await setPerms(null);
+  });
+});

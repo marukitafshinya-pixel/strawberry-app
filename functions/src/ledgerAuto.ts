@@ -3,7 +3,7 @@
 // 作り直すたびに、その月の自動仕訳をまるごと置き換える（会計を取り消した・給与を直したときは、作り直せば合う）
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { db } from "./common.js";
+import { assertCan, db } from "./common.js";
 
 /** 自動仕訳に使う科目（帳簿の画面の「勘定科目」で変えられる。画面側の DEFAULT_AUTO と同じ） */
 const DEFAULT_AUTO = {
@@ -34,12 +34,8 @@ const prevMonth = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Numb
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 export const buildAutoJournal = onCall(async (req) => {
-  const uid = req.auth?.uid;
-  const role = req.auth?.token.role;
-  if (!uid) throw new HttpsError("unauthenticated", "ログインしてください");
-  if (role !== "accounting" && role !== "admin") throw new HttpsError("permission-denied", "経理担当と管理者だけが使えます");
-  const me = await db.doc(`staff/${uid}`).get();
-  if (!me.exists || me.get("active") !== true) throw new HttpsError("permission-denied", "経理担当と管理者だけが使えます");
+  // 管理者と、帳簿を見せている役割の人
+  const uid = await assertCan(req, ["ledger"]);
   const month = String((req.data as { month?: unknown } | undefined)?.month ?? "");
   if (!MONTH_RE.test(month)) throw new HttpsError("invalid-argument", "月が正しくありません");
   const from = `${month}-01`;
