@@ -27,7 +27,7 @@ import {
   type AccountKind,
   type Books,
   type LedgerConfig,
-} from "@/lib/ledger";
+} from "@/lib/books";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
 

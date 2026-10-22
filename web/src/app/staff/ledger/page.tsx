@@ -27,7 +27,7 @@ import {
   type Books,
   type Posting,
   type LedgerConfig,
-} from "@/lib/ledger";
+} from "@/lib/books";
 import { reiwa } from "@/lib/payroll";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
 import { AccountSelect, Amount, canUseLedger, LedgerHeader, yen } from "./parts";

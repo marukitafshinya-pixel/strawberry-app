@@ -28,7 +28,7 @@ import {
   type AutoMonth,
   type Section,
   type LedgerConfig,
-} from "@/lib/ledger";
+} from "@/lib/books";
 import { AccountSelect, canUseLedger, LedgerHeader, yen } from "../parts";
 
 export default function AccountsPage() {

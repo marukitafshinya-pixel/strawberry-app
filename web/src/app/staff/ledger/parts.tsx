@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fullName, KIND_LABEL, KINDS, type Account } from "@/lib/ledger";
+import { fullName, KIND_LABEL, KINDS, type Account } from "@/lib/books";
 
 export const yen = (n: number) => n.toLocaleString("ja-JP");
 

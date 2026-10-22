@@ -31,7 +31,7 @@ import {
   type BankRule,
   type Books,
   type LedgerConfig,
-} from "@/lib/ledger";
+} from "@/lib/books";
 import { reiwa } from "@/lib/payroll";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
 
