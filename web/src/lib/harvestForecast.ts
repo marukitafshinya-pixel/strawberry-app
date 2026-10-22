@@ -46,6 +46,8 @@ export type ForecastInput = {
   speed: HarvestSpeeds;
   /** そのハウスの「入った」（予定の開始時刻もふくむ） */
   startOf: (h: string) => number | null;
+  /** 収穫の開始時刻（分）。回る順の最初のハウスの「入った」を消したときも、この時刻から始めるとして予測する */
+  dayStart?: number;
   /** 今の時刻（分）。今日でなければ null */
   now: number | null;
   /** その日の休憩（この時間は収穫しない） */
@@ -136,7 +138,9 @@ export function forecastHarvest(f: ForecastInput): Forecast {
       if (!queue.length) continue;
       // 動き出せる時刻：最初の残りのハウスの「入った」→ 前のハウスの「終わった」→ 予定の開始時刻
       const lastEnd = seq.reduce<number | null>((n, h) => (f.rec[h]?.end != null ? Math.max(n ?? 0, f.rec[h].end!) : n), null);
-      const free = f.rec[queue[0]]?.start ?? lastEnd ?? f.startOf(queue[0]);
+      // 回る順の最初のハウスの「入った」を消したときは、収穫の開始時刻（過ぎていれば今）から始めるとする
+      const fallback = route[0] === queue[0] && f.dayStart != null ? Math.max(f.dayStart, f.now ?? f.dayStart) : null;
+      const free = f.rec[queue[0]]?.start ?? lastEnd ?? f.startOf(queue[0]) ?? fallback;
       if (free == null || queue.some((h) => minPerPlant(m, h) == null)) {
         queue.forEach((h) => unknown.add(h));
         continue;
