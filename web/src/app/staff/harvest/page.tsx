@@ -539,7 +539,7 @@ function Sheet({
   });
   /**
    * その人が「入った」を押したか：本人が携帯で「入った」を押したか、管理者・集荷係が「入った」の欄に時刻を入れた。
-   * 収穫の開始時刻・前のハウスの終わった時刻を画面が自動で入れただけなら、まだ（押し忘れがわかるように、名前は緑のまま。押したらピンク）
+   * 収穫の開始時刻・前のハウスの終わった時刻を画面が自動で入れただけなら、まだ（押し忘れがわかるように、名前は緑のまま。押したら水色）
    */
   const entered = (h: string, id: string) => taps?.[id]?.[h]?.start != null || (rec[h]?.start != null && rec[h].startAuto === false);
   const run = (p: Promise<unknown>) => {
@@ -987,7 +987,7 @@ function Members({
   ids: string[];
   planned: boolean;
   here: (id: string) => boolean;
-  /** その人が「入った」を押した（または管理者・集荷係が時刻を入れた）。今いるハウスの名前をピンクにする（押すまでは緑） */
+  /** その人が「入った」を押した（または管理者・集荷係が時刻を入れた）。今いるハウスの名前を水色にする（押すまでは緑） */
   tapped: (id: string) => boolean;
   moved: (id: string) => boolean;
   finished: boolean;
@@ -1007,7 +1007,7 @@ function Members({
           title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
           className={`touch-none select-none rounded-full border px-2 py-1 ${
             here(id) && tapped(id)
-              ? "border-pink-600 bg-pink-500 font-bold text-white"
+              ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
               : here(id)
                 ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
                 : finished || moved(id)
