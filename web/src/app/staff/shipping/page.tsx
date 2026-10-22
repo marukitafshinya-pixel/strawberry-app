@@ -266,6 +266,15 @@ function Grid({
   // 重さ（kg）：数量×1パックの重さ（粒数×1粒の平均）
   const dayKg = (d: string) => Math.round(grades.reduce((n, g) => n + (data[d]?.[g.id]?.qty ?? 0) * unitWeight(g), 0) / 100) / 10;
   const today = todayJST();
+  // 開いたときに、今日の列が真ん中に来るように横にずらす（今日のない月は左はしのまま）。月を変えたときも
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = scroller.current;
+    const th = box?.querySelector<HTMLElement>(`th[data-day="${today}"]`);
+    if (!box || !th) return;
+    const sticky = box.querySelector<HTMLElement>("th")?.offsetWidth ?? 0;
+    box.scrollLeft = th.offsetLeft - sticky - (box.clientWidth - sticky - th.offsetWidth) / 2;
+  }, [month, today, grades.length]);
 
   return (
     <div className="pb-24">
@@ -300,13 +309,13 @@ function Grid({
         </>
       )}
 
-      <div className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
+      <div ref={scroller} className="mt-3 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="min-w-max border-collapse text-sm">
           <thead className="bg-gray-50 text-xs">
             <tr>
               <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 text-left">規格</th>
               {days.map((d) => (
-                <th key={d} className={`px-1 py-1 text-center font-semibold ${d === today ? "bg-berry/15" : ""} ${weekday(d) === "日" ? "text-red-600" : weekday(d) === "土" ? "text-blue-600" : ""}`}>
+                <th key={d} data-day={d} className={`px-1 py-1 text-center font-semibold ${d === today ? "bg-berry/15" : ""} ${weekday(d) === "日" ? "text-red-600" : weekday(d) === "土" ? "text-blue-600" : ""}`}>
                   <div>{Number(d.slice(8))}</div>
                   <div className="font-normal">{weekday(d)}</div>
                   {mode === "price" && (
