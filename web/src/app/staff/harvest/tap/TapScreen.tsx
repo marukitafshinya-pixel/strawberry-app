@@ -69,13 +69,11 @@ export function tapStateOf(a: {
   /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす） */
   const takenByHelper = (h: string) => mine[h]?.start == null && tappedIn(h).some((id) => !who(h).includes(id));
   // 今のハウス：① 自分で「入った」を押してまだ終わっていないハウス
-  // ② 集荷係が収穫管理に「入った」を入れたハウス（携帯を忘れた人など。移った人は除き、いちばんあとに入ったハウス）
+  // ② 集荷係が収穫管理に「入った」を入れたハウス（携帯を忘れた人など。移った人は除く）
   // ③ なければ、予定の順で次のハウス
   const byTap = seq.find((h) => mine[h]?.start != null && !isDone(h)) ?? null;
-  const byRec =
-    seq
-      .filter((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].left.includes(meId))
-      .sort((x, y) => a.houseStarted![y].start - a.houseStarted![x].start)[0] ?? null;
+  // （予定の順でいちばん先のハウス。あとの予定のハウスにほかの人が先に入っても、今のハウスが終わるまでは動かさない）
+  const byRec = seq.find((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].left.includes(meId)) ?? null;
   // 🏁ここで終了のハウスで終えた（そのあとほかのハウスに入っていない）なら、今日の収穫はここまで
   const later = (h: string, x: string) =>
     mine[h]?.end != null ? mine[x]?.start != null && mine[x].start! >= mine[h].end! : mine[x]?.start != null && seq.indexOf(x) > seq.indexOf(h);

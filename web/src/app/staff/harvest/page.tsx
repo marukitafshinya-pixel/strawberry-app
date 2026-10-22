@@ -678,8 +678,8 @@ function Sheet({
         await save(h, { left: [...(rec[h]?.left ?? []), id] });
   }
   /**
-   * その人が今いるハウスか：収穫中のハウスのうち、移った人になっていなくて、いちばんあとに入ったハウス。
-   * 同じ時刻（収穫の始まり）なら、先に配置したハウス（作業配置表で回る順の最初・配置表に名前のあるハウス・表の上のほう）。
+   * その人が今いるハウスか：収穫中のハウスのうち、移った人になっていなくて、予定の順でいちばん先のハウス。
+   * 予定の順：作業配置表で回る順 → 配置表に名前のあるハウス → 収穫管理で足したハウス（同じなら表の上のほう）。
    * 同じ人が2つのハウスで同時に緑にならないようにする
    */
   const hereOf = (id: string): string | null => {
@@ -687,19 +687,14 @@ function Sheet({
     const mine = taps?.[id] ?? {};
     const byTap = rows.find((h) => mine[h]?.start != null && mine[h]?.end == null && rec[h]?.end == null);
     if (byTap) return byTap;
-    // なければ収穫管理の時刻から（携帯で「終わった」を押したハウスは除く）
+    // なければ収穫管理の時刻から（携帯で「終わった」を押したハウスは除く）：収穫中のハウスのうち、その人の予定の順でいちばん先のハウス。
+    // あとの予定のハウスにほかの人が先に入っても、今のハウスが終わる（または名前を引っぱって移す）までは動かさない
     /** 配置した順：作業配置表の回る順 → 作業配置表に名前のあるハウス → 収穫管理で足したハウス（小さいほど先） */
     const route = plan.routes[id] ?? [];
     const placed = (h: string) => (route.includes(h) ? route.indexOf(h) : (plan.members[h] ?? []).includes(id) ? 100 : 200);
     let best: string | null = null;
     for (const h of rows)
-      if (
-        inProgress(h) &&
-        who(h).includes(id) &&
-        !(rec[h]?.left ?? []).includes(id) &&
-        mine[h]?.end == null &&
-        (best == null || startOf(h)! > startOf(best)! || (startOf(h) === startOf(best) && placed(h) < placed(best)))
-      )
+      if (inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id) && mine[h]?.end == null && (best == null || placed(h) < placed(best)))
         best = h;
     return best;
   };
