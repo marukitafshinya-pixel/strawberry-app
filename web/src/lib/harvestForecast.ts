@@ -48,6 +48,8 @@ export type ForecastInput = {
   startOf: (h: string) => number | null;
   /** 収穫の開始時刻（分）。回る順の最初のハウスの「入った」を消したときも、この時刻から始めるとして予測する */
   dayStart?: number;
+  /** 収穫する人が携帯で押した「入った」「終わった」（従業員の id → ハウス → 時刻）。いま入っているハウスを知るのに使う */
+  taps?: Record<string, Record<string, { start?: number | null; end?: number | null }>>;
   /** 今の時刻（分）。今日でなければ null */
   now: number | null;
   /** その日の休憩（この時間は収穫しない） */
@@ -134,13 +136,24 @@ export function forecastHarvest(f: ForecastInput): Forecast {
       // その人の回る順：矢印の順のあとに、ほかに入っているハウス（作業配置表の順）
       const route = (f.routes[m] ?? []).filter((h) => f.who(h).includes(m));
       const seq = [...route, ...f.houses.filter((h) => !route.includes(h) && f.who(h).includes(m))].filter((h) => eff(h) > 0);
-      const queue = seq.filter((h) => hs.has(h));
-      if (!queue.length) continue;
+      const rest = seq.filter((h) => hs.has(h));
+      if (!rest.length) continue;
       // 動き出せる時刻：最初の残りのハウスの「入った」→ 前のハウスの「終わった」→ 予定の開始時刻
       const lastEnd = seq.reduce<number | null>((n, h) => (f.rec[h]?.end != null ? Math.max(n ?? 0, f.rec[h].end!) : n), null);
+      // 予定の順を変えて、先に別のハウスに入ったとき（病気のハウスを最後にするなど）は、いま入っているハウスを先にする：
+      // ① 携帯で「入った」を押して「終わった」がまだのハウス ② 前のハウスを終えたあとに「入った」が入ったハウス（ほかへ移った人は除く。いちばんあと）
+      const mine = f.taps?.[m] ?? {};
+      const nowIn =
+        rest.find((h) => mine[h]?.start != null && mine[h]?.end == null) ??
+        (lastEnd != null
+          ? rest
+              .filter((h) => f.rec[h]?.start != null && f.rec[h].start! >= lastEnd && !(f.rec[h]?.left ?? []).includes(m) && mine[h]?.end == null)
+              .sort((a, b) => f.rec[b].start! - f.rec[a].start!)[0]
+          : undefined);
+      const queue = nowIn ? [nowIn, ...rest.filter((h) => h !== nowIn)] : rest;
       // 回る順の最初のハウスの「入った」を消したときは、収穫の開始時刻（過ぎていれば今）から始めるとする
       const fallback = route[0] === queue[0] && f.dayStart != null ? Math.max(f.dayStart, f.now ?? f.dayStart) : null;
-      const free = f.rec[queue[0]]?.start ?? lastEnd ?? f.startOf(queue[0]) ?? fallback;
+      const free = (nowIn ? mine[nowIn]?.start : null) ?? f.rec[queue[0]]?.start ?? lastEnd ?? f.startOf(queue[0]) ?? fallback;
       if (free == null || queue.some((h) => minPerPlant(m, h) == null)) {
         queue.forEach((h) => unknown.add(h));
         continue;

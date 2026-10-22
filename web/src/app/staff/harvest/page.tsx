@@ -150,6 +150,7 @@ export default function HarvestPage() {
             speed: speeds,
             startOf: h.startOf,
             dayStart: cfg.startTime,
+            taps: taps ?? undefined,
             now: date === todayJST() ? nowMin : null,
             brk,
             // その日の集荷係が収穫にも入ったハウスは、集荷をしながらなので速さの実績に入れない
