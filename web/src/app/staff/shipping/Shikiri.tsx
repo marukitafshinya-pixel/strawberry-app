@@ -180,7 +180,7 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
                   <span className="truncate">{p.name}</span>
                   <span className="flex shrink-0 gap-1">
                     <button
-                      onClick={() => setPages(pages.map((x, j) => (j === i ? { ...x, rotate: (((x.rotate + 90) % 360) as Page["rotate"]) } : x)))}
+                      onClick={() => setPages(pages.map((x, j) => (j === i ? { ...x, rotate: ((x.rotate + 90) % 360) as Page["rotate"] } : x)))}
                       className="rounded border px-2 py-0.5"
                     >
                       回す
@@ -196,7 +196,11 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
           <details className="mt-4 text-gray-600" open={aiOpen} onToggle={(e) => setAiOpen((e.target as HTMLDetailsElement).open)}>
             <summary className="cursor-pointer">うまく読めないとき：AIで読み取る（Anthropic の鍵が必要）</summary>
             {key && <KeyBox status={key} admin={role === "admin"} onChange={setKey} />}
-            <button disabled={!!busy || !key?.set} onClick={read} className="mt-2 rounded-lg border border-emerald-700 bg-white px-4 py-2 font-bold text-emerald-800 disabled:opacity-50">
+            <button
+              disabled={!!busy || !key?.set}
+              onClick={read}
+              className="mt-2 rounded-lg border border-emerald-700 bg-white px-4 py-2 font-bold text-emerald-800 disabled:opacity-50"
+            >
               AIで読み取る（1〜3分）
             </button>
           </details>
@@ -209,7 +213,13 @@ export function ShikiriImport({ grades, onDone }: { grades: Grade[]; onDone: () 
           {result.sheets.map((s, i) => (
             <SheetPanel key={i} sheet={s} grades={grades} onDone={onDone} />
           ))}
-          <button onClick={() => { setResult(null); setPages([]); }} className="mt-3 rounded-lg border bg-white px-4 py-2">
+          <button
+            onClick={() => {
+              setResult(null);
+              setPages([]);
+            }}
+            className="mt-3 rounded-lg border bg-white px-4 py-2"
+          >
             別の仕切書を読み取る
           </button>
         </>
@@ -239,7 +249,15 @@ function Thumb({ page }: { page: Page }) {
 }
 
 /** AIの鍵（APIキー）の登録。鍵はサーバーにだけ保存し、画面には末尾4文字しか出さない */
-function KeyBox({ status, admin, onChange }: { status: { set: boolean; last4: string }; admin: boolean; onChange: (s: { set: boolean; last4: string }) => void }) {
+export function KeyBox({
+  status,
+  admin,
+  onChange,
+}: {
+  status: { set: boolean; last4: string };
+  admin: boolean;
+  onChange: (s: { set: boolean; last4: string }) => void;
+}) {
   const [edit, setEdit] = useState(!status.set);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -399,7 +417,11 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
             </li>
           );
         })}
-        {sheet.total !== null && <li className="text-gray-600">税込金額 {num(sheet.total)}円・送金額 {sheet.paid === null ? "－" : `${num(sheet.paid)}円`}</li>}
+        {sheet.total !== null && (
+          <li className="text-gray-600">
+            税込金額 {num(sheet.total)}円・送金額 {sheet.paid === null ? "－" : `${num(sheet.paid)}円`}
+          </li>
+        )}
       </ul>
 
       <h4 className="mt-3 font-bold">② 仕切書の行を、アプリの規格に当てはめる</h4>
@@ -441,7 +463,10 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
                       {num(c.read)}／{c.printed === null ? "－" : num(c.printed)}
                     </td>
                     <td className="py-1">
-                      <button onClick={() => setEditing(editing === k ? "" : k)} className={`rounded border px-2 py-0.5 text-xs ${c.ok ? "" : "border-red-500 font-bold text-red-700"}`}>
+                      <button
+                        onClick={() => setEditing(editing === k ? "" : k)}
+                        className={`rounded border px-2 py-0.5 text-xs ${c.ok ? "" : "border-red-500 font-bold text-red-700"}`}
+                      >
                         {editing === k ? "閉じる" : c.ok ? "数字を見る" : "数字を直す"}
                       </button>
                     </td>
@@ -480,7 +505,8 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
       ) : (
         <>
           <p className="mt-1">
-            当てはめた規格の{sheet.month}月の合計：数量 {num(sums.before.qty)} → <b>{num(sums.after.qty)}</b>、金額（税抜） {num(sums.before.amount)}円 → <b>{num(sums.after.amount)}円</b>
+            当てはめた規格の{sheet.month}月の合計：数量 {num(sums.before.qty)} → <b>{num(sums.after.qty)}</b>、金額（税抜） {num(sums.before.amount)}円 →{" "}
+            <b>{num(sums.after.amount)}円</b>
           </p>
           {changes.length === 0 ? (
             <p className="mt-1 text-green-700">アプリの数字は、すでに仕切書と同じです。</p>
@@ -500,8 +526,12 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
                     <tr key={i} className="border-b last:border-0">
                       <td className="px-2 py-1">{md(c.date)}</td>
                       <td className="px-2 py-1">{gradeName(c.gradeId)}</td>
-                      <td className="px-2 py-1 text-right text-gray-600">{c.before.qty ? `${num(c.before.qty)}×${c.before.price ? num(c.before.price) : "－"}` : "－"}</td>
-                      <td className="px-2 py-1 text-right font-semibold text-emerald-800">{c.after.qty ? `${num(c.after.qty)}×${c.after.price ? num(c.after.price) : "－"}` : "消す"}</td>
+                      <td className="px-2 py-1 text-right text-gray-600">
+                        {c.before.qty ? `${num(c.before.qty)}×${c.before.price ? num(c.before.price) : "－"}` : "－"}
+                      </td>
+                      <td className="px-2 py-1 text-right font-semibold text-emerald-800">
+                        {c.after.qty ? `${num(c.after.qty)}×${c.after.price ? num(c.after.price) : "－"}` : "消す"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -519,14 +549,20 @@ function SheetPanel({ sheet: initial, grades, onDone }: { sheet: ShikiriSheet; g
           <div className="mt-3">
             {!allOk && (
               <>
-                <p className="text-red-600">読み取った数字の合計が、仕切書の合計と合わないところがあります。「数字を直す」で仕切書と見比べて、読み違いを直してください。</p>
+                <p className="text-red-600">
+                  読み取った数字の合計が、仕切書の合計と合わないところがあります。「数字を直す」で仕切書と見比べて、読み違いを直してください。
+                </p>
                 <label className="mt-1 flex items-center gap-2">
                   <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
                   合わないところがあっても直す
                 </label>
               </>
             )}
-            <button disabled={busy || (!allOk && !force)} onClick={save} className="mt-2 rounded-lg bg-emerald-700 px-5 py-2 font-bold text-white disabled:opacity-50">
+            <button
+              disabled={busy || (!allOk && !force)}
+              onClick={save}
+              className="mt-2 rounded-lg bg-emerald-700 px-5 py-2 font-bold text-white disabled:opacity-50"
+            >
               {busy ? "保存しています…" : `この数字に直す（${changes.length}か所）`}
             </button>
           </div>
