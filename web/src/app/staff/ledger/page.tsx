@@ -21,6 +21,7 @@ import {
   isUnsortedJournal,
   journalProblem,
   saveJournalMonth,
+  saveLedgerConfig,
   UNSORTED,
   useBooks,
   useLedgerConfig,
@@ -33,7 +34,7 @@ import {
 } from "@/lib/books";
 import { reiwa } from "@/lib/payroll";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
-import { AccountSelect, Amount, canUseLedger, LedgerHeader, yen } from "./parts";
+import { AccountSelect, Amount, canUseLedger, LedgerHeader, PickFilter, yen } from "./parts";
 
 const withBlankRow = (list: JournalEntry[], date: string): JournalEntry[] =>
   list.length === 0 || !isBlankJournal(list[list.length - 1]) ? [...list, emptyJournal(date)] : list;
@@ -127,6 +128,11 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   const unsortedCount = entries.filter(isUnsortedJournal).length;
   const [onlyUnsorted, setOnlyUnsorted] = useState(false);
   const [allAccounts, setAllAccounts] = useState(false);
+  /** プルダウンに出す科目を、その場で保存する */
+  const savePick = (pick: string[]) => {
+    setAllAccounts(false);
+    saveLedgerConfig({ ...config, pick }).catch((e) => setErr(errorText(e)));
+  };
   const hasProblem = problems.some(Boolean);
   const manualTotal = entries.reduce((n, e) => n + (isBlankJournal(e) ? 0 : (e.amount ?? 0)), 0);
   const autoAll = [...fromAuto, ...fromBank, ...fromCash];
@@ -220,8 +226,14 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="w-36 px-2 py-2 text-left">日付</th>
-              <th className="px-2 py-2 text-left">借方（増えた資産・かかった費用）</th>
-              <th className="px-2 py-2 text-left">貸方（減った資産・入った収益）</th>
+              <th className="px-2 py-2 text-left">
+                借方（増えた資産・かかった費用）
+                <PickFilter accounts={accounts} pick={config.pick} onChange={savePick} />
+              </th>
+              <th className="px-2 py-2 text-left">
+                貸方（減った資産・入った収益）
+                <PickFilter accounts={accounts} pick={config.pick} onChange={savePick} />
+              </th>
               <th className="w-32 px-2 py-2 text-right">金額</th>
               <th className="px-2 py-2 text-left">摘要</th>
               <th className="w-10" />
