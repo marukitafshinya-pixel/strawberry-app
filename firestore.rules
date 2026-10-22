@@ -286,6 +286,16 @@ service cloud.firestore {
     match /autoJournal/{month} {
       allow read: if isAdmin() || isAccounting();
     }
+    // いまの会計ソフトから取り込んだ合計残高試算表（月ごと）：管理者と経理担当
+    match /tbImport/{month} {
+      allow read: if isAdmin() || isAccounting();
+      allow write: if (isAdmin() || isAccounting())
+        && month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['rows', 'fileName', 'updatedAt'])
+        && request.resource.data.rows is list && request.resource.data.rows.size() <= 1000
+        && (!('fileName' in request.resource.data) || (request.resource.data.fileName is string && request.resource.data.fileName.size() <= 100));
+      allow delete: if isAdmin() || isAccounting();
+    }
     // 取り込んだ預金通帳の入出金（月ごと）：管理者と経理担当
     match /bank/{month} {
       allow read: if isAdmin() || isAccounting();

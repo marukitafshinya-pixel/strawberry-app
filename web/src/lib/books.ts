@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useCashbook, type CashMonth } from "./cashbook";
 import { shiftMonth } from "./date";
 import { getFirebase } from "./firebase";
+import { naturalMove, type TbMonth, type TbParsed } from "./tbImport";
 
 /** 科目の種類：資産・負債・純資産・収益・費用 */
 export type AccountKind = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -73,142 +74,140 @@ export const sectionOf = (a: Account): Section | null =>
 
 /** 現金（現金出納帳の相手）・開始残高（出納帳のいちばん最初の繰越金の相手）・未分類（出納帳の項目に科目をまだ決めていないとき） */
 export const CASH = "100";
-export const OPENING = "390";
+export const OPENING = "A90";
 export const UNSORTED = "999";
+/** 試算表の取り込みの相手（借方と貸方が合っていれば、残高はいつも0になる） */
+export const TB_CLEAR = "A99";
+/** 繰越利益剰余金（試算表では、その期の利益も入っている。取り込むときは期首の分だけ使い、利益は損益の科目から計算する） */
+export const RETAINED = "490";
 
-type Row = [code: string, name: string, section?: Section, parent?: string];
-const rev = (rows: Row[]): Account[] => rows.map(([code, name, section, parent]) => ({ code, name, kind: "revenue", section, ...(parent ? { parent } : {}) }));
-const exp = (rows: Row[]): Account[] => rows.map(([code, name, section, parent]) => ({ code, name, kind: "expense", section, ...(parent ? { parent } : {}) }));
-
-/** はじめの勘定科目。損益は、丸北農場の合計残高試算表（2026年2月度〜2027年決算月度）の科目と補助科目 */
+/**
+ * はじめの勘定科目：丸北農場の会計ソフトの科目コードと補助科目（合計残高試算表 2026年2月度〜8月度に出てくるもの）。
+ * 補助科目のコードは「親-子」。A で始まるのはこのアプリで足した科目（会計ソフトのコードとぶつからないように）
+ */
 export const DEFAULT_ACCOUNTS: Account[] = [
-  { code: CASH, name: "現金", kind: "asset" },
-  { code: "101", name: "レジ現金", kind: "asset" },
-  { code: "110", name: "普通預金", kind: "asset" },
-  { code: "120", name: "売掛金", kind: "asset" },
-  { code: "130", name: "棚卸資産", kind: "asset" },
-  { code: "140", name: "前払金", kind: "asset" },
-  { code: "150", name: "仮払金", kind: "asset" },
-  { code: "160", name: "建物", kind: "asset" },
-  { code: "161", name: "機械装置", kind: "asset" },
-  { code: "162", name: "車両運搬具", kind: "asset" },
-  { code: "163", name: "工具器具備品", kind: "asset" },
-  { code: "170", name: "土地", kind: "asset" },
-  { code: "200", name: "買掛金", kind: "liability" },
-  { code: "210", name: "未払金", kind: "liability" },
-  { code: "220", name: "預り金", kind: "liability" },
-  { code: "230", name: "未払法人税等", kind: "liability" },
-  { code: "240", name: "借入金", kind: "liability" },
-  { code: "300", name: "資本金", kind: "equity" },
+  { code: "100", name: "現金", kind: "asset" },
+  { code: "101", name: "現金(平山)", kind: "asset" },
+  { code: "106", name: "普通預金", kind: "asset" },
+  { code: "106-1", name: "北洋銀行", kind: "asset", parent: "106" },
+  { code: "106-2", name: "JAびえい", kind: "asset", parent: "106" },
+  { code: "106-3", name: "営農貯金", kind: "asset", parent: "106" },
+  { code: "106-4", name: "旭川信用金庫", kind: "asset", parent: "106" },
+  { code: "106-5", name: "北海道銀行", kind: "asset", parent: "106" },
+  { code: "107", name: "組勘勘定", kind: "asset" },
+  { code: "172", name: "前払費用", kind: "asset" },
+  { code: "178", name: "仮払金", kind: "asset" },
+  { code: "178-1", name: "JCB", kind: "asset", parent: "178" },
+  { code: "178-2", name: "三井住友カード", kind: "asset", parent: "178" },
+  { code: "178-10", name: "その他", kind: "asset", parent: "178" },
+  { code: "180", name: "短期貸付金", kind: "asset" },
+  { code: "197", name: "未収消費税等", kind: "asset" },
+  { code: "200", name: "建物", kind: "asset" },
+  { code: "202", name: "建物附属設備", kind: "asset" },
+  { code: "204", name: "構築物", kind: "asset" },
+  { code: "206", name: "機械及び装置", kind: "asset" },
+  { code: "208", name: "車両運搬具", kind: "asset" },
+  { code: "212", name: "工具器具備品", kind: "asset" },
+  { code: "222", name: "土地", kind: "asset" },
+  { code: "254", name: "出資金", kind: "asset" },
+  { code: "257", name: "保険積立金", kind: "asset" },
+  { code: "306", name: "未払金", kind: "liability" },
+  { code: "307", name: "給与未払金", kind: "liability" },
+  { code: "320", name: "短期借入金", kind: "liability" },
+  { code: "320-1", name: "社長", kind: "liability", parent: "320" },
+  { code: "320-2", name: "丸北北海道", kind: "liability", parent: "320" },
+  { code: "320-3", name: "丸北", kind: "liability", parent: "320" },
+  { code: "322", name: "預り金", kind: "liability" },
+  { code: "322-1", name: "源泉所得税", kind: "liability", parent: "322" },
+  { code: "322-2", name: "町民市民税", kind: "liability", parent: "322" },
+  { code: "330", name: "仮受金", kind: "liability" },
+  { code: "350", name: "未払法人税等", kind: "liability" },
+  { code: "370", name: "長期借入金", kind: "liability" },
+  { code: "400", name: "資本金", kind: "equity" },
+  { code: "490", name: "繰越利益剰余金", kind: "equity" },
+  { code: "500", name: "野菜等収入", kind: "revenue", section: "sales" },
+  { code: "500-3", name: "イチゴ", kind: "revenue", section: "sales", parent: "500" },
+  { code: "501", name: "飲食売上高", kind: "revenue", section: "sales" },
+  { code: "501-1", name: "いちご狩り", kind: "revenue", section: "sales", parent: "501" },
+  { code: "501-3", name: "いちご販売", kind: "revenue", section: "sales", parent: "501" },
+  { code: "501-5", name: "イチゴ狩りチケット代", kind: "revenue", section: "sales", parent: "501" },
+  { code: "501-6", name: "イチゴジャム販売", kind: "revenue", section: "sales", parent: "501" },
+  { code: "501-7", name: "その他", kind: "revenue", section: "sales", parent: "501" },
+  { code: "716", name: "法定福利費", kind: "expense", section: "personnel" },
+  { code: "718", name: "福利厚生費", kind: "expense", section: "personnel" },
+  { code: "720", name: "外注費", kind: "expense", section: "sgaOther" },
+  { code: "722", name: "通信費", kind: "expense", section: "sgaOther" },
+  { code: "724", name: "荷造運賃", kind: "expense", section: "sgaOther" },
+  { code: "726", name: "水道光熱費", kind: "expense", section: "sgaOther" },
+  { code: "726-2", name: "水道代", kind: "expense", section: "sgaOther", parent: "726" },
+  { code: "726-4", name: "LPガス", kind: "expense", section: "sgaOther", parent: "726" },
+  { code: "728", name: "旅費交通費", kind: "expense", section: "sgaOther" },
+  { code: "730", name: "広告宣伝費", kind: "expense", section: "sgaOther" },
+  { code: "734", name: "接待交際費", kind: "expense", section: "sgaOther" },
+  { code: "734-1", name: "飲食代", kind: "expense", section: "sgaOther", parent: "734" },
+  { code: "734-3", name: "お土産代", kind: "expense", section: "sgaOther", parent: "734" },
+  { code: "738", name: "事務用品費", kind: "expense", section: "sgaOther" },
+  { code: "740", name: "消耗品費", kind: "expense", section: "sgaOther" },
+  { code: "744", name: "修繕費", kind: "expense", section: "sgaOther" },
+  { code: "750", name: "車両燃料費", kind: "expense", section: "sgaOther" },
+  { code: "751", name: "車両費", kind: "expense", section: "sgaOther" },
+  { code: "756", name: "租税公課", kind: "expense", section: "sgaOther" },
+  { code: "756-1", name: "固定資産税", kind: "expense", section: "sgaOther", parent: "756" },
+  { code: "756-2", name: "印紙代", kind: "expense", section: "sgaOther", parent: "756" },
+  { code: "756-10", name: "その他", kind: "expense", section: "sgaOther", parent: "756" },
+  { code: "760", name: "リース料", kind: "expense", section: "sgaOther" },
+  { code: "762", name: "支払手数料", kind: "expense", section: "sgaOther" },
+  { code: "776", name: "減価償却費", kind: "expense", section: "sgaOther" },
+  { code: "790", name: "雑費", kind: "expense", section: "sgaOther" },
+  { code: "790-1", name: "課税", kind: "expense", section: "sgaOther", parent: "790" },
+  { code: "790-2", name: "不課税", kind: "expense", section: "sgaOther", parent: "790" },
+  { code: "798", name: "管理諸費", kind: "expense", section: "sgaOther" },
+  { code: "810", name: "材料仕入高", kind: "expense", section: "material" },
+  { code: "811", name: "種苗費", kind: "expense", section: "material" },
+  { code: "812", name: "肥料費", kind: "expense", section: "material" },
+  { code: "813", name: "農薬費", kind: "expense", section: "material" },
+  { code: "814", name: "燃料費", kind: "expense", section: "material" },
+  { code: "815", name: "諸材料費", kind: "expense", section: "material" },
+  { code: "840", name: "(製)給料手当", kind: "expense", section: "labor" },
+  { code: "840-1", name: "給与", kind: "expense", section: "labor", parent: "840" },
+  { code: "840-2", name: "交通費", kind: "expense", section: "labor", parent: "840" },
+  { code: "842", name: "(製)賃金", kind: "expense", section: "labor" },
+  { code: "854", name: "(製)法定福利費", kind: "expense", section: "labor" },
+  { code: "856", name: "(製)福利厚生費", kind: "expense", section: "labor" },
+  { code: "856-1", name: "おやつ外", kind: "expense", section: "labor", parent: "856" },
+  { code: "857", name: "(製)作業用衣料費", kind: "expense", section: "labor" },
+  { code: "860", name: "(製)外注加工費", kind: "expense", section: "overhead" },
+  { code: "861", name: "(製)作業委託料", kind: "expense", section: "overhead" },
+  { code: "864", name: "(製)荷造運賃手数料", kind: "expense", section: "overhead" },
+  { code: "865", name: "(製)農具費", kind: "expense", section: "overhead" },
+  { code: "866", name: "(製)修繕費", kind: "expense", section: "overhead" },
+  { code: "867", name: "(製)動力光熱費", kind: "expense", section: "overhead" },
+  { code: "868", name: "(製)共済掛金", kind: "expense", section: "overhead" },
+  { code: "877", name: "(製)土地改良費", kind: "expense", section: "overhead" },
+  { code: "886", name: "(製)消耗品費", kind: "expense", section: "overhead" },
+  { code: "890", name: "(製)車両燃料費", kind: "expense", section: "overhead" },
+  { code: "890-1", name: "ガソリン外", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-2", name: "自動車税", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-3", name: "整備等課税", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-4", name: "整備等不課税", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-5", name: "軽油配送", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-6", name: "自賠責共済", kind: "expense", section: "overhead", parent: "890" },
+  { code: "890-7", name: "軽油引取税", kind: "expense", section: "overhead", parent: "890" },
+  { code: "894", name: "(製)雑費", kind: "expense", section: "overhead" },
+  { code: "894-1", name: "課税", kind: "expense", section: "overhead", parent: "894" },
+  { code: "900", name: "受取利息", kind: "revenue", section: "nonOpIncome" },
+  { code: "910", name: "雑収入", kind: "revenue", section: "nonOpIncome" },
+  { code: "910-1", name: "課税", kind: "revenue", section: "nonOpIncome", parent: "910" },
+  { code: "910-2", name: "不課税", kind: "revenue", section: "nonOpIncome", parent: "910" },
+  { code: "A01", name: "レジ現金", kind: "asset" },
+  { code: "A02", name: "売掛金", kind: "asset" },
+  { code: "A10", name: "役員報酬", kind: "expense", section: "personnel" },
   { code: OPENING, name: "開始残高", kind: "equity" },
-  // 売上高
-  ...rev([
-    ["401", "野菜等収入", "sales"],
-    ["402", "イチゴ", "sales", "401"],
-    ["410", "飲食売上高", "sales"],
-    ["411", "いちご狩り", "sales", "410"],
-    ["412", "いちご販売", "sales", "410"],
-    ["413", "イチゴ狩りチケット代", "sales", "410"],
-    ["414", "イチゴジャム販売", "sales", "410"],
-    ["419", "その他", "sales", "410"],
-  ]),
-  // 売上原価
-  ...exp([["501", "当期商品仕入高", "purchase"]]),
-  // 製造原価：材料費
-  ...exp([
-    ["601", "材料仕入高", "material"],
-    ["602", "種苗費", "material"],
-    ["603", "肥料費", "material"],
-    ["604", "農薬費", "material"],
-    ["605", "燃料費", "material"],
-    ["606", "諸材料費", "material"],
-  ]),
-  // 製造原価：労務費
-  ...exp([
-    ["620", "(製)給料手当", "labor"],
-    ["621", "給与", "labor", "620"],
-    ["622", "交通費", "labor", "620"],
-    ["625", "(製)賃金", "labor"],
-    ["626", "(製)法定福利費", "labor"],
-    ["627", "(製)福利厚生費", "labor"],
-    ["628", "おやつ外", "labor", "627"],
-    ["629", "飲食代", "labor", "627"],
-    ["630", "(製)作業用衣料費", "labor"],
-  ]),
-  // 製造原価：製造経費
-  ...exp([
-    ["640", "(製)作業委託料", "overhead"],
-    ["641", "(製)外注加工費", "overhead"],
-    ["642", "(製)荷造運賃手数料", "overhead"],
-    ["643", "(製)農具費", "overhead"],
-    ["644", "(製)修繕費", "overhead"],
-    ["645", "(製)動力光熱費", "overhead"],
-    ["646", "(製)共済掛金", "overhead"],
-    ["647", "(製)土地改良費", "overhead"],
-    ["648", "(製)消耗品費", "overhead"],
-    ["650", "(製)車両燃料費", "overhead"],
-    ["651", "ガソリン外", "overhead", "650"],
-    ["652", "自動車税", "overhead", "650"],
-    ["653", "整備等課税", "overhead", "650"],
-    ["654", "整備等不課税", "overhead", "650"],
-    ["655", "軽油配送", "overhead", "650"],
-    ["656", "自賠責共済", "overhead", "650"],
-    ["657", "軽油引取税", "overhead", "650"],
-    ["660", "(製)雑費", "overhead"],
-    ["661", "課税", "overhead", "660"],
-  ]),
-  // 販売費および一般管理費：人件費
-  ...exp([
-    ["701", "役員報酬", "personnel"],
-    ["702", "法定福利費", "personnel"],
-    ["703", "福利厚生費", "personnel"],
-  ]),
-  // 販売費および一般管理費：その他経費
-  ...exp([
-    ["710", "外注費", "sgaOther"],
-    ["711", "通信費", "sgaOther"],
-    ["712", "荷造運賃", "sgaOther"],
-    ["713", "水道光熱費", "sgaOther"],
-    ["714", "水道代", "sgaOther", "713"],
-    ["715", "LPガス", "sgaOther", "713"],
-    ["716", "旅費交通費", "sgaOther"],
-    ["717", "広告宣伝費", "sgaOther"],
-    ["718", "接待交際費", "sgaOther"],
-    ["719", "飲食代", "sgaOther", "718"],
-    ["720", "お土産代", "sgaOther", "718"],
-    ["721", "その他", "sgaOther", "718"],
-    ["722", "事務用品費", "sgaOther"],
-    ["723", "消耗品費", "sgaOther"],
-    ["724", "修繕費", "sgaOther"],
-    ["725", "車両燃料費", "sgaOther"],
-    ["726", "車両費", "sgaOther"],
-    ["727", "租税公課", "sgaOther"],
-    ["728", "固定資産税", "sgaOther", "727"],
-    ["729", "印紙代", "sgaOther", "727"],
-    ["730", "その他", "sgaOther", "727"],
-    ["731", "リース料", "sgaOther"],
-    ["732", "支払手数料", "sgaOther"],
-    ["733", "減価償却費", "sgaOther"],
-    ["734", "管理諸費", "sgaOther"],
-    ["735", "雑費", "sgaOther"],
-    ["736", "課税", "sgaOther", "735"],
-    ["737", "不課税", "sgaOther", "735"],
-  ]),
-  // 営業外収益・営業外費用・法人税等
-  ...rev([
-    ["810", "受取利息", "nonOpIncome"],
-    ["820", "雑収入", "nonOpIncome"],
-    ["821", "課税", "nonOpIncome", "820"],
-    ["822", "不課税", "nonOpIncome", "820"],
-  ]),
-  ...exp([
-    ["850", "支払利息", "nonOpExpense"],
-    ["950", "法人税等", "tax"],
-  ]),
+  { code: TB_CLEAR, name: "試算表の取り込み", kind: "equity" },
   { code: UNSORTED, name: "未分類", kind: "expense", section: "sgaOther" },
 ];
 /** 消せない科目（自動の仕訳で使う） */
-export const FIXED_CODES = [CASH, OPENING, UNSORTED];
+export const FIXED_CODES = [CASH, OPENING, UNSORTED, TB_CLEAR, RETAINED];
 
 /** 科目の名前（補助科目は「親／子」。プルダウンや元帳で使う） */
 export function fullName(accounts: Account[], a: Account): string {
@@ -218,16 +217,17 @@ export function fullName(accounts: Account[], a: Account): string {
 
 /** 自動仕訳（レジの売上・売掛・給与）に使う科目。サーバー（functions/src/ledgerAuto.ts）の DEFAULT_AUTO と同じ */
 export const DEFAULT_AUTO = {
-  cashSales: "101",
-  creditSales: "120",
-  sales: "419",
-  collect: "110",
-  wages: "621",
-  commute: "622",
-  officer: "701",
-  withheld: "220",
-  unpaid: "210",
-  welfare: "626",
+  cashSales: "A01",
+  creditSales: "A02",
+  sales: "501-7",
+  collect: "106-1",
+  wages: "840-1",
+  commute: "840-2",
+  officer: "A10",
+  unpaid: "307",
+  social: "854",
+  incomeTax: "322-1",
+  residentTax: "322-2",
 };
 export type AutoCodes = typeof DEFAULT_AUTO;
 export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[] = [
@@ -238,12 +238,13 @@ export const AUTO_LABELS: { key: keyof AutoCodes; label: string; note: string }[
   { key: "wages", label: "給料", note: "月給・時給" },
   { key: "commute", label: "通勤費", note: "非課税通勤費" },
   { key: "officer", label: "役員報酬", note: "役員報酬" },
-  { key: "withheld", label: "天引きした分", note: "社会保険料・所得税・住民税（会社負担の社会保険料もここに入れ、納めたときに減らす）" },
   { key: "unpaid", label: "振り込む給与", note: "手取り（通帳から振り込んだときに減らす）" },
-  { key: "welfare", label: "会社負担の社会保険料", note: "法定福利費" },
+  { key: "social", label: "天引きした社会保険料", note: "本人負担分。会計ソフトと同じく法定福利費から引く（納めたときに全額を法定福利費にする）" },
+  { key: "incomeTax", label: "天引きした所得税", note: "源泉所得税（年末調整の還付もここ）" },
+  { key: "residentTax", label: "天引きした住民税", note: "町民市民税" },
 ];
 /** レジの分類（商品・プランの分類）→ 売上の科目。はじめの対応 */
-export const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "411" };
+export const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
 
 /** 通帳の摘要に keyword が入っていたら、code の科目にする（code が SKIP なら帳簿に入れない） */
 export type BankRule = { keyword: string; code: string };
@@ -261,23 +262,23 @@ export type LedgerConfig = {
   /** レジの分類 → 売上の科目 */
   salesMap: Record<string, string>;
 };
-/** 勘定科目の版。2＝丸北農場の試算表の科目。これより前に保存した科目は、はじめの科目に置き換えて読む */
-export const CHART_VERSION = 2;
+/** 勘定科目の版。3＝丸北農場の会計ソフトの科目コード。これより前に保存した科目は、はじめの科目に置き換えて読む */
+export const CHART_VERSION = 3;
 export const DEFAULT_BANK_RULES: BankRule[] = [
-  { keyword: "給与", code: "210" },
-  { keyword: "社会保険", code: "220" },
-  { keyword: "厚生年金", code: "220" },
-  { keyword: "所得税", code: "220" },
-  { keyword: "住民税", code: "220" },
-  { keyword: "利息", code: "810" },
-  { keyword: "手数料", code: "732" },
-  { keyword: "電気", code: "645" },
-  { keyword: "電力", code: "645" },
-  { keyword: "デンリョク", code: "645" },
-  { keyword: "デンキ", code: "645" },
-  { keyword: "水道", code: "714" },
-  { keyword: "スイドウ", code: "714" },
-  { keyword: "NTT", code: "711" },
+  { keyword: "給与", code: "307" },
+  { keyword: "社会保険", code: "854" },
+  { keyword: "厚生年金", code: "854" },
+  { keyword: "所得税", code: "322-1" },
+  { keyword: "住民税", code: "322-2" },
+  { keyword: "利息", code: "900" },
+  { keyword: "手数料", code: "762" },
+  { keyword: "電気", code: "867" },
+  { keyword: "電力", code: "867" },
+  { keyword: "デンリョク", code: "867" },
+  { keyword: "デンキ", code: "867" },
+  { keyword: "水道", code: "726-2" },
+  { keyword: "スイドウ", code: "726-2" },
+  { keyword: "NTT", code: "722" },
 ];
 export const DEFAULT_CONFIG: LedgerConfig = {
   accounts: DEFAULT_ACCOUNTS,
@@ -391,7 +392,7 @@ export type Posting = {
   amount: number;
   memo: string;
   /** cash＝現金出納帳から（item は出納帳の項目）。manual＝手で入れた仕訳。auto＝レジ・売掛・給与から。bank＝預金通帳から */
-  source: "cash" | "manual" | "auto" | "bank";
+  source: "cash" | "manual" | "auto" | "bank" | "imported";
   item?: string;
 };
 
@@ -471,15 +472,18 @@ export function manualPostings(journal: JournalMonth[], month: string): Posting[
 }
 
 /** 帳簿の元になるもの全部 */
-export type Books = { cash: CashMonth[]; journal: JournalMonth[]; auto: AutoMonth[]; bank: BankMonth[] };
+/** imported：いまの会計ソフトから取り込んだ試算表（その月は、試算表の数字だけを使う） */
+export type Books = { cash: CashMonth[]; journal: JournalMonth[]; auto: AutoMonth[]; bank: BankMonth[]; imported: TbMonth[] };
 
 /** 帳簿の元になるデータがある月（古い順） */
 export function monthsWithData(b: Books): string[] {
-  return [...new Set([...b.cash, ...b.journal, ...b.auto, ...b.bank].map((x) => x.month))].sort();
+  return [...new Set([...b.cash, ...b.journal, ...b.auto, ...b.bank, ...b.imported].map((x) => x.month))].sort();
 }
 
 /** その月の全部の仕訳 */
 export function monthPostings(b: Books, config: LedgerConfig, month: string): Posting[] {
+  // 試算表を取り込んだ月は、会計ソフトでつけ終わった月なので、試算表の数字だけを使う（ほかの元からの仕訳は数えない。二重にしない）
+  if (b.imported.some((x) => x.month === month)) return importedPostings(b.imported, month, config.accounts);
   return [...cashPostings(b.cash, month, config.itemMap), ...manualPostings(b.journal, month), ...autoPostings(b.auto, month), ...bankPostings(b.bank, month, config.bankRules)];
 }
 
@@ -673,10 +677,97 @@ export function useBooks(): { value: Books | null; error: unknown } {
   const journal = useJournal();
   const auto = useAutoJournal();
   const bank = useBank();
-  const error = cash.error || journal.error || auto.error || bank.error;
+  const imported = useTbImport();
+  const error = cash.error || journal.error || auto.error || bank.error || imported.error;
   if (error) return { value: null, error };
-  if (!cash.value || !journal.value || !auto.value || !bank.value) return { value: null, error: null };
-  return { value: { cash: cash.value, journal: journal.value, auto: auto.value, bank: bank.value }, error: null };
+  if (!cash.value || !journal.value || !auto.value || !bank.value || !imported.value) return { value: null, error: null };
+  return { value: { cash: cash.value, journal: journal.value, auto: auto.value, bank: bank.value, imported: imported.value }, error: null };
+}
+
+// ---------- いまの会計ソフトの試算表 ----------
+
+export function useTbImport() {
+  return useMonthDocs<TbMonth>("tbImport", (id, d) => ({ month: id, rows: (d.rows as TbMonth["rows"] | undefined) ?? [], fileName: d.fileName as string | undefined }));
+}
+
+/**
+ * 取り込んだ月の仕訳：科目ごとに、その月の借方・貸方を「試算表の取り込み」を相手にして入れる（月末の日付）。
+ * いちばん古い取り込んだ月は、繰越金額を期首の残高として入れる（その月の1日）。
+ * 繰越利益剰余金は、試算表ではその期の利益も動くので、動きは入れない（利益は損益の科目から計算する）。
+ * 期の途中の月から取り込んだときは、損益の科目の繰越（その月までの累計）も入れ、繰越利益剰余金の繰越からその分の利益を引く
+ */
+export function importedPostings(imported: TbMonth[], month: string, accounts: Account[]): Posting[] {
+  const m = imported.find((x) => x.month === month);
+  if (!m) return [];
+  const out: Posting[] = [];
+  const first = !imported.some((x) => x.month < month);
+  const day1 = `${month}-01`;
+  const end = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).toISOString().slice(0, 10);
+  const kindOf = (code: string) => accountOf(accounts, code).kind;
+  /** その科目の残る側に amount を入れる仕訳（マイナスなら反対側） */
+  const natural = (code: string, amount: number, date: string, memo: string) => {
+    if (!amount) return;
+    const debitNatural = debitSide(kindOf(code));
+    const toDebit = debitNatural === amount > 0;
+    out.push({ date, debit: toDebit ? code : TB_CLEAR, credit: toDebit ? TB_CLEAR : code, amount: Math.abs(amount), memo, source: "imported" });
+  };
+  if (first) {
+    let ytd = 0;
+    for (const r of m.rows) {
+      const k = kindOf(r.code);
+      if (k === "revenue") ytd += r.carry;
+      if (k === "expense") ytd -= r.carry;
+    }
+    for (const r of m.rows) natural(r.code, r.code === RETAINED ? r.carry - ytd : r.carry, day1, "期首の残高（試算表の繰越）");
+  }
+  for (const r of m.rows) {
+    if (r.code === RETAINED) continue;
+    if (r.debit) out.push({ date: end, debit: r.debit > 0 ? r.code : TB_CLEAR, credit: r.debit > 0 ? TB_CLEAR : r.code, amount: Math.abs(r.debit), memo: "試算表の借方金額", source: "imported" });
+    if (r.credit) out.push({ date: end, debit: r.credit > 0 ? TB_CLEAR : r.code, credit: r.credit > 0 ? r.code : TB_CLEAR, amount: Math.abs(r.credit), memo: "試算表の貸方金額", source: "imported" });
+  }
+  return out;
+}
+
+/** 取り込む前の確かめ：借方と貸方の合計が合っているか・繰越＋借方−貸方＝残高か（繰越利益剰余金を除く） */
+export function checkTb(t: TbParsed, accounts: Account[]) {
+  const all = [...accounts, ...t.accounts];
+  const kindOf = (code: string) => (all.find((a) => a.code === code) ?? { kind: "expense" as AccountKind }).kind;
+  const rows = t.rows.filter((r) => r.code !== RETAINED);
+  const debit = rows.reduce((n, r) => n + r.debit, 0);
+  const credit = rows.reduce((n, r) => n + r.credit, 0);
+  const wrong = rows.filter((r) => r.carry + naturalMove(kindOf(r.code), r.debit, r.credit) !== r.balance).map((r) => r.code);
+  return { debit, credit, balanced: debit === credit, wrong };
+}
+
+/** 取り込む：月ごとに置き換え、まだない科目は勘定科目に足す（ある科目の名前などはそのまま） */
+export async function saveTbImport(list: TbParsed[], config: LedgerConfig) {
+  const { db } = await getFirebase();
+  const batch = writeBatch(db);
+  for (const t of list) {
+    batch.set(doc(db, `tbImport/${t.month}`), {
+      rows: t.rows.slice(0, 1000).map((r) => ({ code: r.code, carry: r.carry, debit: r.debit, credit: r.credit, balance: r.balance })),
+      fileName: (t.fileName ?? "").slice(0, 100),
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+  const have = new Set(config.accounts.map((a) => a.code));
+  const added: Account[] = [];
+  for (const t of list)
+    for (const a of t.accounts) {
+      if (have.has(a.code)) continue;
+      have.add(a.code);
+      added.push(a);
+    }
+  if (added.length) await saveLedgerConfig({ ...config, accounts: sortAccounts([...config.accounts, ...added]) });
+  return added.length;
+}
+
+export async function deleteTbImport(month: string) {
+  const { db } = await getFirebase();
+  const batch = writeBatch(db);
+  batch.delete(doc(db, `tbImport/${month}`));
+  await batch.commit();
 }
 
 // ---------- 期（会計年度） ----------

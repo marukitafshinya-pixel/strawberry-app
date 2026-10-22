@@ -873,6 +873,17 @@ describe("経理担当（現金出納帳を見る・帳簿をつける）", () =
     await assertFails(setDoc(doc(admin(), "autoJournal/2026-10"), { entries: [] }));
     await assertFails(getDoc(doc(staff(), "autoJournal/2026-10")));
 
+    // 会計ソフトの試算表
+    const tb = { rows: [{ code: "100", carry: 1000, debit: 0, credit: 400, balance: 600 }], fileName: "2_.xls" };
+    await assertSucceeds(setDoc(doc(acc(), "tbImport/2026-02"), tb));
+    await assertSucceeds(getDoc(doc(admin(), "tbImport/2026-02")));
+    await assertSucceeds(deleteDoc(doc(admin(), "tbImport/2026-02")));
+    await assertFails(setDoc(doc(acc(), "tbImport/2026-2"), tb));
+    await assertFails(setDoc(doc(acc(), "tbImport/2026-02"), { ...tb, x: 1 }));
+    await assertFails(setDoc(doc(acc(), "tbImport/2026-02"), { rows: "x" }));
+    await assertFails(getDoc(doc(staff(), "tbImport/2026-02")));
+    await assertFails(setDoc(doc(accOff(), "tbImport/2026-02"), tb));
+
     // 預金通帳
     const row = { date: "2026-10-05", desc: "ﾃﾞﾝｷﾀﾞｲ", deposit: 0, withdrawal: 5400, balance: 100000, account: "110" };
     await assertSucceeds(setDoc(doc(acc(), "bank/2026-10"), { rows: [row] }));

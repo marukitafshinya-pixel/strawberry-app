@@ -1,8 +1,9 @@
-// Excel（.xlsx と .xlsb）のシートを、表（文字の2次元配列）として読む小さな道具。
+// Excel（.xlsx と .xlsb。古い .xls は xls.ts）のシートを、表（文字の2次元配列）として読む小さな道具。
 // どちらも ZIP の中にシートが入っているので、ブラウザの機能（DecompressionStream と DOMParser）で読める。
 //   .xlsx … シートは XML
 //   .xlsb … シートは「バイナリ形式」（Excel の BIFF12）
 // 数式は計算済みの値（Excel が保存した値）を使う。
+import { isXls, openXls } from "./xls";
 
 type Entry = { name: string; method: number; compSize: number; offset: number };
 
@@ -53,8 +54,9 @@ const numText = (n: number) => (Number.isFinite(n) ? String(Math.round(n * 1e9) 
 /** 読み込んだブック。シート名の一覧と、名前を指定してシートを読む関数 */
 export type Workbook = { sheetNames: string[]; readSheet: (name: string) => Promise<string[][]> };
 
-/** .xlsx / .xlsb を開く */
+/** .xlsx / .xlsb / .xls を開く */
 export async function openWorkbook(buf: ArrayBuffer): Promise<Workbook> {
+  if (isXls(buf)) return openXls(buf);
   const entries = readZipEntries(buf);
   const find = (name: string) => entries.find((e) => e.name.toLowerCase() === name.toLowerCase());
   const binary = !!find("xl/workbook.bin");

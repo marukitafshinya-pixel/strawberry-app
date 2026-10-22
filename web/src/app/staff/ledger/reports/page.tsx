@@ -39,7 +39,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "tb", label: "試算表" },
   { key: "gl", label: "総勘定元帳" },
 ];
-const SOURCE_LABEL = { cash: "出納帳", auto: "自動", bank: "通帳", manual: "" };
+const SOURCE_LABEL = { cash: "出納帳", auto: "自動", bank: "通帳", imported: "試算表", manual: "" };
 const mo = (ym: string) => `${Number(ym.slice(5))}月`;
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 const B = (v: string | number | null, o: { num?: boolean; bold?: boolean; left?: boolean } = {}): XCell => ({ v, border: true, ...o });
@@ -135,7 +135,7 @@ function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
       </nav>
       <div className="mt-4">
         {(tab === "pl" || tab === "mfg") && <Statement key={tab} which={tab} books={books} config={config} months={months.filter((m) => m <= end)} title={title} />}
-        {tab === "bs" && <BalanceSheet period={period} title={title} />}
+        {tab === "bs" && <BalanceSheet period={period} accounts={config.accounts} title={title} />}
         {tab === "tb" && <TrialBalance period={period} accounts={config.accounts} title={title} />}
         {tab === "gl" && <GeneralLedger period={period} accounts={config.accounts} code={glCode} setCode={setGlCode} title={title} />}
       </div>
@@ -277,7 +277,7 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
 }
 
 /** 貸借対照表：期末の資産・負債・純資産（利益は純資産に入れる） */
-function BalanceSheet({ period, title }: { period: Period; title: string }) {
+function BalanceSheet({ period, accounts, title }: { period: Period; accounts: Account[]; title: string }) {
   const of = (k: AccountKind) => period.rows.filter((r) => r.account.kind === k && r.closing !== 0);
   const assets = of("asset");
   const liabilities = of("liability");
@@ -285,11 +285,11 @@ function BalanceSheet({ period, title }: { period: Period; title: string }) {
   const sum = (list: typeof assets) => list.reduce((n, r) => n + r.closing, 0);
   const totalAssets = sum(assets);
   const totalRight = sum(liabilities) + sum(equity) + period.priorProfit + period.profit;
-  const left: [string, number, boolean?][] = [...assets.map((r) => [r.account.name, r.closing] as [string, number]), ["資産の合計", totalAssets, true]];
+  const left: [string, number, boolean?][] = [...assets.map((r) => [fullName(accounts, r.account), r.closing] as [string, number]), ["資産の合計", totalAssets, true]];
   const right: [string, number, boolean?][] = [
-    ...liabilities.map((r) => [r.account.name, r.closing] as [string, number]),
+    ...liabilities.map((r) => [fullName(accounts, r.account), r.closing] as [string, number]),
     ["負債の合計", sum(liabilities), true],
-    ...equity.map((r) => [r.account.name, r.closing] as [string, number]),
+    ...equity.map((r) => [fullName(accounts, r.account), r.closing] as [string, number]),
     ["繰越利益（前の期まで）", period.priorProfit],
     ["当期の利益", period.profit],
     ["負債・純資産の合計", totalRight, true],
@@ -323,7 +323,7 @@ function BalanceSheet({ period, title }: { period: Period; title: string }) {
         </div>
       </div>
       {totalAssets !== totalRight && <p className="mt-2 text-sm text-red-600">左右の合計が合っていません（{yen(totalAssets - totalRight)}円）。</p>}
-      <p className="mt-2 text-xs text-gray-500">はじめて使うときは、仕訳帳で預金・借入金などの残高を「開始残高」を相手に入れると、正しい残高になります。</p>
+      <p className="mt-2 text-xs text-gray-500">はじめて使うときは、会計ソフトの試算表を取り込むか、仕訳帳で預金・借入金などの残高を「開始残高」を相手に入れると、正しい残高になります。</p>
     </section>
   );
 }

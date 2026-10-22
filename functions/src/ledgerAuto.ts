@@ -7,21 +7,22 @@ import { db } from "./common.js";
 
 /** 自動仕訳に使う科目（帳簿の画面の「勘定科目」で変えられる。画面側の DEFAULT_AUTO と同じ） */
 const DEFAULT_AUTO = {
-  cashSales: "101",
-  creditSales: "120",
-  sales: "419",
-  collect: "110",
-  wages: "621",
-  commute: "622",
-  officer: "701",
-  withheld: "220",
-  unpaid: "210",
-  welfare: "626",
+  cashSales: "A01",
+  creditSales: "A02",
+  sales: "501-7",
+  collect: "106-1",
+  wages: "840-1",
+  commute: "840-2",
+  officer: "A10",
+  unpaid: "307",
+  social: "854",
+  incomeTax: "322-1",
+  residentTax: "322-2",
 };
 /** レジの分類 → 売上の科目（画面側の DEFAULT_SALES_MAP と同じ） */
-const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "411" };
+const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
 /** 勘定科目の版（画面側の CHART_VERSION と同じ）。これより前の設定は使わず、はじめの科目にする */
-const CHART_VERSION = 2;
+const CHART_VERSION = 3;
 type AutoCodes = typeof DEFAULT_AUTO;
 
 type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
@@ -121,26 +122,33 @@ export const buildAutoJournal = onCall(async (req) => {
     let wages = 0,
       commute = 0,
       officer = 0,
-      withheld = 0;
+      social = 0,
+      incomeTax = 0,
+      residentTax = 0;
     for (const r of Object.values((p.get("rows") as Record<string, Record<string, unknown>> | undefined) ?? {})) {
       const w = n(r.monthly) + n(r.hourly);
       const cm = n(r.commute);
       const o = n(r.officer);
-      const pay = w + cm + o;
-      const net = pay - (n(r.health) + n(r.care) + n(r.pension) + n(r.employment) + n(r.socialAdj)) - n(r.incomeTax) - n(r.residentTax) + n(r.yearEnd);
       wages += w;
       commute += cm;
       officer += o;
-      withheld += pay - net;
+      social += n(r.health) + n(r.care) + n(r.pension) + n(r.employment) + n(r.socialAdj);
+      // 年末調整は、還付（プラス）なら所得税の預りを減らし、徴収（マイナス）なら増やす
+      incomeTax += n(r.incomeTax) - n(r.yearEnd);
+      residentTax += n(r.residentTax);
     }
-    // 支給額は、給料・役員報酬（借方）と、預り金（引いた社会保険料・税金）・未払金（振り込む手取り）（貸方）に分ける
-    if (wages) entries.push({ date, debit: c.wages, credit: c.unpaid, amount: wages, memo: `${label}（給料）`, kind: "payroll" });
-    if (commute) entries.push({ date, debit: c.commute, credit: c.unpaid, amount: commute, memo: `${label}（通勤費）`, kind: "payroll" });
-    if (officer) entries.push({ date, debit: c.officer, credit: c.unpaid, amount: officer, memo: `${label}（役員報酬）`, kind: "payroll" });
-    if (withheld > 0) entries.push({ date, debit: c.unpaid, credit: c.withheld, amount: withheld, memo: `${label}（社会保険料・税金の天引き）`, kind: "payroll" });
-    if (withheld < 0) entries.push({ date, debit: c.withheld, credit: c.unpaid, amount: -withheld, memo: `${label}（年末調整の還付）`, kind: "payroll" });
-    const employer = Object.values((p.get("employer") as Record<string, unknown> | undefined) ?? {}).reduce<number>((s, v) => s + n(v), 0);
-    if (employer > 0) entries.push({ date, debit: c.welfare, credit: c.withheld, amount: employer, memo: `${label}（社会保険料の会社負担）`, kind: "payroll" });
+    // 支給額（給料・通勤費・役員報酬）を「振り込む給与」に入れ、天引きした分をそこから移す：
+    // 社会保険料の本人負担分は法定福利費から引き（会計ソフトと同じ。納めたときに全額を法定福利費にする）、所得税・住民税は預り金へ
+    const push = (debit: string, credit: string, amount: number, memo: string) => {
+      if (amount > 0) entries.push({ date, debit, credit, amount, memo: `${label}（${memo}）`, kind: "payroll" });
+      if (amount < 0) entries.push({ date, debit: credit, credit: debit, amount: -amount, memo: `${label}（${memo}）`, kind: "payroll" });
+    };
+    push(c.wages, c.unpaid, wages, "給料");
+    push(c.commute, c.unpaid, commute, "通勤費");
+    push(c.officer, c.unpaid, officer, "役員報酬");
+    push(c.unpaid, c.social, social, "社会保険料の天引き");
+    push(c.unpaid, c.incomeTax, incomeTax, "所得税の天引き");
+    push(c.unpaid, c.residentTax, residentTax, "住民税の天引き");
   }
 
   entries.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));

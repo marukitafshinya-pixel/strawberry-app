@@ -13,6 +13,7 @@ import {
   accountOf,
   fullName,
   autoPostings,
+  importedPostings,
   bankPostings,
   cashPostings,
   emptyJournal,
@@ -111,6 +112,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   const fromCash = cashPostings(books.cash, month, config.itemMap);
   const fromAuto = autoPostings(books.auto, month);
   const fromBank = bankPostings(books.bank, month, config.bankRules);
+  const imported = books.imported.some((x) => x.month === month) ? importedPostings(books.imported, month, accounts) : null;
   const change = (next: JournalEntry[]) => {
     // 次の空の行は、直前の行と同じ日付にしておく（続けて入れやすいように）
     const body = next.filter((e) => !isBlankJournal(e));
@@ -158,6 +160,18 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
 
   return (
     <>
+      {imported && (
+        <section className="mt-4 rounded-2xl border-2 border-sky-300 bg-sky-50 p-4">
+          <h2 className="font-bold">この月は、会計ソフトから取り込んだ試算表の数字を使っています</h2>
+          <p className="mt-1 text-xs text-gray-600">
+            決算書・元帳には下の数字だけが入ります。この下にある手で入れる仕訳・レジ・給与・通帳・出納帳からの仕訳は、この月は数えません（二重にしないため）。
+            <Link href="/staff/ledger/import/" className="ml-1 underline">
+              取り込みの画面
+            </Link>
+          </p>
+          <PostingTable postings={imported} name={name} empty="" />
+        </section>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={exportExcel} className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-sm text-emerald-800">
           ⬇ エクセルで書き出す

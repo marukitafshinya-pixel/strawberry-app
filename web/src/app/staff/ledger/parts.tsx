@@ -14,6 +14,7 @@ const TABS = [
   { href: "/staff/ledger/bank/", label: "預金通帳" },
   { href: "/staff/ledger/reports/", label: "決算書・元帳" },
   { href: "/staff/ledger/accounts/", label: "勘定科目" },
+  { href: "/staff/ledger/import/", label: "会計ソフトから取り込み" },
 ];
 
 /** 帳簿の画面の見出しとタブ。管理者と経理担当だけが使える */

@@ -24,6 +24,7 @@ export const BACKUP_COLLECTIONS = [
   "journal",
   "autoJournal",
   "bank",
+  "tbImport",
   "itemReferences",
   "storeDaily",
   "shipments",
