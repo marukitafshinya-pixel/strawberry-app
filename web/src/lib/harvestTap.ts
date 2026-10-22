@@ -91,6 +91,8 @@ export type HelpInfo = {
   started?: Record<string, { start: number; left: string[] }>;
   /** 応援が必要な順（いまのままだと終わるのがおそい順）：ハウス・終わる見込み（分）・いまの人数（向かっている人もふくむ）・もう入っているか */
   ranking?: { house: string; finish: number; crew: number; started: boolean }[];
+  /** 🏁ここで終了のハウス */
+  stops?: string[];
 };
 export const fetchHelpHouse = (free = false) => callFunction<{ free: boolean }, HelpInfo>("harvestHelpHouse", { free });
 

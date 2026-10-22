@@ -13,6 +13,8 @@ export type HelpHouse = {
   left?: string[];
   /** 収穫報告で応援として入った人 */
   helpers?: string[];
+  /** 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（次のハウス・応援に行かない） */
+  stopHere?: boolean;
 };
 export type HelpForecast = { start?: number | null; end?: number | null; members?: string[] };
 export type HelpTaps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
@@ -48,6 +50,25 @@ export function helpCandidates(i: HelpInput): string[] {
   return all.filter((h) => i.houses[h]?.end == null && !NO_HARVEST.includes(i.usage[h] ?? "harvest") && !i.noHelp.includes(h));
 }
 
+/**
+ * 🏁ここで終了のハウスで収穫を終えた人なら、そのハウス（なければ null）。
+ * そのハウスにいた人（入ったを押した・収穫者に名前がある・応援で入った。移った人は除く）で、
+ * 自分で「終わった」を押したかハウスに「終わった」が入っていて、そのあとほかのハウスに入っていない人
+ */
+export function stoppedAt(i: Pick<HelpInput, "houses" | "taps" | "fh">, id: string): string | null {
+  const mine = i.taps[id] ?? {};
+  for (const [h, r] of Object.entries(i.houses)) {
+    if (!r?.stopHere) continue;
+    const was = mine[h]?.start != null || [...(r.members ?? i.fh[h]?.members ?? []), ...(r.helpers ?? [])].includes(id);
+    if (!was || (r.left ?? []).includes(id)) continue;
+    const end = mine[h]?.end ?? r.end;
+    if (end == null) continue;
+    if (Object.entries(mine).some(([x, v]) => x !== h && v?.start != null && (v.start >= end || v.end == null))) continue;
+    return h;
+  }
+  return null;
+}
+
 /** そのハウスが、いまの人数（＋向かっている人）のままで終わる見込みの時刻（分） */
 export function finishOf(i: HelpInput, h: string, me: string | null): number {
   return estimate(i, h, me).finish;
@@ -59,9 +80,11 @@ function estimate(i: HelpInput, h: string, me: string | null): { finish: number;
   const f = i.fh[h];
   // 収穫管理で名前が入っている人（応援で足された人もふくむ。携帯を忘れた人の分を集荷係が入れたときも数える）。
   // そのハウスで「終わった」を押した人、ほかへ移った人、携帯でほかのハウスの「入った」を押している人は数えない
+  // 🏁ここで終了のハウスで終えた人は、あとのハウスには来ない
   const listed = [...new Set([...(i.houses[h]?.members ?? f?.members ?? []), ...(i.houses[h]?.helpers ?? [])])].filter(
     (id) =>
       i.taps[id]?.[h]?.end == null &&
+      stoppedAt(i, id) == null &&
       !(i.houses[h]?.left ?? []).includes(id) &&
       !Object.entries(i.taps[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v?.end == null),
   );
@@ -81,6 +104,9 @@ function estimate(i: HelpInput, h: string, me: string | null): { finish: number;
   if (start == null) {
     // まだだれも入っていない：向かっている人がいればその人数で、いなければ朝の予測どおり（予定の人があとから入る）
     if (crew > 0) return { finish: i.now + work / crew, crew, started: false };
+    // 予定の人がみんな🏁で終了したハウスは、だれも来ない（まだだれも入っていないハウスとして、応援を先に出す）
+    const planned = i.houses[h]?.members ?? f?.members ?? [];
+    if (planned.length > 0 && planned.every((id) => stoppedAt(i, id) != null)) return { finish: i.now + work, crew: 0, started: false };
     return { finish: f?.end ?? i.now + work, crew, started: false };
   }
   // もう終わった作業（のべ時間）：一人ひとりが入ってからの時間を足す（途中から入った応援の人は、入った時刻から）。
@@ -131,6 +157,8 @@ export function areaOf(h: string): string | null {
  * ただし1位が別の地区で、2位がいまいる地区（最後に「終わった」を押したハウスの地区）にあれば、移動が少ないよう2位にする
  */
 export function pickHelp(i: HelpInput, me: string): string | null {
+  // 🏁ここで終了した人には、応援を出さない
+  if (stoppedAt(i, me) != null) return null;
   const list = helpCandidates(i)
     // 自分が「終わった」を押したハウスには戻さない（ハウスの「終わった」が入る前に聞かれたときのため）
     .filter((h) => i.taps[me]?.[h]?.end == null)
