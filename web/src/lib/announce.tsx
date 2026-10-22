@@ -5,8 +5,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-/** 効果音の種類：in＝入った（ピロリン↑）、out＝終わった（ピンポンピンポン）、done＝全部終わった（ファンファーレ）、change＝応援先の知らせ（ピンポン） */
-export type SoundKind = "in" | "out" | "done" | "change";
+/** 効果音の種類：in＝入った（ピロリン↑）、out＝終わった（ピンポンピンポン）、done＝全部終わった（ファンファーレ）、change＝応援先の知らせ（ピンポン）、break＝休憩の合図 */
+export type SoundKind = "in" | "out" | "done" | "change" | "break";
 
 /** 音（高さ Hz・始まり秒・長さ秒）を並べた効果音を作る。外から音のファイルを読まないので、電波が弱くても鳴る */
 function toneUrl(notes: [number, number, number][], gain = 0.6): string {
@@ -76,6 +76,18 @@ const SOUNDS: Record<SoundKind, () => string> = {
       [1319, 0, 0.45],
       [1047, 0.45, 0.5],
     ]),
+  // 休憩：ド・ミ・ソ・ミ・ド とやさしく
+  break: () =>
+    toneUrl(
+      [
+        [1047, 0, 0.3],
+        [1319, 0.25, 0.3],
+        [1568, 0.5, 0.3],
+        [1319, 0.75, 0.3],
+        [1047, 1.0, 0.6],
+      ],
+      0.5,
+    ),
 };
 const audios: Partial<Record<SoundKind, HTMLAudioElement>> = {};
 const getSound = (k: SoundKind) => (audios[k] ??= new Audio(SOUNDS[k]()));
@@ -250,6 +262,7 @@ export const SAY = {
   done: "今日の収穫はすべて終わりました！みなさん、おつかれさまでした！",
   change: (h: string) => `応援先が変更になりました！${h}番へ向かってください！`,
   help: (h: string) => `応援をお願いします！${h}番へ向かってください！`,
+  break: "おつかれさまです！ただいまから休憩の時間です。",
 };
 
 /** active の間、画面が消えないようにする（ほかのアプリから戻ったときも、もう一度たのむ） */

@@ -126,7 +126,7 @@ async function fetchMonthHtml(year: number, month: number): Promise<string> {
 }
 
 /** 1か月分の日ごとの値を読み込んで保存する（夜温など、ほかの項目は消さない） */
-async function importMonth(year: number, month: number) {
+export async function importMonth(year: number, month: number) {
   const ym = `${year}-${String(month).padStart(2, "0")}`;
   let days: Record<string, WeatherDay>;
   try {

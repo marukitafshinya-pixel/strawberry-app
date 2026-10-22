@@ -254,6 +254,8 @@ export type HarvestYield = {
   model: { n: number; a: number; b: number; c: number } | null;
   nightMin: number | null;
   sun: number | null;
+  /** 去年の出荷実績から出した天気の影響を使っているとき：その季節の名前と出荷の回数 */
+  prior: { season: string; n: number } | null;
 };
 export function useHarvestYield(): HarvestYield | null | undefined {
   const [v, setV] = useState<HarvestYield | null | undefined>(undefined);
@@ -275,6 +277,7 @@ export function useHarvestYield(): HarvestYield | null | undefined {
                   model: (s.get("model") as HarvestYield["model"]) ?? null,
                   nightMin: typeof s.get("nightMin") === "number" ? (s.get("nightMin") as number) : null,
                   sun: typeof s.get("sun") === "number" ? (s.get("sun") as number) : null,
+                  prior: (s.get("prior") as HarvestYield["prior"]) ?? null,
                 }
               : null,
           ),

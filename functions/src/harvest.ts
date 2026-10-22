@@ -6,7 +6,8 @@ import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "./common.js";
 import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, type HelpForecast, type HelpInput } from "./helpAssign.js";
-import { yieldFrom, type YieldDay, type YieldWeather } from "./harvestYield.js";
+import { yieldFrom, type YieldDay, type YieldPrior, type YieldWeather } from "./harvestYield.js";
+import type { PastModel } from "./pastYield.js";
 
 /** 人ごとに使う最近の記録の数 */
 const PER_PERSON = 20;
@@ -147,7 +148,13 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
     const days = ((await db.doc(`weather/${ym}`).get()).get("days") as Record<string, { nightMin?: number | null; sun?: number | null }> | undefined) ?? {};
     for (const [dd, w] of Object.entries(days)) weather[`${ym}-${dd}`] = w;
   }
-  await db.doc("stats/harvestYield").set({ ...yieldFrom(yieldDays, weather, today), forDate: today, updatedAt: FieldValue.serverTimestamp() });
+  // 去年の出荷実績から出した天気の影響（管理者が入れていれば）
+  const past = await db.doc("stats/pastYield").get();
+  const pm = past.get("model") as PastModel | null | undefined;
+  const prior: YieldPrior | null = pm
+    ? { season: String(past.get("season") ?? ""), n: pm.n, b: pm.b, c: pm.c, varNight: pm.varNight, varSun: pm.varSun }
+    : null;
+  await db.doc("stats/harvestYield").set({ ...yieldFrom(yieldDays, weather, today, prior), forDate: today, updatedAt: FieldValue.serverTimestamp() });
   return { ok: true };
 });
 

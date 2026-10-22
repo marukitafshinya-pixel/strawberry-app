@@ -1,0 +1,160 @@
+[
+ {
+  "accountCode": "901",
+  "accountName": "見本資材費",
+  "periodFrom": "2026-02-01",
+  "periodTo": "2027-01-31",
+  "entries": [
+   {
+    "no": "1",
+    "date": "2026-02-10",
+    "counter": "普通預金",
+    "sub": "見本銀行",
+    "item": "見本パイプ他",
+    "partner": "見本商事(株)",
+    "isTax": false,
+    "debit": 110000,
+    "credit": 0,
+    "taxRate": "10%"
+   },
+   {
+    "no": "2",
+    "date": "2026-02-20",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ひも他",
+    "partner": "見本農協",
+    "isTax": false,
+    "debit": 20000,
+    "credit": 0,
+    "taxRate": "10%"
+   },
+   {
+    "no": "3",
+    "date": "2026-02-20",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ひも他",
+    "partner": "",
+    "isTax": true,
+    "debit": 2000,
+    "credit": 0,
+    "taxRate": "10%"
+   },
+   {
+    "no": "4",
+    "date": "2026-03-05",
+    "counter": "仮払金",
+    "sub": "見本カード",
+    "item": "見本トレー",
+    "partner": "見本ストア",
+    "isTax": false,
+    "debit": 33000,
+    "credit": 0,
+    "taxRate": "10%"
+   }
+  ],
+  "monthTotals": [
+   {
+    "month": "2026-02",
+    "debit": 132000,
+    "credit": 0,
+    "count": 3
+   }
+  ],
+  "grandTotal": null,
+  "notes": ""
+ },
+ {
+  "accountCode": "901",
+  "accountName": "見本資材費",
+  "periodFrom": "2026-02-01",
+  "periodTo": "2027-01-31",
+  "entries": [
+   {
+    "no": "5",
+    "date": "2026-03-25",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ネット",
+    "partner": "見本農協",
+    "isTax": false,
+    "debit": 5000,
+    "credit": 0,
+    "taxRate": "10%"
+   },
+   {
+    "no": "6",
+    "date": "2026-03-25",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ネット",
+    "partner": "",
+    "isTax": true,
+    "debit": 500,
+    "credit": 0,
+    "taxRate": "10%"
+   }
+  ],
+  "monthTotals": [
+   {
+    "month": "2026-03",
+    "debit": 38500,
+    "credit": 0,
+    "count": 3
+   }
+  ],
+  "grandTotal": {
+   "debit": 170500,
+   "credit": 0,
+   "count": 6
+  },
+  "notes": ""
+ },
+ {
+  "accountCode": "902",
+  "accountName": "見本農具費",
+  "periodFrom": "2026-02-01",
+  "periodTo": "2027-01-31",
+  "entries": [
+   {
+    "no": "7",
+    "date": "2026-05-25",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ポンプ",
+    "partner": "見本農協",
+    "isTax": false,
+    "debit": 10000,
+    "credit": 0,
+    "taxRate": "10%"
+   },
+   {
+    "no": "8",
+    "date": "2026-05-25",
+    "counter": "組勘勘定",
+    "sub": "",
+    "item": "見本ポンプ",
+    "partner": "",
+    "isTax": true,
+    "debit": 1000,
+    "credit": 0,
+    "taxRate": "10%"
+   }
+  ],
+  "monthTotals": [
+   {
+    "month": "2026-05",
+    "debit": 11000,
+    "credit": 0,
+    "count": 2
+   }
+  ],
+  "grandTotal": {
+   "debit": 11000,
+   "credit": 0,
+   "count": 2
+  },
+  "notes": ""
+ }
+]

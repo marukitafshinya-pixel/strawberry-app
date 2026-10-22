@@ -11,6 +11,8 @@ export { aiKeyStatus, readShikiri, readShikiriOcr, setAiKey } from "./shikiri.js
 export { cancelShiftRequest, createWorkerLogin, deleteShiftMember, submitShiftRequest, updateWorkerLogin } from "./shift.js";
 export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidSale } from "./sales.js";
 export { importWeatherMonth, refreshHarvestWeather } from "./weather.js";
+export { savePastShipments } from "./pastYield.js";
+export { readLedgerPage } from "./ledger.js";
 export { saveGoveeKey, pollGovee, pollGoveeNow } from "./govee.js";
 export { refreshForecast } from "./forecast.js";
 export { refreshTempDiff } from "./tempDiff.js";

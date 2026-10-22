@@ -1,11 +1,6 @@
 // セキュリティルールのテスト（練習用Firebase＝エミュレーターで実行）
 import { readFileSync } from "node:fs";
-import {
-  assertFails,
-  assertSucceeds,
-  initializeTestEnvironment,
-  type RulesTestEnvironment,
-} from "@firebase/rules-unit-testing";
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeEach, describe, it } from "vitest";
 
@@ -202,7 +197,9 @@ describe("給与（管理者のみ）", () => {
     await assertSucceeds(setDoc(doc(admin(), "employees/e1"), { name: "山田", accountNumber: "1234567" }));
     await assertSucceeds(getDoc(doc(admin(), "employees/e1")));
     await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-07"), { paymentDate: "2026-08-15", rows: {}, employer: {} }));
-    await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-08"), { paymentDate: "", rows: {}, employer: {}, memo: "", payerAccount: "117779", author: "hirayama" }));
+    await assertSucceeds(
+      setDoc(doc(admin(), "payrolls/2026-08"), { paymentDate: "", rows: {}, employer: {}, memo: "", payerAccount: "117779", author: "hirayama" }),
+    );
     for (const db of [staff(), guest(), noRole(), disabled()]) {
       await assertFails(getDoc(doc(db, "employees/e1")));
       await assertFails(getDoc(doc(db, "payrolls/2026-07")));
@@ -233,7 +230,20 @@ describe("タイムカード（管理者のみ）", () => {
     const tc = { cards: { "001": { "01": { i: 338, o: 1024 }, "02": { i: 339, o: null, e: { i: 339, o: 1020 } } } }, fileName: "ER201001.csv" };
     await assertSucceeds(setDoc(doc(admin(), "timecards/2026-09"), tc));
     await assertSucceeds(getDoc(doc(admin(), "timecards/2026-09")));
-    await assertSucceeds(setDoc(doc(admin(), "config/timecard"), { cards: { "001": "e1" }, startTimes: [{ from: "2026-09-01", time: 360 }], roundIn: 15, inDir: "down", roundOut: 15, outDir: "up", breaks: [{ start: 720, end: 780 }], overtimeOver: 480, closeDay: 31, rulesVersion: 2 }));
+    await assertSucceeds(
+      setDoc(doc(admin(), "config/timecard"), {
+        cards: { "001": "e1" },
+        startTimes: [{ from: "2026-09-01", time: 360 }],
+        roundIn: 15,
+        inDir: "down",
+        roundOut: 15,
+        outDir: "up",
+        breaks: [{ start: 720, end: 780 }],
+        overtimeOver: 480,
+        closeDay: 31,
+        rulesVersion: 2,
+      }),
+    );
     for (const db of [staff(), guest(), noRole(), disabled(), env.authenticatedContext("w1", { role: "worker" }).firestore()]) {
       await assertFails(getDoc(doc(db, "timecards/2026-09")));
       await assertFails(setDoc(doc(db, "timecards/2026-09"), tc));
@@ -323,7 +333,9 @@ describe("トータル実績（ほかの売上）", () => {
 
 describe("現金出納帳", () => {
   it("管理者だけが読み書きできる", async () => {
-    await assertSucceeds(setDoc(doc(admin(), "cashbook/2026-08"), { entries: [{ date: "2026-08-03", item: "ごみ処理代", income: null, expense: 800, memo: "" }], opening: 660 }));
+    await assertSucceeds(
+      setDoc(doc(admin(), "cashbook/2026-08"), { entries: [{ date: "2026-08-03", item: "ごみ処理代", income: null, expense: 800, memo: "" }], opening: 660 }),
+    );
     await assertSucceeds(getDoc(doc(admin(), "cashbook/2026-08")));
     for (const db of [staff(), guest(), noRole(), disabled()]) {
       await assertFails(getDoc(doc(db, "cashbook/2026-08")));
@@ -446,7 +458,9 @@ describe("意向勤務管理表（従業員 worker）", () => {
     await assertSucceeds(getDoc(doc(worker(), "shiftRequests/m1_2026-10-20")));
     await assertFails(getDoc(doc(worker(), "shiftRequests/m9_2026-10-20")));
     await assertFails(setDoc(doc(worker(), "shiftDays/2026-10-10"), { cells: { m1: "希望休" } }));
-    await assertFails(setDoc(doc(worker(), "shiftRequests/m1_2026-10-21"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", status: "approved" }));
+    await assertFails(
+      setDoc(doc(worker(), "shiftRequests/m1_2026-10-21"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", status: "approved" }),
+    );
     // 予約・会計・スタッフ名簿・給与は読めない
     for (const p of ["reservations/r1", "sales/s1", "staff/u1", "employees/e1", "payrolls/2026-10", "settings/main"]) {
       if (p === "settings/main") continue; // 設定は誰でも読める
@@ -464,11 +478,30 @@ describe("意向勤務管理表（従業員 worker）", () => {
     await assertSucceeds(setDoc(doc(admin(), "shiftDays/2026-10-11"), { cells: { m1: "AM" }, note: "宵宮" }));
     await assertSucceeds(getDoc(doc(staff(), "shiftDays/2026-10-11")));
     await assertFails(setDoc(doc(staff(), "shiftDays/2026-10-11"), { cells: { m1: "〇" } }));
-    await assertFails(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w9", loginId: "tanaka" }));
-    await assertSucceeds(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }));
-    await assertSucceeds(setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, harvest: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }));
-    await assertSucceeds(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-20", code: "希望休", memo: "", status: "approved" }));
-    await assertFails(setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", memo: "", status: "approved" }));
+    await assertFails(
+      setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w9", loginId: "tanaka" }),
+    );
+    await assertSucceeds(
+      setDoc(doc(admin(), "shiftMembers/m1"), { name: "田中", group: "男性", floor: true, order: 0, active: true, uid: "w1", loginId: "tanaka" }),
+    );
+    await assertSucceeds(
+      setDoc(doc(admin(), "shiftMembers/m1"), {
+        name: "田中",
+        group: "男性",
+        floor: true,
+        harvest: true,
+        order: 0,
+        active: true,
+        uid: "w1",
+        loginId: "tanaka",
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-20", code: "希望休", memo: "", status: "approved" }),
+    );
+    await assertFails(
+      setDoc(doc(admin(), "shiftRequests/m1_2026-10-20"), { memberId: "m1", uid: "w1", date: "2026-10-21", code: "希望休", memo: "", status: "approved" }),
+    );
   });
 });
 
@@ -558,7 +591,9 @@ describe("収穫管理：毎日使える従業員（社員など）", () => {
     await assertFails(getDoc(doc(worker("w5"), "harvest/2020-01-01")));
     await assertFails(setDoc(doc(worker("w6"), `harvest/${today}`), { houses }));
     // 管理者でなければ「毎日使える」は付けられない
-    await assertFails(setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }));
+    await assertFails(
+      setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }),
+    );
   });
 });
 
@@ -624,6 +659,19 @@ describe("収穫管理：収穫者の「入った・終わった」", () => {
     await assertFails(put({ tapHouse: "17", houses: { "17": { helpers: ["m7", "m8"] } } }));
     // 今日でない日は書けない
     await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01"), { tapHouse: "17", houses: { "17": { start: 400 } } }, { merge: true }));
+  });
+
+  it("休憩の合図：収穫管理を使える人だけ押せる。今日の分は従業員も見られる", async () => {
+    await seed();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `haichi/${today}`), { cells: { pickup: { members: ["m8"], memo: "" } }, note: "", done: false });
+    });
+    await assertSucceeds(setDoc(doc(w("w8"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w8" }));
+    await assertFails(setDoc(doc(w("w7"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w7" }));
+    await assertFails(setDoc(doc(w("w8"), `harvest/${today}/calls/other`), { at: serverTimestamp(), by: "w8" }));
+    await assertFails(setDoc(doc(w("w8"), `harvest/${today}/calls/break`), { at: serverTimestamp(), by: "w7" }));
+    await assertSucceeds(getDoc(doc(w("w7"), `harvest/${today}/calls/break`)));
+    await assertFails(getDoc(doc(guest(), `harvest/${today}/calls/break`)));
   });
 
   it("自分の押した記録は本人だけ書ける。今日の分は従業員どうしで見られる", async () => {
@@ -743,6 +791,29 @@ describe("収穫終了の予測（forecast・株数・速さ）", () => {
     await assertSucceeds(getDoc(doc(staff(), "stats/harvestYield")));
     await assertFails(setDoc(doc(admin(), "stats/harvestYield"), { all: 3 }));
     await assertFails(getDoc(doc(guest(), "stats/harvestYield")));
+    // 去年の出荷実績と、そこから出した天気の影響：管理者だけが読める。書くのはサーバーだけ
+    await assertSucceeds(getDoc(doc(admin(), "stats/pastYield")));
+    await assertFails(getDoc(doc(staff(), "stats/pastYield")));
+    await assertFails(setDoc(doc(admin(), "stats/pastYield"), { model: null }));
+    await assertSucceeds(getDoc(doc(admin(), "pastShipments/R7")));
+    await assertFails(getDoc(doc(staff(), "pastShipments/R7")));
+    await assertFails(setDoc(doc(admin(), "pastShipments/R7"), { days: {} }));
+    // 作業用フォルダ（総勘定元帳の明細）：管理者だけが読み書きできる
+    const acc = { code: "901", name: "見本資材費", entries: [{ no: "1", date: "2026-02-10", debit: 1000 }], monthTotals: [], grandTotal: null };
+    await assertSucceeds(setDoc(doc(admin(), "ledgers/2026-02-01"), { from: "2026-02-01", to: "2027-01-31" }));
+    await assertSucceeds(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/901"), acc));
+    await assertSucceeds(getDoc(doc(admin(), "ledgers/2026-02-01/accounts/901")));
+    await assertFails(getDoc(doc(staff(), "ledgers/2026-02-01/accounts/901")));
+    await assertFails(getDoc(doc(staff(), "ledgers/2026-02-01")));
+    await assertFails(setDoc(doc(staff(), "ledgers/2026-02-01/accounts/901"), acc));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/902"), acc));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026-02-01/accounts/901"), { ...acc, memo: "x" }));
+    await assertFails(setDoc(doc(admin(), "ledgers/2026"), { from: "2026-02-01", to: "2027-01-31" }));
+    await assertSucceeds(setDoc(doc(admin(), "ledgerRules/rules"), { partners: { 見本農協: "repair" }, items: {} }));
+    await assertFails(getDoc(doc(staff(), "ledgerRules/rules")));
+    await assertFails(setDoc(doc(staff(), "ledgerRules/rules"), { partners: {} }));
+    await assertFails(setDoc(doc(admin(), "ledgerRules/other"), { partners: {} }));
+    await assertFails(setDoc(doc(admin(), "ledgerRules/rules"), { partners: "x" }));
   });
 });
 
@@ -759,7 +830,8 @@ describe("経理担当（現金出納帳を見る・帳簿をつける）", () =
     await assertSucceeds(getDoc(doc(acc(), "cashbook/2026-10")));
     await assertFails(setDoc(doc(acc(), "cashbook/2026-10"), { entries: [] }));
     await assertFails(getDoc(doc(accOff(), "cashbook/2026-10")));
-    for (const p of ["payrolls/2026-10", "employees/e1", "reservations/r1", "sales/s1", "harvest/2026-10-15", "staff/u1"]) await assertFails(getDoc(doc(acc(), p)));
+    for (const p of ["payrolls/2026-10", "employees/e1", "reservations/r1", "sales/s1", "harvest/2026-10-15", "staff/u1"])
+      await assertFails(getDoc(doc(acc(), p)));
   });
   it("帳簿（仕訳・勘定科目）は管理者と経理担当が読み書きできる", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {

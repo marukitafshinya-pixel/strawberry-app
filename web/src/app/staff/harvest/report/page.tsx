@@ -524,7 +524,7 @@ function ForecastTab({
               <p className="text-2xl font-bold text-sky-800">ふだんの×{yld.factor.toFixed(2)}</p>
               <p className="text-xs text-gray-500">
                 夜温 {yld.nightMin != null ? `${yld.nightMin.toFixed(1)}℃` : "－"}・前日の日照 {yld.sun != null ? `${yld.sun.toFixed(1)}時間` : "－"}（
-                {yld.model.n}日分の記録から）
+                {yld.prior ? `去年（${yld.prior.season}）の出荷${yld.prior.n}回分と、今年の${yld.model.n}日分から` : `${yld.model.n}日分の記録から`}）
               </p>
             </>
           ) : (
@@ -533,6 +533,9 @@ function ForecastTab({
               <p className="text-xs text-gray-500">夜温・日照のそろった収穫の記録が14日分たまると入ります</p>
             </>
           )}
+          <Link href="/staff/harvest/past/" className="mt-1 inline-block text-xs text-sky-700 underline">
+            去年の出荷実績から天気の影響を出す
+          </Link>
         </div>
       </div>
       <div className="mt-3 overflow-x-auto rounded-xl border bg-white">

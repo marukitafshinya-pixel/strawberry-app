@@ -10,12 +10,12 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertAdmin, assertStaff, db } from "./common.js";
 
 const KEY_DOC = "secrets/anthropic";
-const MODEL = "claude-opus-5-5";
+export const MODEL = "claude-opus-5-5";
 // エミュレーター（手元での動作確認）でだけ使う鍵。AIを呼ばずに、見本の読み取り結果を返す
 const TEST_KEY = "sk-ant-test-fixture-0000000000000000";
-const isEmulatorTest = (k: string) => process.env.FUNCTIONS_EMULATOR === "true" && k === TEST_KEY;
+export const isEmulatorTest = (k: string) => process.env.FUNCTIONS_EMULATOR === "true" && k === TEST_KEY;
 
-async function loadKey(): Promise<string | null> {
+export async function loadKey(): Promise<string | null> {
   const snap = await db.doc(KEY_DOC).get();
   const k = snap.get("apiKey");
   return typeof k === "string" && k ? k : null;
@@ -40,13 +40,14 @@ export const setAiKey = onCall(async (req) => {
   }
   if (!/^sk-ant-[A-Za-z0-9_-]{20,200}$/.test(apiKey)) throw new HttpsError("invalid-argument", "鍵の形が正しくありません（sk-ant- ではじまる文字です）");
   // 使える鍵か、ためしに1回呼んで確かめる
-  if (!isEmulatorTest(apiKey)) try {
-    await new Anthropic({ apiKey }).models.retrieve(MODEL);
-  } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new HttpsError("invalid-argument", "この鍵は使えませんでした。もう一度コピーしなおしてください");
-    if (e instanceof Anthropic.PermissionDeniedError) throw new HttpsError("invalid-argument", "この鍵には使う権限がありません");
-    throw new HttpsError("unavailable", "AIの確認ができませんでした。時間をおいてもう一度お試しください");
-  }
+  if (!isEmulatorTest(apiKey))
+    try {
+      await new Anthropic({ apiKey }).models.retrieve(MODEL);
+    } catch (e) {
+      if (e instanceof Anthropic.AuthenticationError) throw new HttpsError("invalid-argument", "この鍵は使えませんでした。もう一度コピーしなおしてください");
+      if (e instanceof Anthropic.PermissionDeniedError) throw new HttpsError("invalid-argument", "この鍵には使う権限がありません");
+      throw new HttpsError("unavailable", "AIの確認ができませんでした。時間をおいてもう一度お試しください");
+    }
   await db.doc(KEY_DOC).set({ apiKey, updatedAt: FieldValue.serverTimestamp(), updatedBy: uid });
   return { set: true, last4: apiKey.slice(-4) };
 });
@@ -160,7 +161,8 @@ export const readShikiri = onCall({ timeoutSeconds: 540, memory: "512MiB" }, asy
 
   const apiKey = await loadKey();
   if (!apiKey) throw new HttpsError("failed-precondition", "AIの鍵が登録されていません。管理者が「AIの鍵」を登録してください");
-  if (isEmulatorTest(apiKey)) return { result: JSON.parse(readFileSync(join(__dirname, "../test-fixtures/shikiri-2026-08.json"), "utf8")) as unknown, usage: { input: 0, output: 0 } };
+  if (isEmulatorTest(apiKey))
+    return { result: JSON.parse(readFileSync(join(__dirname, "../test-fixtures/shikiri-2026-08.json"), "utf8")) as unknown, usage: { input: 0, output: 0 } };
   const client = new Anthropic({ apiKey });
 
   let message: Anthropic.Beta.BetaMessage;
@@ -179,7 +181,8 @@ export const readShikiri = onCall({ timeoutSeconds: 540, memory: "512MiB" }, asy
     if (e instanceof Anthropic.RateLimitError) throw new HttpsError("resource-exhausted", "AIが混み合っています。少し待ってからもう一度お試しください");
     if (e instanceof Anthropic.BadRequestError) {
       console.error("readShikiri bad request", e.message);
-      if (/credit|billing/i.test(e.message)) throw new HttpsError("failed-precondition", "AIの利用料金の残高が足りません。Anthropicの画面で残高を追加してください");
+      if (/credit|billing/i.test(e.message))
+        throw new HttpsError("failed-precondition", "AIの利用料金の残高が足りません。Anthropicの画面で残高を追加してください");
       throw new HttpsError("invalid-argument", "このファイルはAIで読めませんでした（大きすぎる・壊れているなど）");
     }
     console.error("readShikiri error", e);

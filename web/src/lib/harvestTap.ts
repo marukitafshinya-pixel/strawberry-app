@@ -93,3 +93,41 @@ export type HelpInfo = {
   ranking?: { house: string; finish: number; crew: number; started: boolean }[];
 };
 export const fetchHelpHouse = (free = false) => callFunction<{ free: boolean }, HelpInfo>("harvestHelpHouse", { free });
+
+/** 休憩の合図を送る（収穫管理の画面から。収穫報告を開いている全員の携帯で鳴る） */
+export async function callBreak(date: string) {
+  const { db, auth } = await getFirebase();
+  await setDoc(doc(db, "harvest", date, "calls", "break"), { at: serverTimestamp(), by: auth.currentUser?.uid ?? "" });
+}
+
+/** 休憩の合図が来たら onCall を呼ぶ（開いたときにもう出ていた合図では鳴らさない） */
+export function useBreakCall(date: string, enabled: boolean, onCall: () => void) {
+  useEffect(() => {
+    if (!enabled) return;
+    let unsub = () => {};
+    let cancelled = false;
+    let seen: number | null | undefined = undefined;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(doc(db, "harvest", date, "calls", "break"), (s) => {
+        // サーバーの時刻が入るまで（押した人の画面では一瞬 null）は待つ
+        const at = (s.get("at") as { toMillis?: () => number } | null)?.toMillis?.() ?? null;
+        if (s.metadata.hasPendingWrites) return;
+        if (seen === undefined) {
+          seen = at;
+          return;
+        }
+        if (at != null && at !== seen) {
+          seen = at;
+          onCall();
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+    // onCall は毎回作り直されるので、日付と有効かどうかだけで登録し直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, enabled]);
+}
