@@ -71,10 +71,10 @@ function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
     const extra = (rec[h]?.helpers ?? []).filter((m) => !b.includes(m));
     return extra.length ? [...b, ...extra] : b;
   };
-  /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻 */
-  const plannedStart = (h: string) => (who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
-  /** そのハウスの「入った」（保存していなければ、最初のハウスは開始時刻） */
-  const startOf = (h: string) => rec[h]?.start ?? plannedStart(h);
+  /** だれかの最初のハウス（配置表の矢印から）なら、収穫の開始時刻。「入った」を消したハウス（null で保存）は入れない */
+  const plannedStart = (h: string) => (rec[h]?.start === undefined && who(h).some((m) => plan.routes[m]?.[0] === h) ? startTime : null);
+  /** そのハウスの「入った」（まだ入れていなければ、最初のハウスは開始時刻。消したら空のまま） */
+  const startOf = (h: string) => (rec[h]?.start !== undefined ? rec[h].start : plannedStart(h));
   return { who, plannedStart, startOf };
 }
 
@@ -531,7 +531,7 @@ function Sheet({
   /** まだ保存していない予定（収穫者・開始時刻）。そのハウスを初めて保存するときに一緒に保存する */
   const pending = (h: string): HouseHarvest => ({
     ...(rec[h]?.members && (rec[h].membersEdited || sameMembers(rec[h].members!, who(h))) ? {} : { members: who(h) }),
-    ...(rec[h]?.start == null && plannedStart(h) != null ? { start: plannedStart(h) } : {}),
+    ...(rec[h]?.start === undefined && plannedStart(h) != null ? { start: plannedStart(h) } : {}),
   });
   const run = (p: Promise<unknown>) => {
     setError("");
@@ -662,11 +662,15 @@ function Sheet({
    */
   async function moveHere(id: string, to: string, toStart: number | null | undefined) {
     if (toStart == null || rec[to]?.end != null) return;
+    // 移ったことにするのは、元のハウスに入ったあとで次のハウスに入ったときだけ。
+    // 同じ時刻（収穫の始まる前に、最初のハウスを並べ直しているとき）は、元のハウスを「収穫済み」にしない
     for (const h of rows)
-      if (h !== to && inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id)) await save(h, { left: [...(rec[h]?.left ?? []), id] });
+      if (h !== to && inProgress(h) && startOf(h)! < toStart && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id))
+        await save(h, { left: [...(rec[h]?.left ?? []), id] });
   }
   /**
-   * その人が今いるハウスか：収穫中のハウスのうち、移った人になっていなくて、いちばんあとに入ったハウス（同じ時刻なら表の下のほう）。
+   * その人が今いるハウスか：収穫中のハウスのうち、移った人になっていなくて、いちばんあとに入ったハウス。
+   * 同じ時刻（収穫の始まり）なら、先に配置したハウス（作業配置表で回る順の最初・配置表に名前のあるハウス・表の上のほう）。
    * 同じ人が2つのハウスで同時に緑にならないようにする
    */
   const hereOf = (id: string): string | null => {
@@ -675,9 +679,18 @@ function Sheet({
     const byTap = rows.find((h) => mine[h]?.start != null && mine[h]?.end == null && rec[h]?.end == null);
     if (byTap) return byTap;
     // なければ収穫管理の時刻から（携帯で「終わった」を押したハウスは除く）
+    /** 配置した順：作業配置表の回る順 → 作業配置表に名前のあるハウス → 収穫管理で足したハウス（小さいほど先） */
+    const route = plan.routes[id] ?? [];
+    const placed = (h: string) => (route.includes(h) ? route.indexOf(h) : (plan.members[h] ?? []).includes(id) ? 100 : 200);
     let best: string | null = null;
     for (const h of rows)
-      if (inProgress(h) && who(h).includes(id) && !(rec[h]?.left ?? []).includes(id) && mine[h]?.end == null && (best == null || startOf(h)! >= startOf(best)!))
+      if (
+        inProgress(h) &&
+        who(h).includes(id) &&
+        !(rec[h]?.left ?? []).includes(id) &&
+        mine[h]?.end == null &&
+        (best == null || startOf(h)! > startOf(best)! || (startOf(h) === startOf(best) && placed(h) < placed(best)))
+      )
         best = h;
     return best;
   };
