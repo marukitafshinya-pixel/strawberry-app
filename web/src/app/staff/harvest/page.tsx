@@ -535,8 +535,13 @@ function Sheet({
   /** まだ保存していない予定（収穫者・開始時刻）。そのハウスを初めて保存するときに一緒に保存する */
   const pending = (h: string): HouseHarvest => ({
     ...(rec[h]?.members && (rec[h].membersEdited || sameMembers(rec[h].members!, who(h))) ? {} : { members: who(h) }),
-    ...(rec[h]?.start === undefined && plannedStart(h) != null ? { start: plannedStart(h) } : {}),
+    ...(rec[h]?.start === undefined && plannedStart(h) != null ? { start: plannedStart(h), startAuto: true } : {}),
   });
+  /**
+   * 本当に入ったハウスか：本人が携帯で「入った」を押したか、管理者・集荷係が「入った」に時刻を入れた（前のハウスを終えて自動で入った時刻もふくむ）。
+   * 収穫の開始時刻を画面が自動で入れただけのハウスは、まだ入っていない（名前を薄い緑にする）
+   */
+  const entered = (h: string) => rec[h]?.start != null && (rec[h].startAuto !== true || Object.values(taps ?? {}).some((t) => t[h]?.start != null));
   const run = (p: Promise<unknown>) => {
     setError("");
     p.catch((e) => setError(errorText(e)));
@@ -744,6 +749,7 @@ function Sheet({
       ids={who(h)}
       planned={!rec[h]?.members && who(h).length > 0}
       here={(id) => hereOf(id) === h}
+      waiting={() => !entered(h)}
       moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
@@ -766,11 +772,11 @@ function Sheet({
       <TextCell
         key={`s${startOf(h)}`}
         value={clock(startOf(h))}
-        planned={rec[h]?.start == null && startOf(h) != null}
+        planned={!entered(h) && startOf(h) != null}
         placeholder="600"
         small={small}
         parse={parseClock}
-        onCommit={(v) => run(save(h, { start: v }))}
+        onCommit={(v) => run(save(h, { start: v, ...(rec[h]?.startAuto ? { startAuto: false } : {}) }))}
       />
       {startOf(h) == null && forecast?.houseStart[h] != null && (
         <span className="text-[11px] leading-tight text-sky-700">予測 {clock(forecast.houseStart[h])}</span>
@@ -970,6 +976,7 @@ function Members({
   ids,
   planned,
   here,
+  waiting,
   moved,
   finished,
   names,
@@ -980,6 +987,8 @@ function Members({
   ids: string[];
   planned: boolean;
   here: (id: string) => boolean;
+  /** 今いるハウスの予定だが、まだ本当に入っていない（最初のハウスで、開始時刻を画面が入れただけ）。薄い緑にする */
+  waiting: (id: string) => boolean;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -997,13 +1006,15 @@ function Members({
           onPointerDown={(e) => onPick(id, e)}
           title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
           className={`touch-none select-none rounded-full border px-2 py-1 ${
-            here(id)
-              ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
-              : finished || moved(id)
-                ? "border-gray-400 bg-gray-300 text-gray-600"
-                : planned
-                  ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
-                  : "bg-amber-50"
+            here(id) && waiting(id)
+              ? "border-dashed border-emerald-500 bg-emerald-50 font-bold text-emerald-800"
+              : here(id)
+                ? "border-emerald-700 bg-emerald-600 font-bold text-white"
+                : finished || moved(id)
+                  ? "border-gray-400 bg-gray-300 text-gray-600"
+                  : planned
+                    ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
+                    : "bg-amber-50"
           }`}
         >
           {(finished || moved(id)) && !here(id) ? "✓ " : ""}

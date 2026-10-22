@@ -21,6 +21,8 @@ export type HouseHarvest = {
   cases?: number;
   left?: string[];
   helpers?: string[];
+  /** 「入った」が、収穫の開始時刻を画面が自動で入れたものか（まだ本当に入ったかわからない）。本人が携帯で押したか、手で入れたら外す */
+  startAuto?: boolean;
   /** 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（管理者・集荷係が付ける。その日だけ） */
   stopHere?: boolean;
 };
