@@ -459,7 +459,11 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           {message && <span className="text-sm text-green-700">{message}</span>}
           {dirty && !message && <span className="text-sm text-gray-500">まだ保存していない変更があります</span>}
           {error && <span className="text-sm text-red-600">{error}</span>}
+          {/* 総支給＝月給・時給・役員報酬・交通費（非課税通勤費）の合計 */}
           <span className="ml-auto text-sm">
+            総支給 <b className="text-lg">{yen(totalPay)}</b>
+          </span>
+          <span className="text-sm">
             差引支給 <b className="text-lg">{yen(totalNet)}</b>
           </span>
         </div>
