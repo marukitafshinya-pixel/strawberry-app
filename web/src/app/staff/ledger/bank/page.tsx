@@ -104,7 +104,7 @@ function CodeSelect({ accounts, value, onChange, label, empty }: { accounts: Acc
       {KINDS.map((k) => (
         <optgroup key={k} label={KIND_LABEL[k]}>
           {accounts
-            .filter((a) => a.kind === k && a.code !== UNSORTED)
+            .filter((a) => a.kind === k && a.code !== UNSORTED && (!a.hidden || a.code === value))
             .map((a) => (
               <option key={a.code} value={a.code}>
                 {a.parent ? "　└ " : ""}

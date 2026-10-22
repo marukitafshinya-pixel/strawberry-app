@@ -12,6 +12,7 @@ import { useCashbook, type CashMonth } from "./cashbook";
 import { shiftMonth } from "./date";
 import { getFirebase } from "./firebase";
 import { naturalMove, type TbMonth, type TbParsed } from "./tbImport";
+import type { LedgerFile } from "./ledgerPdf";
 
 /** 科目の種類：資産・負債・純資産・収益・費用 */
 export type AccountKind = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -62,6 +63,8 @@ export type Account = {
   section?: Section;
   /** 補助科目のときの、親の科目コード（試算表の字下げの科目。親の金額は、自分と子の合計） */
   parent?: string;
+  /** 使わなくなった科目：選べないようにする（取り込んだ試算表の金額が残っているあいだは、決算書には出る） */
+  hidden?: boolean;
 };
 export const sectionOf = (a: Account): Section | null =>
   a.kind === "revenue" || a.kind === "expense"
@@ -80,6 +83,17 @@ export const UNSORTED = "999";
 export const TB_CLEAR = "A99";
 /** 繰越利益剰余金（試算表では、その期の利益も入っている。取り込むときは期首の分だけ使い、利益は損益の科目から計算する） */
 export const RETAINED = "490";
+
+/** 版4で足した科目（消耗品費・諸材料費などを仕分けし直すため）と、消した科目 */
+const ADDED_V4: Account[] = [
+  { code: "A21", name: "販売資材", kind: "expense", section: "sgaOther" },
+  { code: "A22", name: "雑貨仕入れ", kind: "expense", section: "sgaOther" },
+  { code: "A31", name: "ベンチ資材", kind: "expense", section: "overhead" },
+  { code: "A32", name: "ホーブ資材", kind: "expense", section: "overhead" },
+  { code: "A33", name: "ハウス資材", kind: "expense", section: "overhead" },
+];
+/** 版4で使わなくした科目（仕分けし直しで金額を移し終わるまで、決算書には元の区分で出す） */
+const HIDDEN_V4 = ["865"];
 
 /**
  * はじめの勘定科目：丸北農場の会計ソフトの科目コードと補助科目（合計残高試算表 2026年2月度〜8月度に出てくるもの）。
@@ -177,9 +191,9 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   { code: "856-1", name: "おやつ外", kind: "expense", section: "labor", parent: "856" },
   { code: "857", name: "(製)作業用衣料費", kind: "expense", section: "labor" },
   { code: "860", name: "(製)外注加工費", kind: "expense", section: "overhead" },
+  { code: "865", name: "(製)農具費", kind: "expense", section: "overhead", hidden: true },
   { code: "861", name: "(製)作業委託料", kind: "expense", section: "overhead" },
   { code: "864", name: "(製)荷造運賃手数料", kind: "expense", section: "overhead" },
-  { code: "865", name: "(製)農具費", kind: "expense", section: "overhead" },
   { code: "866", name: "(製)修繕費", kind: "expense", section: "overhead" },
   { code: "867", name: "(製)動力光熱費", kind: "expense", section: "overhead" },
   { code: "868", name: "(製)共済掛金", kind: "expense", section: "overhead" },
@@ -202,6 +216,7 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   { code: "A01", name: "レジ現金", kind: "asset" },
   { code: "A02", name: "売掛金", kind: "asset" },
   { code: "A10", name: "役員報酬", kind: "expense", section: "personnel" },
+  ...ADDED_V4,
   { code: OPENING, name: "開始残高", kind: "equity" },
   { code: TB_CLEAR, name: "試算表の取り込み", kind: "equity" },
   { code: UNSORTED, name: "未分類", kind: "expense", section: "sgaOther" },
@@ -261,9 +276,14 @@ export type LedgerConfig = {
   bankRules: BankRule[];
   /** レジの分類 → 売上の科目 */
   salesMap: Record<string, string>;
+  /** 消した科目のコード（試算表を取り込んでも足し直さない） */
+  removed: string[];
 };
-/** 勘定科目の版。3＝丸北農場の会計ソフトの科目コード。これより前に保存した科目は、はじめの科目に置き換えて読む */
-export const CHART_VERSION = 3;
+/**
+ * 勘定科目の版。3＝丸北農場の会計ソフトの科目コード（これより前に保存した科目は、はじめの科目に置き換えて読む）。
+ * 4＝販売資材・雑貨仕入れ・ベンチ資材・ホーブ資材・ハウス資材を足し、(製)農具費を消した（版3で保存した科目に足し引きする）
+ */
+export const CHART_VERSION = 4;
 export const DEFAULT_BANK_RULES: BankRule[] = [
   // ホーブへの出荷は入金のときに売上にする（会計ソフトと同じ入金ベース。入金は手数料を引いた額のまま）
   { keyword: "ホーブ", code: "500-3" },
@@ -289,6 +309,7 @@ export const DEFAULT_CONFIG: LedgerConfig = {
   auto: DEFAULT_AUTO,
   bankRules: DEFAULT_BANK_RULES,
   salesMap: DEFAULT_SALES_MAP,
+  removed: [],
 };
 
 export function useLedgerConfig() {
@@ -303,9 +324,15 @@ export function useLedgerConfig() {
         (s) => {
           if (!s.exists()) return setState({ value: DEFAULT_CONFIG, error: null });
           // 前の版の科目（試算表の科目にする前）は使わず、はじめの科目にする。出納帳の項目の対応は、同じコードの科目があれば残す
-          const old = s.get("chartVersion") !== CHART_VERSION;
+          const version = Number(s.get("chartVersion") ?? 0);
+          const old = version < 3;
           const codes = new Set(DEFAULT_ACCOUNTS.map((a) => a.code));
-          const accounts = old ? DEFAULT_ACCOUNTS : ((s.get("accounts") as Account[] | undefined) ?? []);
+          const removed = old ? [] : ((s.get("removed") as string[] | undefined) ?? []);
+          let accounts = old ? DEFAULT_ACCOUNTS : ((s.get("accounts") as Account[] | undefined) ?? []);
+          if (version === 3) {
+            // 版3 → 4：足した科目を入れ、(製)農具費を使わなくする
+            accounts = [...accounts.map((a) => (HIDDEN_V4.includes(a.code) ? { ...a, hidden: true } : a)), ...ADDED_V4.filter((a) => !accounts.some((b) => b.code === a.code))];
+          }
           const auto = old ? DEFAULT_AUTO : { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
           const itemMap = (s.get("itemMap") as Record<string, string> | undefined) ?? {};
           // 消せない科目と、自動仕訳に使う科目が入っていなければ足す（あとから足した「レジ現金」など）
@@ -319,6 +346,7 @@ export function useLedgerConfig() {
               auto,
               bankRules: old ? DEFAULT_BANK_RULES : ((s.get("bankRules") as BankRule[] | undefined) ?? DEFAULT_BANK_RULES),
               salesMap: old ? DEFAULT_SALES_MAP : ((s.get("salesMap") as Record<string, string> | undefined) ?? DEFAULT_SALES_MAP),
+              removed,
             },
             error: null,
           });
@@ -351,9 +379,17 @@ export async function saveLedgerConfig(c: LedgerConfig) {
       .map((a) => {
         const section = sectionOf(a);
         const parent = a.parent && a.parent !== a.code && codes.has(a.parent) ? a.parent : null;
-        return { code: a.code.trim().slice(0, 10), name: a.name.trim().slice(0, 40), kind: a.kind, ...(section ? { section } : {}), ...(parent ? { parent } : {}) };
+        return {
+          code: a.code.trim().slice(0, 10),
+          name: a.name.trim().slice(0, 40),
+          kind: a.kind,
+          ...(section ? { section } : {}),
+          ...(parent ? { parent } : {}),
+          ...(a.hidden ? { hidden: true } : {}),
+        };
       }),
     chartVersion: CHART_VERSION,
+    removed: [...new Set(c.removed.filter((x) => !codes.has(x)))].slice(0, 200),
     itemMap,
     fiscalStart: Math.min(12, Math.max(1, Math.round(c.fiscalStart))),
     auto: Object.fromEntries(Object.entries(c.auto).filter(([, v]) => codes.has(v))),
@@ -383,6 +419,8 @@ export type JournalEntry = {
   amount: number | null;
   /** 摘要 */
   memo: string;
+  /** 取り込んだ元（例 "740:67" ＝総勘定元帳 740 の伝票67）。同じものを2回取り込まないため */
+  ref?: string;
 };
 export type JournalMonth = { month: string; entries: JournalEntry[] };
 
@@ -400,13 +438,16 @@ export type Posting = {
 
 export const emptyJournal = (date = ""): JournalEntry => ({ date, debit: "", credit: "", amount: null, memo: "" });
 export const isBlankJournal = (e: JournalEntry) => !e.debit && !e.credit && e.amount === null && !e.memo.trim();
+/** 未仕分け：科目が片方だけ決まっていない行（仕分けし直すために取り込んだ行）。決まるまで帳簿には入れない */
+export const isUnsortedJournal = (e: JournalEntry) => !isBlankJournal(e) && !!e.amount && (!e.debit) !== (!e.credit);
 /** 保存できない行の理由（なければ ""） */
 export function journalProblem(e: JournalEntry, month: string): string {
   if (isBlankJournal(e)) return "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date) || !e.date.startsWith(month)) return "日付がこの月ではありません";
+  if (e.amount === null || !Number.isFinite(e.amount) || e.amount === 0) return "金額を入れてください";
+  if (isUnsortedJournal(e)) return "";
   if (!e.debit || !e.credit) return "借方・貸方の科目を選んでください";
   if (e.debit === e.credit) return "借方と貸方が同じ科目です";
-  if (e.amount === null || !Number.isFinite(e.amount) || e.amount <= 0) return "金額を入れてください";
   return "";
 }
 
@@ -442,7 +483,7 @@ export async function saveJournalMonth(month: string, entries: JournalEntry[]) {
   const { db } = await getFirebase();
   const list = entries
     .filter((e) => !isBlankJournal(e))
-    .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: Math.round(e.amount ?? 0), memo: e.memo.trim().slice(0, 80) }))
+    .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: Math.round(e.amount ?? 0), memo: e.memo.trim().slice(0, 80), ...(e.ref ? { ref: e.ref.slice(0, 40) } : {}) }))
     .sort((a, b) => a.date.localeCompare(b.date));
   await setDoc(doc(db, `journal/${month}`), { entries: list, updatedAt: serverTimestamp() });
 }
@@ -484,8 +525,9 @@ export function monthsWithData(b: Books): string[] {
 
 /** その月の全部の仕訳 */
 export function monthPostings(b: Books, config: LedgerConfig, month: string): Posting[] {
-  // 試算表を取り込んだ月は、会計ソフトでつけ終わった月なので、試算表の数字だけを使う（ほかの元からの仕訳は数えない。二重にしない）
-  if (b.imported.some((x) => x.month === month)) return importedPostings(b.imported, month, config.accounts);
+  // 試算表を取り込んだ月は、会計ソフトでつけ終わった月なので、試算表の数字と、手で入れた仕訳（仕分けし直しなどの振替）だけを使う。
+  // レジ・給与・通帳・出納帳からの仕訳は、試算表にもう入っているので数えない（二重にしない）
+  if (b.imported.some((x) => x.month === month)) return [...importedPostings(b.imported, month, config.accounts), ...manualPostings(b.journal, month)];
   return [...cashPostings(b.cash, month, config.itemMap), ...manualPostings(b.journal, month), ...autoPostings(b.auto, month), ...bankPostings(b.bank, month, config.bankRules)];
 }
 
@@ -741,7 +783,7 @@ export function checkTb(t: TbParsed, accounts: Account[]) {
   return { debit, credit, balanced: debit === credit, wrong };
 }
 
-/** 取り込む：月ごとに置き換え、まだない科目は勘定科目に足す（ある科目の名前などはそのまま） */
+/** 取り込む：月ごとに置き換え、まだない科目は勘定科目に足す（ある科目の名前などはそのまま。消した科目は足さない） */
 export async function saveTbImport(list: TbParsed[], config: LedgerConfig) {
   const { db } = await getFirebase();
   const batch = writeBatch(db);
@@ -753,7 +795,7 @@ export async function saveTbImport(list: TbParsed[], config: LedgerConfig) {
     });
   }
   await batch.commit();
-  const have = new Set(config.accounts.map((a) => a.code));
+  const have = new Set([...config.accounts.map((a) => a.code), ...config.removed]);
   const added: Account[] = [];
   for (const t of list)
     for (const a of t.accounts) {
@@ -986,3 +1028,36 @@ export function statementLines(accounts: Account[], used: Set<string>, which: "p
 }
 
 export const lineValue = (l: StatementLine, amounts: Map<string, number>) => l.terms.reduce((n, t) => n + t.sign * (amounts.get(t.code) ?? 0), 0);
+
+// ---------- 総勘定元帳から仕分けし直す ----------
+
+/**
+ * 総勘定元帳（会計ソフトのPDF）の行を、仕訳帳の「未仕分け」の行にする：貸方＝その元帳の科目、借方＝空（あとで新しい科目を選ぶ）。
+ * 選ぶと、その金額が元の科目から新しい科目へ移る（振替）。返品などマイナスの行はマイナスのまま入れる
+ */
+export function ledgerToJournal(file: LedgerFile): JournalEntry[] {
+  return file.rows.map((r) => ({
+    date: r.date,
+    debit: "",
+    credit: file.code,
+    amount: r.amount,
+    memo: `${r.item}${r.partner ? `　${r.partner}` : ""}（${r.counter}・伝票${r.no}）`.slice(0, 80),
+    ref: `${file.code}:${r.no}`,
+  }));
+}
+
+/** 仕訳帳に足す（同じ元の行がもう入っていれば足さない）。月ごとに保存し、足した数を返す */
+export async function appendJournal(journal: JournalMonth[], entries: JournalEntry[]): Promise<number> {
+  const byMonth = new Map<string, JournalEntry[]>();
+  for (const e of entries) byMonth.set(e.date.slice(0, 7), [...(byMonth.get(e.date.slice(0, 7)) ?? []), e]);
+  let added = 0;
+  for (const [month, list] of byMonth) {
+    const current = journal.find((x) => x.month === month)?.entries ?? [];
+    const have = new Set(current.map((e) => e.ref).filter(Boolean));
+    const fresh = list.filter((e) => !e.ref || !have.has(e.ref));
+    if (fresh.length === 0) continue;
+    await saveJournalMonth(month, [...current, ...fresh]);
+    added += fresh.length;
+  }
+  return added;
+}

@@ -21,7 +21,7 @@ const DEFAULT_AUTO = {
 };
 /** レジの分類 → 売上の科目（画面側の DEFAULT_SALES_MAP と同じ） */
 const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
-/** 勘定科目の版（画面側の CHART_VERSION と同じ）。これより前の設定は使わず、はじめの科目にする */
+/** 勘定科目の版。これより前の設定は使わず、はじめの科目にする（画面側の CHART_VERSION 3 以上なら設定を使う） */
 const CHART_VERSION = 3;
 type AutoCodes = typeof DEFAULT_AUTO;
 
@@ -53,7 +53,7 @@ export const buildAutoJournal = onCall(async (req) => {
     db.doc(`payrolls/${prevMonth(month)}`).get(),
     db.doc(`payrolls/${month}`).get(),
   ]);
-  const current = config.get("chartVersion") === CHART_VERSION;
+  const current = Number(config.get("chartVersion") ?? 0) >= CHART_VERSION;
   const saved = current ? ((config.get("auto") as Partial<AutoCodes> | undefined) ?? {}) : {};
   const salesMap = current ? ((config.get("salesMap") as Record<string, string> | undefined) ?? DEFAULT_SALES_MAP) : DEFAULT_SALES_MAP;
   const c: AutoCodes = { ...DEFAULT_AUTO };

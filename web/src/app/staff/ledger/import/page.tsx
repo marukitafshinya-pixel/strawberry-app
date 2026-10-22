@@ -5,7 +5,19 @@
 import { useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
-import { checkTb, deleteTbImport, saveTbImport, useLedgerConfig, useTbImport, type LedgerConfig } from "@/lib/books";
+import {
+  appendJournal,
+  checkTb,
+  deleteTbImport,
+  ledgerToJournal,
+  saveTbImport,
+  useJournal,
+  useLedgerConfig,
+  useTbImport,
+  type JournalMonth,
+  type LedgerConfig,
+} from "@/lib/books";
+import { readLedgerPdf, type LedgerFile } from "@/lib/ledgerPdf";
 import { readTrialBalance, type TbMonth, type TbParsed } from "@/lib/tbImport";
 import { openWorkbook } from "@/lib/xlsx";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
@@ -16,19 +28,21 @@ export default function ImportPage() {
   const { role } = useAuth();
   const { value: config, error: e1 } = useLedgerConfig();
   const { value: saved, error: e2 } = useTbImport();
+  const { value: journal, error: e3 } = useJournal();
   if (!canUseLedger(role)) return <p>この画面は管理者と経理担当だけが使えます。</p>;
-  const error = e1 || e2;
+  const error = e1 || e2 || e3;
   return (
     <div className="pb-24">
       <LedgerHeader title="会計ソフトから取り込み" />
       {error ? (
         <p className="mt-4 text-red-600">{errorText(error)}</p>
-      ) : !config || !saved ? (
+      ) : !config || !saved || !journal ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
         <>
           <Import config={config} saved={saved} />
           <Saved saved={saved} />
+          <Reclassify journal={journal} />
         </>
       )}
     </div>
@@ -195,6 +209,110 @@ function Saved({ saved }: { saved: TbMonth[] }) {
           </li>
         ))}
       </ul>
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+    </section>
+  );
+}
+
+/**
+ * 総勘定元帳から仕分けし直す：会計ソフトの総勘定元帳（PDF）の行を、仕訳帳に「未仕分け」で入れる。
+ * 貸方はその元帳の科目、借方は空にしておき、仕訳帳で新しい科目を選ぶ（選んだ行から、元の科目から新しい科目へ移る）
+ */
+function Reclassify({ journal }: { journal: JournalMonth[] }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<(LedgerFile & { fileName: string })[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  async function pick(list: FileList) {
+    setErr("");
+    setMsg("");
+    setBusy(true);
+    const out: (LedgerFile & { fileName: string })[] = [];
+    for (const f of Array.from(list)) {
+      try {
+        out.push({ ...(await readLedgerPdf(f)), fileName: f.name });
+      } catch (e) {
+        out.push({ code: "", name: "", rows: [], total: null, problems: [errorText(e)], fileName: f.name });
+      }
+    }
+    setFiles(out);
+    setBusy(false);
+  }
+  const good = files.filter((f) => f.problems.length === 0);
+  const existing = new Set(journal.flatMap((m) => m.entries.map((e) => e.ref)).filter(Boolean));
+  const months = (f: LedgerFile) => [...new Set(f.rows.map((r) => `${Number(r.date.slice(5, 7))}月`))].join("・");
+
+  async function save() {
+    setErr("");
+    setBusy(true);
+    try {
+      const added = await appendJournal(journal, good.flatMap(ledgerToJournal));
+      setMsg(`仕訳帳に未仕分けで ${added} 行入れました。仕訳帳で月を開き、借方の科目を選んでください`);
+      setFiles([]);
+      if (fileRef.current) fileRef.current.value = "";
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="font-bold">総勘定元帳から仕分けし直す</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        会計ソフトの「総勘定元帳」をPDFにして、仕分けし直したい科目の分を選んでください（例：消耗品費・諸材料費）。1行ずつ、仕訳帳に「未仕分け」で入れます（貸方＝元の科目、借方＝空）。
+        仕訳帳で借方に新しい科目を選ぶと、その金額が元の科目から新しい科目へ移ります。消費税の行は、同じ品名の行に足して税込の1行にします。同じ伝票はもう一度入れても二重になりません。
+      </p>
+      <input ref={fileRef} type="file" multiple accept=".pdf,application/pdf" onChange={(e) => e.target.files?.length && pick(e.target.files)} className="mt-3 text-sm" />
+      {busy && files.length === 0 && <p className="mt-2 text-sm text-gray-500">読んでいます…</p>}
+      {files.length > 0 && (
+        <>
+          <table className="mt-3 w-full min-w-[40rem] text-sm tabular-nums">
+            <thead className="bg-gray-50 text-xs text-gray-600">
+              <tr>
+                <th className="px-2 py-2 text-left">ファイル</th>
+                <th className="px-2 py-2 text-left">科目</th>
+                <th className="px-2 py-2 text-right">行</th>
+                <th className="px-2 py-2 text-right">総合計</th>
+                <th className="px-2 py-2 text-left">月</th>
+                <th className="px-2 py-2 text-left">確かめ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((f, i) => {
+                const already = f.rows.filter((r) => existing.has(`${f.code}:${r.no}`)).length;
+                return (
+                  <tr key={i} className={`border-t ${f.problems.length ? "bg-red-50" : ""}`}>
+                    <td className="px-2 py-1.5 text-xs">{f.fileName}</td>
+                    <td className="px-2">
+                      {f.code} {f.name}
+                    </td>
+                    <td className="px-2 text-right">{f.rows.length}</td>
+                    <td className="px-2 text-right">{f.total === null ? "" : yen(f.total)}</td>
+                    <td className="px-2 text-xs">{months(f)}</td>
+                    <td className="px-2 text-xs">
+                      {f.problems.length ? (
+                        <span className="text-red-600">{f.problems.join("／")}</span>
+                      ) : (
+                        <span className="text-emerald-700">
+                          ✓ 総合計と合っています{already > 0 && <span className="ml-1 text-amber-700">（{already}行はもう入っています）</span>}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <button onClick={save} disabled={busy || good.length === 0} className="mt-3 rounded-lg bg-berry px-6 py-2 font-bold text-white disabled:opacity-50">
+            {busy ? "入れています…" : `合っている${good.length}冊を、仕訳帳に未仕分けで入れる`}
+          </button>
+        </>
+      )}
+      {msg && <p className="mt-2 text-sm text-emerald-700">{msg}</p>}
       {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
     </section>
   );

@@ -62,7 +62,7 @@ export function AccountSelect({
   value,
   onChange,
   label,
-  empty = "（科目を選ぶ）",
+  empty: emptyLabel,
   className = "",
 }: {
   accounts: Account[];
@@ -74,12 +74,12 @@ export function AccountSelect({
 }) {
   return (
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)} className={`rounded border bg-white px-1 py-1 ${className}`}>
-      <option value="">{empty}</option>
+      <option value="">{emptyLabel ?? "（科目を選ぶ）"}</option>
       {value && !accounts.some((a) => a.code === value) && <option value={value}>（未登録 {value}）</option>}
       {KINDS.map((k) => (
         <optgroup key={k} label={KIND_LABEL[k]}>
           {accounts
-            .filter((a) => a.kind === k)
+            .filter((a) => a.kind === k && (!a.hidden || a.code === value))
             .map((a) => (
               <option key={a.code} value={a.code}>
                 {a.parent ? "　└ " : ""}
@@ -92,7 +92,7 @@ export function AccountSelect({
   );
 }
 
-/** 金額の入力（全角の数字も読む。マイナスは入れられない） */
+/** 金額の入力（全角の数字も読む） */
 export function Amount({ value, onChange, label }: { value: number | null; onChange: (v: number | null) => void; label: string }) {
   const fmt = (v: number | null) => (v === null ? "" : String(v));
   const [text, setText] = useState(fmt(value));
@@ -107,9 +107,14 @@ export function Amount({ value, onChange, label }: { value: number | null; onCha
       aria-label={label}
       value={text}
       onChange={(e) => {
-        const t = e.target.value.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, "");
+        // マイナス（返品など）も入れられる
+        const t = e.target.value
+          .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+          .replace(/[−ー－▲]/g, "-")
+          .replace(/[^0-9-]/g, "")
+          .replace(/(?!^)-/g, "");
         setText(t);
-        onChange(t === "" ? null : Math.min(999_999_999, Number(t)));
+        onChange(t === "" || t === "-" ? null : Math.max(-999_999_999, Math.min(999_999_999, Number(t))));
       }}
       className="w-full rounded border px-2 py-1 text-right tabular-nums"
     />

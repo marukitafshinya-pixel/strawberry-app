@@ -18,6 +18,7 @@ import {
   cashPostings,
   emptyJournal,
   isBlankJournal,
+  isUnsortedJournal,
   journalProblem,
   saveJournalMonth,
   UNSORTED,
@@ -26,6 +27,7 @@ import {
   type JournalEntry,
   type AutoMonth,
   type Books,
+  type JournalMonth,
   type Posting,
   type LedgerConfig,
 } from "@/lib/books";
@@ -122,6 +124,8 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   };
   const set = (i: number, p: Partial<JournalEntry>) => change(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
   const problems = entries.map((e) => journalProblem(e, month));
+  const unsortedCount = entries.filter(isUnsortedJournal).length;
+  const [onlyUnsorted, setOnlyUnsorted] = useState(false);
   const hasProblem = problems.some(Boolean);
   const manualTotal = entries.reduce((n, e) => n + (isBlankJournal(e) ? 0 : (e.amount ?? 0)), 0);
   const autoAll = [...fromAuto, ...fromBank, ...fromCash];
@@ -164,12 +168,15 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
         <section className="mt-4 rounded-2xl border-2 border-sky-300 bg-sky-50 p-4">
           <h2 className="font-bold">この月は、会計ソフトから取り込んだ試算表の数字を使っています</h2>
           <p className="mt-1 text-xs text-gray-600">
-            決算書・元帳には下の数字だけが入ります。この下にある手で入れる仕訳・レジ・給与・通帳・出納帳からの仕訳は、この月は数えません（二重にしないため）。
+            決算書・元帳には、下の試算表の数字と、手で入れる仕訳（仕分けし直しの振替など）が入ります。レジ・給与・通帳・出納帳からの仕訳は、この月は数えません（試算表にもう入っているため）。
             <Link href="/staff/ledger/import/" className="ml-1 underline">
               取り込みの画面
             </Link>
           </p>
-          <PostingTable postings={imported} name={name} empty="" />
+          <details className="mt-2">
+            <summary className="cursor-pointer text-sm text-sky-800 underline">試算表の数字を見る（{imported.length}行）</summary>
+            <PostingTable postings={imported} name={name} empty="" />
+          </details>
         </section>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
@@ -178,7 +185,19 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
         </button>
       </div>
 
-      <h2 className="mt-6 font-bold">手で入れる仕訳</h2>
+      <UnsortedMonths journal={books.journal} month={month} />
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <h2 className="font-bold">手で入れる仕訳</h2>
+        {unsortedCount > 0 && (
+          <>
+            <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-900">この月の未仕分け {unsortedCount}行</span>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="checkbox" checked={onlyUnsorted} onChange={(x) => setOnlyUnsorted(x.target.checked)} />
+              未仕分けだけ出す
+            </label>
+          </>
+        )}
+      </div>
       <p className="mt-1 text-xs text-gray-500">
         預金の出し入れ・売上の入金・給与・借入の返済など、現金出納帳にない取引を入れます。例：売上が預金に入った → 借方「普通預金」／貸方「売上高」
       </p>
@@ -195,8 +214,9 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
             </tr>
           </thead>
           <tbody>
-            {entries.map((e, i) => (
-              <tr key={i} className={`border-t ${problems[i] ? "bg-red-50" : ""}`}>
+            {entries.map((e, i) =>
+              onlyUnsorted && !isUnsortedJournal(e) && !isBlankJournal(e) ? null : (
+              <tr key={i} className={`border-t ${problems[i] ? "bg-red-50" : isUnsortedJournal(e) ? "bg-amber-50" : ""}`}>
                 <td className="px-1 py-1 align-top">
                   <input
                     type="date"
@@ -209,10 +229,24 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                   />
                 </td>
                 <td className="px-1 py-1 align-top">
-                  <AccountSelect accounts={accounts} value={e.debit} onChange={(v) => set(i, { debit: v })} label={`${i + 1}行目の借方`} className="w-full" />
+                  <AccountSelect
+                    accounts={accounts}
+                    value={e.debit}
+                    onChange={(v) => set(i, { debit: v })}
+                    label={`${i + 1}行目の借方`}
+                    empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
+                    className={`w-full ${isUnsortedJournal(e) && !e.debit ? "border-amber-400 font-bold text-amber-800" : ""}`}
+                  />
                 </td>
                 <td className="px-1 py-1 align-top">
-                  <AccountSelect accounts={accounts} value={e.credit} onChange={(v) => set(i, { credit: v })} label={`${i + 1}行目の貸方`} className="w-full" />
+                  <AccountSelect
+                    accounts={accounts}
+                    value={e.credit}
+                    onChange={(v) => set(i, { credit: v })}
+                    label={`${i + 1}行目の貸方`}
+                    empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
+                    className={`w-full ${isUnsortedJournal(e) && !e.credit ? "border-amber-400 font-bold text-amber-800" : ""}`}
+                  />
                 </td>
                 <td className="px-1 py-1 align-top">
                   <Amount value={e.amount} onChange={(v) => set(i, { amount: v })} label={`${i + 1}行目の金額`} />
@@ -235,7 +269,8 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                   )}
                 </td>
               </tr>
-            ))}
+              ),
+            )}
           </tbody>
           <tfoot className="border-t-2 bg-gray-50 font-bold">
             <tr>
@@ -382,5 +417,29 @@ function PostingTable({ postings, name, empty }: { postings: Posting[]; name: (c
         </tfoot>
       </table>
     </div>
+  );
+}
+
+/** 未仕分けの行がある月（仕分けし直しの途中）。月を押すとその月を開く */
+function UnsortedMonths({ journal, month }: { journal: JournalMonth[]; month: string }) {
+  const list = journal.map((m) => ({ month: m.month, count: m.entries.filter(isUnsortedJournal).length })).filter((x) => x.count > 0);
+  if (list.length === 0) return null;
+  const total = list.reduce((n, x) => n + x.count, 0);
+  return (
+    <section className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm print:hidden">
+      <p className="font-bold text-amber-900">仕分けし直しの途中：未仕分けが {total}行あります</p>
+      <p className="mt-0.5 text-xs text-amber-900">借方に新しい科目を選んで保存すると、元の科目からその科目へ移ります。決まるまでは、帳簿は元の科目のままです。</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {list.map((x) => (
+          <Link
+            key={x.month}
+            href={`/staff/ledger/?month=${x.month}`}
+            className={`rounded-lg border px-3 py-1 ${x.month === month ? "border-amber-600 bg-amber-600 font-bold text-white" : "border-amber-400 bg-white text-amber-900"}`}
+          >
+            {Number(x.month.slice(5))}月 {x.count}行
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

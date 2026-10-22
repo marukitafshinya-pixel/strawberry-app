@@ -276,7 +276,9 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
               </tr>
             </thead>
             <tbody>
-              {c.accounts.map((a) => (
+              {c.accounts
+                .filter((a) => !a.hidden)
+                .map((a) => (
                 <tr key={a.code} className="border-t">
                   <td className="px-2 py-1 tabular-nums">{a.code}</td>
                   <td className={`px-1 py-1 ${a.parent ? "pl-6" : ""}`}>
@@ -311,6 +313,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                             : `「${a.name}」を消しますか？（この科目の仕訳は「未登録」として残ります）`;
                           if (!window.confirm(msg)) return;
                           update({
+                            removed: [...c.removed, a.code],
                             accounts: c.accounts.filter((b) => b.code !== a.code).map((b) => (b.parent === a.code ? { ...b, parent: undefined } : b)),
                             salesMap: Object.fromEntries(Object.entries(c.salesMap).filter(([, v]) => v !== a.code)),
                             itemMap: Object.fromEntries(Object.entries(c.itemMap).filter(([, v]) => v !== a.code)),
@@ -325,7 +328,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                     )}
                   </td>
                 </tr>
-              ))}
+                ))}
             </tbody>
             <tfoot className="border-t-2">
               <tr>
@@ -446,7 +449,7 @@ function SectionSelect({ account, onChange }: { account: Account; onChange: (s: 
 function ParentSelect({ accounts, account, onChange }: { accounts: Account[]; account: Account; onChange: (p: string | undefined) => void }) {
   const sec = sectionOf(account);
   const hasChildren = accounts.some((b) => b.parent === account.code);
-  const list = accounts.filter((b) => b.code !== account.code && !b.parent && b.kind === account.kind && sectionOf(b) === sec && !FIXED_CODES.includes(b.code));
+  const list = accounts.filter((b) => b.code !== account.code && !b.hidden && !b.parent && b.kind === account.kind && sectionOf(b) === sec && !FIXED_CODES.includes(b.code));
   if (!sec || hasChildren || FIXED_CODES.includes(account.code)) return <span className="px-1 text-xs text-gray-400">{hasChildren ? "（補助科目あり）" : ""}</span>;
   return (
     <select

@@ -20,6 +20,8 @@ import {
   monthsWithData,
   lineValue,
   statementLines,
+  postingsInRange,
+  debitSide,
   UNSORTED,
   useBooks,
   useLedgerConfig,
@@ -27,6 +29,7 @@ import {
   type AccountKind,
   type Books,
   type LedgerConfig,
+  type StatementLine,
 } from "@/lib/books";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
@@ -136,7 +139,7 @@ function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
       <div className="mt-4">
         {(tab === "pl" || tab === "mfg") && <Statement key={tab} which={tab} books={books} config={config} months={months.filter((m) => m <= end)} title={title} />}
         {tab === "bs" && <BalanceSheet period={period} accounts={config.accounts} title={title} />}
-        {tab === "tb" && <TrialBalance period={period} accounts={config.accounts} title={title} />}
+        {tab === "tb" && <TrialBalance period={period} accounts={config.accounts} title={title} books={books} config={config} />}
         {tab === "gl" && <GeneralLedger period={period} accounts={config.accounts} code={glCode} setCode={setGlCode} title={title} />}
       </div>
     </>
@@ -206,6 +209,7 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
   for (const m of byMonth) for (const [c, v] of m) sumAll.set(c, (sumAll.get(c) ?? 0) + v);
   const base = lineValue(lines.find((l) => l.label === (which === "pl" ? "売上高計" : "当期総製造費用"))!, sumAll);
   const ratio = (v: number) => (base ? ((v / base) * 100).toFixed(2) : "");
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
 
   function excel() {
     const rows: XCell[][] = [
@@ -225,7 +229,9 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
 
   return (
     <section>
+      {drill && <Drill books={books} config={config} {...drill} onClose={() => setDrill(null)} />}
       <Heading name={name} title={title} onExcel={excel} />
+      <p className="mt-1 text-xs text-gray-500 print:hidden">金額を押すと、その内訳（仕訳）が出ます。</p>
       <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="w-full text-sm tabular-nums">
           <thead className="bg-sky-50 text-xs text-gray-600">
@@ -260,11 +266,28 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
                     const v = lineValue(l, m);
                     return (
                       <td key={months[i]} className={`px-2 text-right whitespace-nowrap ${v < 0 ? "text-red-600" : ""}`}>
-                        {v ? yen(v) : "－"}
+                        {v ? (
+                          <button onClick={() => setDrill({ title: `${l.label}　${mo(months[i])}`, terms: l.terms, from: months[i], to: months[i] })} className="underline decoration-dotted underline-offset-2 hover:text-berry">
+                            {yen(v)}
+                          </button>
+                        ) : (
+                          "－"
+                        )}
                       </td>
                     );
                   })}
-                  <td className={`px-2 text-right font-bold whitespace-nowrap ${t < 0 ? "text-red-600" : ""}`}>{yen(t)}</td>
+                  <td className={`px-2 text-right font-bold whitespace-nowrap ${t < 0 ? "text-red-600" : ""}`}>
+                    {t ? (
+                      <button
+                        onClick={() => setDrill({ title: `${l.label}　${mo(months[0])}〜${mo(months[months.length - 1])}`, terms: l.terms, from: months[0], to: months[months.length - 1] })}
+                        className="underline decoration-dotted underline-offset-2 hover:text-berry"
+                      >
+                        {yen(t)}
+                      </button>
+                    ) : (
+                      yen(t)
+                    )}
+                  </td>
                   <td className="px-2 text-right text-xs whitespace-nowrap text-gray-600">{ratio(t)}</td>
                 </tr>
               );
@@ -350,7 +373,8 @@ function Side({ head, list }: { head: string; list: [string, number, boolean?][]
 }
 
 /** 試算表：科目ごとの 期首残高・借方・貸方・期末残高 */
-function TrialBalance({ period, accounts, title }: { period: Period; accounts: Account[]; title: string }) {
+function TrialBalance({ period, accounts, title, books, config }: { period: Period; accounts: Account[]; title: string; books: Books; config: LedgerConfig }) {
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
   const debit = period.rows.reduce((n, r) => n + r.debit, 0);
   const credit = period.rows.reduce((n, r) => n + r.credit, 0);
 
@@ -375,7 +399,9 @@ function TrialBalance({ period, accounts, title }: { period: Period; accounts: A
 
   return (
     <section>
+      {drill && <Drill books={books} config={config} {...drill} onClose={() => setDrill(null)} />}
       <Heading name="試算表" title={title} onExcel={excel} />
+      <p className="mt-1 text-xs text-gray-500 print:hidden">科目を押すと、その期の仕訳が出ます。</p>
       {period.rows.length === 0 ? (
         <p className="mt-2 text-sm text-gray-500">この期の仕訳はありません。</p>
       ) : (
@@ -396,7 +422,14 @@ function TrialBalance({ period, accounts, title }: { period: Period; accounts: A
               {period.rows.map((r) => (
                 <tr key={r.account.code} className={`border-t ${r.account.code === UNSORTED ? "bg-amber-50" : ""}`}>
                   <td className="px-2 py-1.5">{r.account.code}</td>
-                  <td className="px-2">{fullName(accounts, r.account)}</td>
+                  <td className="px-2">
+                    <button
+                      onClick={() => setDrill({ title: `${fullName(accounts, r.account)}　${mo(period.start)}〜${mo(period.end)}`, terms: [{ code: r.account.code, sign: 1 }], from: period.start, to: period.end })}
+                      className="text-left underline decoration-dotted underline-offset-2 hover:text-berry"
+                    >
+                      {fullName(accounts, r.account)}
+                    </button>
+                  </td>
                   <td className="px-2 text-xs text-gray-500">{KIND_LABEL[r.account.kind]}</td>
                   <td className="px-2 text-right">{r.opening ? yen(r.opening) : ""}</td>
                   <td className="px-2 text-right">{r.debit ? yen(r.debit) : ""}</td>
@@ -497,5 +530,78 @@ function GeneralLedger({ period, accounts, code, setCode, title }: { period: Per
         {lines.length === 0 && <p className="p-3 text-sm text-gray-500">この期の出入りはありません。</p>}
       </div>
     </section>
+  );
+}
+
+type DrillTarget = { title: string; terms: StatementLine["terms"]; from: string; to: string };
+
+/**
+ * 内訳：その金額のもとになった仕訳の一覧。行の金額は、表の金額と同じ向き（収益は貸方、費用は借方をプラス）。
+ * 試算表を取り込んだ月は、会計ソフトの月の合計（借方・貸方）が1行ずつ出る
+ */
+function Drill({ books, config, title, terms, from, to, onClose }: DrillTarget & { books: Books; config: LedgerConfig; onClose: () => void }) {
+  const accounts = config.accounts;
+  const name = (c: string) => fullName(accounts, accountOf(accounts, c));
+  const rows = postingsInRange(books, config, from, to).flatMap((p) =>
+    terms
+      .filter((t) => p.debit === t.code || p.credit === t.code)
+      .map((t) => {
+        const isDebit = p.debit === t.code;
+        const v = debitSide(accountOf(accounts, t.code).kind) === isDebit ? p.amount : -p.amount;
+        return { p, code: t.code, other: isDebit ? p.credit : p.debit, value: t.sign * v };
+      }),
+  );
+  const total = rows.reduce((n, r) => n + r.value, 0);
+  const many = new Set(rows.map((r) => r.code)).size > 1;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 print:hidden" onClick={onClose}>
+      <div className="mt-8 w-full max-w-4xl rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-bold">内訳：{title}</h3>
+          <span className="flex-1" />
+          <button onClick={onClose} className="rounded-lg border px-3 py-1 text-sm">
+            閉じる
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          {rows.length}行　合計 {yen(total)}円
+        </p>
+        <div className="mt-2 max-h-[70vh] overflow-auto">
+          <table className="w-full text-sm tabular-nums">
+            <thead className="sticky top-0 bg-gray-50 text-xs text-gray-600">
+              <tr>
+                <th className="w-16 px-2 py-2 text-left">日付</th>
+                {many && <th className="px-2 py-2 text-left">科目</th>}
+                <th className="px-2 py-2 text-left">相手科目</th>
+                <th className="px-2 py-2 text-left">摘要</th>
+                <th className="w-28 px-2 py-2 text-right">金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-t">
+                  <td className="px-2 py-1.5">{md(r.p.date)}</td>
+                  {many && <td className="px-2 text-xs">{name(r.code)}</td>}
+                  <td className="px-2 text-xs">{name(r.other)}</td>
+                  <td className="px-2">
+                    {r.p.memo}
+                    {r.p.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[r.p.source]}</span>}
+                  </td>
+                  <td className={`px-2 text-right ${r.value < 0 ? "text-red-600" : ""}`}>{yen(r.value)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t-2 bg-gray-50 font-bold">
+              <tr>
+                <td colSpan={many ? 4 : 3} className="px-2 py-2">
+                  合計
+                </td>
+                <td className="px-2 text-right">{yen(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
