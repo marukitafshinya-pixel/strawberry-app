@@ -56,6 +56,7 @@ import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { announce, SAY, unlockSound } from "@/lib/announce";
 import { callBreak, nowMinJST, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
+import { MessageButton } from "./MessageButton";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
 function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
@@ -251,6 +252,8 @@ export default function HarvestPage() {
       ☕ 休憩の合図
     </button>
   );
+  /** 個別の連絡：今日出勤している人を選んで、メッセージを相手の携帯で読み上げる（管理者・集荷係） */
+  const messageButton = day && date === todayJST() && members && <MessageButton date={date} members={members} />;
   const breakBox = day && (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       休憩
@@ -373,7 +376,10 @@ export default function HarvestPage() {
           </div>
           {unassignedNote}
           <div className="mt-1 flex items-center justify-between gap-2">
-            {breakCall || <span />}
+            <span className="flex flex-wrap gap-1">
+              {breakCall}
+              {messageButton}
+            </span>
             {breakBox}
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
@@ -471,6 +477,7 @@ export default function HarvestPage() {
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {breakBox}
         {breakCall}
+        {messageButton}
         {toggle}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">

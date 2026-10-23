@@ -1,6 +1,7 @@
 "use client";
 
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
+import { MessageAlert } from "./MessageAlert";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings, voiceTest } from "@/lib/announce";
@@ -375,6 +376,8 @@ export function TapScreen({
   const big = "w-full rounded-3xl py-8 text-4xl font-bold shadow disabled:opacity-40";
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
+      {/* 収穫管理からの個別の連絡（本人の携帯だけ） */}
+      {!preview && <MessageAlert date={date} me={me} />}
       {dim && <DimScreen text={target ? (inNow ? `${target}番 収穫中` : `次は ${target}番`) : ""} onWake={wake} />}
       {notice && (
         // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）

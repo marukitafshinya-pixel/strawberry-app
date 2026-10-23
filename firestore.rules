@@ -511,6 +511,32 @@ service cloud.firestore {
         && request.resource.data.at == request.time
         && request.resource.data.by == request.auth.uid;
     }
+    // 個別の連絡（harvest/{date}/messages/{id}）：収穫管理を使える人（管理者・スタッフ・集荷係）が、選んだ従業員に送る。
+    // 従業員は自分あての分だけ読めて、「わかった」（ackAt）だけ入れられる
+    match /harvest/{date}/messages/{id} {
+      allow read: if can(['harvest']) || isPickupOn(date)
+        || (isWorker() && nearToday(date) && resource.data.to == get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId);
+      allow create: if (isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
+        && request.resource.data.keys().hasOnly(['to', 'text', 'at', 'by', 'ackAt'])
+        && request.resource.data.to is string && request.resource.data.to.size() > 0 && request.resource.data.to.size() <= 60
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 200
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.ackAt == null;
+      allow update: if isWorker() && nearToday(date)
+        && resource.data.to == get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ackAt'])
+        && request.resource.data.ackAt == request.time;
+    }
+    // アプリを開いているか（harvest/{date}/presence/{従業員の id}）：従業員の携帯が開いている間、自分の分だけ30秒ごとに時刻を入れる。
+    // 個別の連絡を送る人（収穫管理を使える人）が、相手がいま開いているかを見る
+    match /harvest/{date}/presence/{memberId} {
+      allow read: if can(['harvest']) || isPickupOn(date) || (isHarvestWorker() && recentDay(date));
+      allow write: if isWorker() && nearToday(date)
+        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId
+        && request.resource.data.keys().hasOnly(['at'])
+        && request.resource.data.at == request.time;
+    }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
       allow read: if can(['harvest', 'shift']) || isWorker();
