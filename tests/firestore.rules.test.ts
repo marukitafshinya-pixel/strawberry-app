@@ -628,6 +628,11 @@ describe("個別の連絡 (harvest/{date}/messages)", () => {
     await assertFails(setDoc(doc(worker("w7"), `harvest/${today}/presence/m8`), { at: serverTimestamp() }));
     await assertSucceeds(getDoc(doc(staff(), `harvest/${today}/presence/m7`)));
     await assertFails(getDoc(doc(worker("w8"), `harvest/${today}/presence/m7`)));
+    // 定型文：収穫管理を使える人が編集できる。ふつうの従業員は読むだけ
+    await assertSucceeds(setDoc(doc(staff(), "config/messagePresets"), { items: ["集荷場に来てください"] }));
+    await assertFails(setDoc(doc(staff(), "config/messagePresets"), { items: "x" }));
+    await assertFails(setDoc(doc(worker("w8"), "config/messagePresets"), { items: [] }));
+    await assertSucceeds(getDoc(doc(worker("w8"), "config/messagePresets")));
   });
 });
 

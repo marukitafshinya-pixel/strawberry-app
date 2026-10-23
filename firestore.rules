@@ -537,6 +537,13 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['at'])
         && request.resource.data.at == request.time;
     }
+    // 個別の連絡の定型文：収穫管理を使える人（管理者・スタッフ・毎日使える従業員）が追加・編集する。集荷係の従業員も読める
+    match /config/messagePresets {
+      allow read: if can(['harvest']) || isWorker();
+      allow write: if (can(['harvest']) || isHarvestWorker())
+        && request.resource.data.keys().hasOnly(['items', 'updatedAt'])
+        && request.resource.data.items is list && request.resource.data.items.size() <= 30;
+    }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
       allow read: if can(['harvest', 'shift']) || isWorker();

@@ -250,3 +250,33 @@ export function usePresenceAll(date: string, enabled = true): Record<string, num
   }, [date, enabled]);
   return state?.date === date ? state.v : null;
 }
+
+/** 個別の連絡の定型文（はじめのもの。config/messagePresets がないとき） */
+export const DEFAULT_MESSAGE_PRESETS = ["集荷場に来てください", "事務所に来てください", "電話に出てください", "休憩に入ってください"];
+
+/** 個別の連絡の定型文（追加・編集したもの）。読み込み中は null */
+export function useMessagePresets(): string[] | null {
+  const [v, setV] = useState<string[] | null>(null);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "config", "messagePresets"),
+        (s) => setV(Array.isArray(s.get("items")) ? (s.get("items") as string[]) : DEFAULT_MESSAGE_PRESETS),
+        () => setV(DEFAULT_MESSAGE_PRESETS),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+  return v;
+}
+
+export async function saveMessagePresets(items: string[]) {
+  const { db } = await getFirebase();
+  await setDoc(doc(db, "config", "messagePresets"), { items, updatedAt: serverTimestamp() });
+}

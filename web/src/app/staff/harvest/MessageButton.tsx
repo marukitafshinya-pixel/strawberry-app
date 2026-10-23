@@ -5,11 +5,9 @@
 // 相手のアプリが開いていなければ、送った人に「アプリが開いていません」と出す（連絡は残り、相手が開いたときに出る）
 import { useEffect, useState } from "react";
 import { errorText } from "@/lib/callFunction";
-import { PRESENCE_MS, sendMessages, useMessages, usePresenceAll } from "@/lib/harvestTap";
+import { PRESENCE_MS, saveMessagePresets, sendMessages, useMessagePresets, useMessages, usePresenceAll } from "@/lib/harvestTap";
 import { isWorking, useShiftConfig, useShiftDays, type ShiftMember } from "@/lib/shift";
 
-/** よく使う言葉（押すとコメント欄に入る。入れたあと直せる） */
-const PRESETS = ["集荷場に来てください", "事務所に来てください", "電話に出てください", "休憩に入ってください"];
 const hm = (ms: number | null) => (ms == null ? "" : new Date(ms + 9 * 3600e3).toISOString().slice(11, 16));
 
 export function MessageButton({ date, members }: { date: string; members: ShiftMember[] }) {
@@ -33,6 +31,9 @@ function MessageDialog({ date, members, onClose }: { date: string; members: Shif
   const presence = usePresenceAll(date);
   const sent = useMessages(date, null);
   const [pick, setPick] = useState<string[]>([]);
+  /** 定型文（押すとコメント欄に入る。入れたあと直せる）。「✏️ 定型文を編集」で追加・直す・消す */
+  const presets = useMessagePresets();
+  const [editing, setEditing] = useState<string[] | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -80,7 +81,21 @@ function MessageDialog({ date, members, onClose }: { date: string; members: Shif
           </button>
         </div>
 
-        <p className="mt-3 text-sm font-bold text-gray-700">送る相手（今日出勤している人）</p>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-sm font-bold text-gray-700">送る相手（今日出勤している人）</p>
+          {/* 全員に連絡：携帯のログインがある、今日出勤している人を全員選ぶ */}
+          {working.some((m) => m.uid) && (
+            <button
+              onClick={() => {
+                const all = working.filter((m) => m.uid).map((m) => m.id);
+                setPick(all.every((id) => pick.includes(id)) ? [] : all);
+              }}
+              className="rounded-lg border-2 border-sky-600 bg-white px-3 py-1 text-sm font-bold text-sky-800"
+            >
+              {working.filter((m) => m.uid).every((m) => pick.includes(m.id)) ? "全員を外す" : "👥 全員に連絡"}
+            </button>
+          )}
+        </div>
         {!days || !cfg ? (
           <p className="mt-1 text-sm text-gray-500">読み込み中…</p>
         ) : working.length === 0 ? (
@@ -112,14 +127,67 @@ function MessageDialog({ date, members, onClose }: { date: string; members: Shif
           </ul>
         )}
 
-        <p className="mt-3 text-sm font-bold text-gray-700">メッセージ</p>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {PRESETS.map((p) => (
-            <button key={p} onClick={() => setText(p)} className="rounded-full border bg-gray-50 px-3 py-1 text-sm">
-              {p}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-sm font-bold text-gray-700">メッセージ</p>
+          {presets && !editing && (
+            <button onClick={() => setEditing([...presets])} className="text-sm text-gray-600 underline">
+              ✏️ 定型文を編集
             </button>
-          ))}
+          )}
         </div>
+        {editing ? (
+          <div className="mt-1 space-y-1.5 rounded-xl border bg-gray-50 p-2">
+            {editing.map((p, i) => (
+              <div key={i} className="flex gap-1.5">
+                <input
+                  value={p}
+                  onChange={(e) => setEditing(editing.map((x, j) => (j === i ? e.target.value.slice(0, 60) : x)))}
+                  className="min-w-0 flex-1 rounded-lg border bg-white px-2 py-1.5 text-base"
+                  aria-label={`定型文${i + 1}`}
+                />
+                <button
+                  onClick={() => setEditing(editing.filter((_, j) => j !== i))}
+                  className="rounded-lg border bg-white px-3 text-red-600"
+                  aria-label="消す"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2">
+              <button
+                disabled={editing.length >= 30}
+                onClick={() => setEditing([...editing, ""])}
+                className="rounded-lg border bg-white px-3 py-1.5 text-sm font-bold"
+              >
+                ＋ 定型文を追加
+              </button>
+              <span className="flex-1" />
+              <button onClick={() => setEditing(null)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">
+                やめる
+              </button>
+              <button
+                onClick={() => {
+                  const items = [...new Set(editing.map((x) => x.trim()).filter(Boolean))];
+                  void saveMessagePresets(items)
+                    .then(() => setEditing(null))
+                    .catch((e) => setResult({ ok: false, text: `定型文を保存できませんでした：${errorText(e)}` }));
+                }}
+                className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-bold text-white"
+              >
+                保存する
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {(presets ?? []).map((p) => (
+              <button key={p} onClick={() => setText(p)} className="rounded-full border bg-gray-50 px-3 py-1 text-sm">
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 200))}
@@ -132,7 +200,13 @@ function MessageDialog({ date, members, onClose }: { date: string; members: Shif
           onClick={send}
           className="mt-2 w-full rounded-xl bg-sky-600 py-3 text-lg font-bold text-white disabled:opacity-40"
         >
-          {busy ? "送っています…" : pick.length ? `${pick.map(name).join("・")}さんに送る` : "相手を選んでください"}
+          {busy
+            ? "送っています…"
+            : pick.length > 1 && working.filter((m) => m.uid).every((m) => pick.includes(m.id))
+              ? `全員（${pick.length}人）に送る`
+              : pick.length
+                ? `${pick.map(name).join("・")}さんに送る`
+                : "相手を選んでください"}
         </button>
         {result && (
           <p className={`mt-2 rounded-lg p-2 text-sm font-bold ${result.ok ? "bg-emerald-50 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
