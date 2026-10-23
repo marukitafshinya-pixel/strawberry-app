@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fullName, KIND_LABEL, KINDS, sectionOf, SECTIONS, type Account } from "@/lib/books";
+import { fullName, KIND_LABEL, KINDS, matchAccount, rankAccount, sectionOf, SECTIONS, type Account } from "@/lib/books";
 
 export const yen = (n: number) => n.toLocaleString("ja-JP");
 
@@ -139,14 +139,6 @@ export function Amount({ value, onChange, label }: { value: number | null; onCha
   );
 }
 
-/** 名前で探すときにそろえる（全角・半角、カタカナ・ひらがな、大文字・小文字） */
-const searchKey = (s: string) =>
-  s
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
-    .replace(/\s/g, "");
-
 /**
  * プルダウンに出す科目を選ぶ（エクセルの絞り込みのように、名前で探す・すべて入れる・すべて外す・1つずつチェック）。
  * 1つも選ばないときは、全部の科目を出す
@@ -156,8 +148,8 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
   const [open, setOpen] = useState<{ top: number; left: number } | null>(null);
   const [q, setQ] = useState("");
   const list = accounts.filter((a) => !a.hidden);
-  const key = searchKey(q);
-  const shown = key ? list.filter((a) => searchKey(`${a.code}${fullName(accounts, a)}`).includes(key)) : list;
+  const key = q.trim();
+  const shown = key ? list.filter((a) => matchAccount(accounts, a, key)) : list;
   const on = new Set(pick);
   const set = (codes: string[], checked: boolean) => {
     const next = new Set(on);
@@ -190,7 +182,7 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="名前・コードで探す"
+              placeholder="名前・読み・コードで探す（syu・しゅ など）"
               aria-label="科目を名前で探す"
               className="w-full rounded border px-2 py-1"
             />
@@ -226,5 +218,136 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
         </>
       )}
     </span>
+  );
+}
+
+/**
+ * 打って探せる科目の欄：「syu」「しゅ」「744」などと打つと、コード・名前・読みが合う科目だけを出す。
+ * ↑↓で選び、Enter で決める。何も打たなければ、ふだんの科目（only）を区分ごとに出す。
+ * only にない科目も、打った言葉に合えば「ほかの科目」として下に出す
+ */
+export function AccountCombo({
+  accounts,
+  value,
+  onChange,
+  label,
+  empty,
+  only,
+  className = "",
+}: {
+  accounts: Account[];
+  value: string;
+  onChange: (code: string) => void;
+  label: string;
+  empty?: string;
+  only?: string[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0);
+  const base = accounts.filter((a) => !a.hidden);
+  const usual = only && only.length ? base.filter((a) => only.includes(a.code)) : base;
+  // 打った言葉で始まる科目を上に
+  const ranked = (list: Account[]) =>
+    list
+      .map((a) => ({ a, r: rankAccount(accounts, a, q) }))
+      .filter((x) => x.r >= 0)
+      .sort((x, y) => x.r - y.r)
+      .map((x) => x.a);
+  const hit = q ? ranked(usual) : usual;
+  const others = q && usual !== base ? ranked(base.filter((a) => !usual.includes(a))) : [];
+  // 選べる順：空にする → ふだんの科目 → ほかの科目
+  const options: (Account | null)[] = [null, ...hit, ...others];
+  const current = value ? accounts.find((a) => a.code === value) : undefined;
+  const text = value ? (current ? `${current.code} ${fullName(accounts, current)}` : `（未登録 ${value}）`) : (empty ?? "（科目を選ぶ）");
+  const choose = (a: Account | null) => {
+    onChange(a ? a.code : "");
+    setOpen(null);
+    setQ("");
+  };
+  const show = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom > 300;
+    setOpen({ top: below ? r.bottom + 2 : Math.max(8, r.top - 302), left: Math.min(r.left, window.innerWidth - 340), width: Math.max(r.width, 320) });
+    setHi(0);
+  };
+  const row = (a: Account | null, i: number) => (
+    <li key={a ? a.code : "-"}>
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          choose(a);
+        }}
+        onMouseEnter={() => setHi(i)}
+        className={`flex w-full items-baseline gap-2 px-2 py-1 text-left ${i === hi ? "bg-berry/10" : ""} ${a?.parent ? "pl-5" : ""}`}
+      >
+        {a ? (
+          <>
+            <span className="text-xs text-gray-400 tabular-nums">{a.code}</span>
+            <span>{fullName(accounts, a)}</span>
+          </>
+        ) : (
+          <span className="text-gray-500">{empty ?? "（科目を選ぶ）"}</span>
+        )}
+      </button>
+    </li>
+  );
+  return (
+    <>
+      <input
+        value={open ? q : text}
+        aria-label={label}
+        placeholder={text}
+        onFocus={(e) => {
+          setQ("");
+          show(e.currentTarget);
+        }}
+        onBlur={() => {
+          setOpen(null);
+          setQ("");
+        }}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setHi(e.target.value ? 1 : 0);
+          if (!open) show(e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          if (!open) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHi(Math.min(hi + 1, options.length - 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHi(Math.max(hi - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (options[hi] !== undefined) choose(options[hi]);
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            setOpen(null);
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        className={`rounded border bg-white px-2 py-1 ${className}`}
+      />
+      {open && (
+        <ul style={{ top: open.top, left: open.left, width: open.width }} className="fixed z-50 max-h-72 overflow-auto rounded-xl border bg-white py-1 text-sm shadow-xl">
+          {row(null, 0)}
+          {q
+            ? hit.map((a, i) => row(a, i + 1))
+            : accountGroups(hit).flatMap((g) => [
+                <li key={`g-${g.label}`} className="sticky top-0 bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600">
+                  {g.label}
+                </li>,
+                ...g.accounts.map((a) => row(a, hit.indexOf(a) + 1)),
+              ])}
+          {others.length > 0 && <li className="bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600">ほかの科目</li>}
+          {others.map((a, i) => row(a, hit.length + 1 + i))}
+          {q && hit.length + others.length === 0 && <li className="px-2 py-2 text-xs text-gray-500">見つかりません</li>}
+        </ul>
+      )}
+    </>
   );
 }

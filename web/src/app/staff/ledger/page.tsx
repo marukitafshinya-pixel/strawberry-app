@@ -37,7 +37,7 @@ import {
 } from "@/lib/books";
 import { reiwa } from "@/lib/payroll";
 import { downloadXlsx, type XCell } from "@/lib/xlsxWrite";
-import { AccountSelect, Amount, canUseLedger, LedgerHeader, PickFilter, yen } from "./parts";
+import { AccountCombo, Amount, canUseLedger, LedgerHeader, PickFilter, yen } from "./parts";
 
 const withBlankRow = (list: JournalEntry[], date: string): JournalEntry[] =>
   list.length === 0 || !isBlankJournal(list[list.length - 1]) ? [...list, emptyJournal(date)] : list;
@@ -301,7 +301,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                   />
                 </td>
                 <td className="px-1 py-1 align-top">
-                  <AccountSelect
+                  <AccountCombo
                     accounts={accounts}
                     value={e.debit}
                     onChange={(v) => set(i, { debit: v })}
@@ -313,7 +313,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                   <Candidate e={e} side="debit" suggest={suggest} name={name} onPick={(code) => set(i, { debit: code })} />
                 </td>
                 <td className="px-1 py-1 align-top">
-                  <AccountSelect
+                  <AccountCombo
                     accounts={accounts}
                     value={e.credit}
                     onChange={(v) => set(i, { credit: v })}

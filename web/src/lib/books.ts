@@ -13,6 +13,7 @@ import { shiftMonth } from "./date";
 import { getFirebase } from "./firebase";
 import { naturalMove, type TbMonth, type TbParsed } from "./tbImport";
 import type { LedgerFile } from "./ledgerPdf";
+import { searchHira, toHira } from "./kana";
 
 /** 科目の種類：資産・負債・純資産・収益・費用 */
 export type AccountKind = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -67,6 +68,8 @@ export type Account = {
   hidden?: boolean;
   /** 消費税率（10・8・0）。仕訳に税率がないときに使う。なければ taxOf で決める */
   tax?: number;
+  /** 読み（ひらがな）。科目を「syu」「しゅ」などで探すときに使う。なければ YOMI のはじめの読み */
+  yomi?: string;
 };
 export const sectionOf = (a: Account): Section | null =>
   a.kind === "revenue" || a.kind === "expense"
@@ -243,6 +246,57 @@ export function taxOf(a: Account): number {
 /** 消せない科目（自動の仕訳で使う） */
 export const FIXED_CODES = [CASH, OPENING, UNSORTED, TB_CLEAR, RETAINED];
 
+/** はじめの科目の読み（ひらがな。「(製)」は読まない） */
+export const YOMI: Record<string, string> = {
+  "100": "げんきん", "101": "げんきんひらやま", "106": "ふつうよきん", "106-1": "ほくようぎんこう", "106-2": "じぇいえーびえい", "106-3": "えいのうちょきん",
+  "106-4": "あさひかわしんようきんこ", "106-5": "ほっかいどうぎんこう", "107": "くみかんかんじょう", "172": "まえばらいひよう", "178": "かりばらいきん",
+  "178-1": "じぇいしーびー", "178-2": "みついすみともかーど", "178-10": "そのた", "180": "たんきかしつけきん", "197": "みしゅうしょうひぜいとう",
+  "200": "たてもの", "202": "たてものふぞくせつび", "204": "こうちくぶつ", "206": "きかいおよびそうち", "208": "しゃりょううんぱんぐ", "212": "こうぐきぐびひん",
+  "222": "とち", "254": "しゅっしきん", "257": "ほけんつみたてきん", "306": "みばらいきん", "307": "きゅうよみばらいきん", "320": "たんきかりいれきん",
+  "320-1": "しゃちょう", "320-2": "まるきたほっかいどう", "320-3": "まるきた", "322": "あずかりきん", "322-1": "げんせんしょとくぜい", "322-2": "ちょうみんしみんぜい",
+  "330": "かりうけきん", "350": "みばらいほうじんぜいとう", "370": "ちょうきかりいれきん", "400": "しほんきん", "490": "くりこしりえきじょうよきん",
+  "500": "やさいとうしゅうにゅう", "500-3": "いちご", "501": "いんしょくうりあげだか", "501-1": "いちごがり", "501-3": "いちごはんばい",
+  "501-5": "いちごがりちけっとだい", "501-6": "いちごじゃむはんばい", "501-7": "そのた", "716": "ほうていふくりひ", "718": "ふくりこうせいひ", "720": "がいちゅうひ",
+  "722": "つうしんひ", "724": "にづくりうんちん", "726": "すいどうこうねつひ", "726-2": "すいどうだい", "726-4": "えるぴーがす", "728": "りょひこうつうひ",
+  "730": "こうこくせんでんひ", "734": "せったいこうさいひ", "734-1": "いんしょくだい", "734-3": "おみやげだい", "738": "じむようひんひ", "740": "しょうもうひんひ",
+  "744": "しゅうぜんひ", "750": "しゃりょうねんりょうひ", "751": "しゃりょうひ", "756": "そぜいこうか", "756-1": "こていしさんぜい", "756-2": "いんしだい",
+  "756-10": "そのた", "760": "りーすりょう", "762": "しはらいてすうりょう", "776": "げんかしょうきゃくひ", "790": "ざっぴ", "790-1": "かぜい", "790-2": "ふかぜい",
+  "798": "かんりしょひ", "810": "ざいりょうしいれだか", "811": "しゅびょうひ", "812": "ひりょうひ", "813": "のうやくひ", "814": "ねんりょうひ", "815": "しょざいりょうひ",
+  "840": "きゅうりょうてあて", "840-1": "きゅうよ", "840-2": "こうつうひ", "842": "ちんぎん", "854": "ほうていふくりひ", "856": "ふくりこうせいひ", "856-1": "おやつほか",
+  "857": "さぎょうよういりょうひ", "860": "がいちゅうかこうひ", "865": "のうぐひ", "861": "さぎょういたくりょう", "864": "にづくりうんちんてすうりょう", "866": "しゅうぜんひ",
+  "867": "どうりょくこうねつひ", "868": "きょうさいかけきん", "877": "とちかいりょうひ", "886": "しょうもうひんひ", "890": "しゃりょうねんりょうひ", "890-1": "がそりんほか",
+  "890-2": "じどうしゃぜい", "890-3": "せいびとうかぜい", "890-4": "せいびとうふかぜい", "890-5": "けいゆはいそう", "890-6": "じばいせききょうさい", "890-7": "けいゆひきとりぜい",
+  "894": "ざっぴ", "894-1": "かぜい", "900": "うけとりりそく", "910": "ざつしゅうにゅう", "910-1": "かぜい", "910-2": "ふかぜい", "134": "うりかけきん",
+  "A01": "れじげんきん", "A02": "うりかけきん", "A10": "やくいんほうしゅう", "A21": "はんばいしざい", "A22": "ざっかしいれ", "A31": "べんちしざい",
+  "A32": "ほーぶしざい", "A33": "はうすしざい", "A41": "かりばらいしょうひぜい", "A42": "かりうけしょうひぜい", "A90": "かいしざんだか", "A99": "しさんひょうのとりこみ",
+  "999": "みぶんるい", "734-4": "そのた", "856-2": "いんしょくだい",
+};
+export const yomiOf = (a: Account) => a.yomi ?? YOMI[a.code] ?? "";
+
+/**
+ * 科目が探す言葉に合うか：コード・名前・読み（ひらがな）のどれかに入っていれば合う。
+ * 「syu」のようなローマ字は、ひらがなにして読みとくらべる。補助科目は、親の名前・読みでも合う
+ */
+export function matchAccount(accounts: Account[], a: Account, q: string): boolean {
+  return rankAccount(accounts, a, q) >= 0;
+}
+
+/**
+ * 合い方の順位（小さいほど上に出す）：0＝コード・名前・読みが打った言葉で始まる、1＝途中に入っている、2＝親の科目で合う、-1＝合わない
+ */
+export function rankAccount(accounts: Account[], a: Account, q: string): number {
+  const raw = toHira(q).toLowerCase().replace(/\s/g, "");
+  if (!raw) return 0;
+  const hira = searchHira(q);
+  const own = [a.code, a.name.replace(/^\(製\)/, ""), yomiOf(a)].map((t) => toHira(t).toLowerCase());
+  const keys = [raw, hira].filter(Boolean);
+  if (own.some((t) => keys.some((k) => t.startsWith(k)))) return 0;
+  if (own.some((t) => keys.some((k) => t.includes(k)))) return 1;
+  const parent = a.parent ? accounts.find((x) => x.code === a.parent) : undefined;
+  if (parent && [parent.name, yomiOf(parent)].map((t) => toHira(t).toLowerCase()).some((t) => keys.some((k) => t.includes(k)))) return 2;
+  return -1;
+}
+
 /** 科目の名前（補助科目は「親／子」。プルダウンや元帳で使う） */
 export function fullName(accounts: Account[], a: Account): string {
   const p = a.parent ? accounts.find((x) => x.code === a.parent) : undefined;
@@ -416,6 +470,7 @@ export async function saveLedgerConfig(c: LedgerConfig) {
           ...(parent ? { parent } : {}),
           ...(a.hidden ? { hidden: true } : {}),
           ...(typeof a.tax === "number" ? { tax: a.tax } : {}),
+          ...(a.yomi?.trim() ? { yomi: toHira(a.yomi.trim()).slice(0, 40) } : {}),
         };
       }),
     chartVersion: CHART_VERSION,
@@ -1219,4 +1274,31 @@ export function buildSuggester(journal: JournalMonth[]): (e: Pick<JournalEntry, 
     const partner = best(byPartner.get(suggestKey(e.memo2)));
     return partner ? { code: partner, by: "取引先" } : null;
   };
+}
+
+/**
+ * 読み込むときの自動の仕分け：前に仕分けた行と同じ品名（なければ取引先）なら、空いている側にその科目を入れる。
+ * 入れた行の数も返す（入れた行は未仕分けでなくなり、保存すると帳簿に入る）
+ */
+export function autoClassify(entries: JournalEntry[], journal: JournalMonth[]): { entries: JournalEntry[]; count: number } {
+  const suggest = buildSuggester(journal);
+  // もう仕訳帳に入っている行（同じ元）は数えない（科目は仕訳帳のほうをそのまま使う）
+  const existing = new Set(journal.flatMap((m) => m.entries.map((e) => e.ref)).filter(Boolean));
+  let count = 0;
+  const out = entries.map((e) => {
+    if (e.debit && e.credit) return e;
+    if (e.ref && existing.has(e.ref)) return e;
+    const s = suggest(e);
+    if (!s) return e;
+    if (!e.debit && s.code !== e.credit) {
+      count++;
+      return { ...e, debit: s.code };
+    }
+    if (!e.credit && s.code !== e.debit) {
+      count++;
+      return { ...e, credit: s.code };
+    }
+    return e;
+  });
+  return { entries: out, count };
 }

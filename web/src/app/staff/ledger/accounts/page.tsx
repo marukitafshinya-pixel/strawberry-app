@@ -16,6 +16,7 @@ import {
   KIND_LABEL,
   KINDS,
   taxOf,
+  yomiOf,
   sectionOf,
   SECTIONS,
   saveLedgerConfig,
@@ -263,7 +264,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
 
       <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">勘定科目の一覧</h2>
-        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」と、レジ・給与の仕訳に使っている科目は消せません。仕訳帳のプルダウンに出す科目は、仕訳帳の借方・貸方の見出しの「▼」で選べます。
+        <p className="mt-1 text-xs text-gray-500">名前と種類を変えられます。「現金」「開始残高」「未分類」と、レジ・給与の仕訳に使っている科目は消せません。仕訳帳のプルダウンに出す科目は、仕訳帳の借方・貸方の見出しの「▼」で選べます。「読み」は、仕訳帳の科目の欄で「syu」「しゅ」などと打って探すときに使います。
         </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[48rem] text-sm">
@@ -275,6 +276,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 <th className="w-44 px-2 py-2 text-left">損益計算書の区分</th>
                 <th className="w-44 px-2 py-2 text-left">補助科目の親</th>
                 <th className="w-24 px-2 py-2 text-left">税率</th>
+                <th className="w-36 px-2 py-2 text-left">読み</th>
                 <th className="w-10" />
               </tr>
             </thead>
@@ -320,6 +322,16 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                         <option value="0">なし</option>
                       </select>
                     ) : null}
+                  </td>
+                  <td className="px-1 py-1">
+                    <input
+                      value={yomiOf(a)}
+                      maxLength={40}
+                      placeholder="ひらがな"
+                      aria-label={`${a.name}の読み`}
+                      onChange={(e) => setAccount(a.code, { yomi: e.target.value })}
+                      className="w-full rounded border px-2 py-1 text-xs"
+                    />
                   </td>
                   <td className="px-1 text-center">
                     {!FIXED_CODES.includes(a.code) && !autoCodes.has(a.code) && (
@@ -380,6 +392,16 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 </td>
                 <td />
                 <td className="px-1 py-2">
+                  <input
+                    value={add.yomi ?? ""}
+                    maxLength={40}
+                    placeholder="ひらがな"
+                    aria-label="足す科目の読み"
+                    onChange={(e) => setAdd({ ...add, yomi: e.target.value })}
+                    className="w-full rounded border px-2 py-1 text-xs"
+                  />
+                </td>
+                <td className="px-1 py-2">
                   <button
                     disabled={!add.code.trim() || !!addProblem}
                     onClick={() => {
@@ -394,7 +416,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
               </tr>
               {addProblem && (
                 <tr>
-                  <td colSpan={7} className="px-2 text-xs text-red-600">
+                  <td colSpan={8} className="px-2 text-xs text-red-600">
                     {addProblem}
                   </td>
                 </tr>

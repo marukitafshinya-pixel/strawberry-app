@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import {
   appendJournal,
+  autoClassify,
   checkTb,
   deleteTbImport,
   ledgerToJournal,
@@ -268,8 +269,12 @@ function Reclassify({ journal }: { journal: JournalMonth[] }) {
     setErr("");
     setBusy(true);
     try {
-      const added = await appendJournal(journal, list.flatMap(ledgerToJournal));
-      setMsg(`仕訳帳に未仕分けで ${added} 行入れました。仕訳帳で月を開き、借方の科目を選んでください`);
+      // 前に仕分けた品名・取引先と同じ行は、その科目を自動で入れる
+      const { entries, count } = autoClassify(list.flatMap(ledgerToJournal), journal);
+      const added = await appendJournal(journal, entries);
+      setMsg(
+        `仕訳帳に ${added} 行入れました${count ? `（うち ${count} 行は、前と同じ品名・取引先なので科目を自動で入れました）` : ""}。仕訳帳で月を開き、未仕分けの行の借方を選んでください`,
+      );
       setFiles([]);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e) {
@@ -393,8 +398,12 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
     setErr("");
     setBusy(true);
     try {
-      const added = await appendJournal(journal, chosen.flatMap((r) => receiptToJournal(r, pay)));
-      setMsg(`仕訳帳に未仕分けで ${added} 行入れました。仕訳帳で月を開き、借方の科目を選んでください`);
+      const { entries, count } = autoClassify(
+        chosen.flatMap((r) => receiptToJournal(r, pay)),
+        journal,
+      );
+      const added = await appendJournal(journal, entries);
+      setMsg(`仕訳帳に ${added} 行入れました${count ? `（うち ${count} 行は、前と同じ品名・取引先なので科目を自動で入れました）` : ""}。仕訳帳で月を開き、未仕分けの行の借方を選んでください`);
       setList([]);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e) {
