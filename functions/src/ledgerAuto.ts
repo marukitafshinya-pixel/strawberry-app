@@ -25,7 +25,8 @@ const DEFAULT_SALES_MAP: Record<string, string> = { いちご狩り: "501-1" };
 const CHART_VERSION = 3;
 type AutoCodes = typeof DEFAULT_AUTO;
 
-type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
+/** tax：消費税率（10・8・0）。税抜きで見るときに使う。売掛の入金・給与は消費税がかからないので 0 */
+type Entry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll"; tax?: number };
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -59,38 +60,43 @@ export const buildAutoJournal = onCall(async (req) => {
 
   // レジの売上：明細の分類ごとに売上の科目を決める。現金は日ごと・科目ごとにまとめる。売掛は1件ずつ（お客様名を残す）
   const categories: Record<string, number> = {};
-  const cashByDay = new Map<string, { date: string; code: string; amount: number; count: number }>();
+  const cashByDay = new Map<string, { date: string; code: string; tax: number; amount: number; count: number }>();
   for (const d of sales.docs) {
     if (d.get("status") === "voided") continue;
     const total = n(d.get("total"));
     if (!total) continue;
     const date = String(d.get("date"));
-    // 分類ごとの金額。明細の合計と会計の合計がちがう分（古い会計など）は、決めていない売上にする
-    const byCode = new Map<string, number>();
+    // 分類・税率ごとの金額。明細の合計と会計の合計がちがう分（古い会計など）は、決めていない売上（10％）にする
+    const byCode = new Map<string, { code: string; tax: number; amount: number }>();
+    const add = (code: string, tax: number, amount: number) => {
+      const k = `${code}|${tax}`;
+      const v = byCode.get(k) ?? { code, tax, amount: 0 };
+      v.amount += amount;
+      byCode.set(k, v);
+    };
     let lineSum = 0;
-    for (const l of (d.get("lines") as { category?: unknown; amount?: unknown }[] | undefined) ?? []) {
+    for (const l of (d.get("lines") as { category?: unknown; amount?: unknown; taxRate?: unknown }[] | undefined) ?? []) {
       const cat = typeof l.category === "string" && l.category.trim() ? l.category.trim() : "その他";
       const amount = n(l.amount);
       categories[cat] = (categories[cat] ?? 0) + amount;
-      const code = salesMap[cat] ?? c.sales;
-      byCode.set(code, (byCode.get(code) ?? 0) + amount);
+      add(salesMap[cat] ?? c.sales, l.taxRate === 8 ? 8 : 10, amount);
       lineSum += amount;
     }
-    if (total !== lineSum) byCode.set(c.sales, (byCode.get(c.sales) ?? 0) + total - lineSum);
-    for (const [code, amount] of byCode) {
+    if (total !== lineSum) add(c.sales, 10, total - lineSum);
+    for (const { code, tax, amount } of byCode.values()) {
       if (!amount) continue;
       if (d.get("payment") === "credit") {
-        entries.push({ date, debit: c.creditSales, credit: code, amount, memo: `レジ売上（売掛）${String(d.get("customerName") ?? "")}`.trim(), kind: "sales" });
+        entries.push({ date, debit: c.creditSales, credit: code, amount, memo: `レジ売上（売掛）${String(d.get("customerName") ?? "")}`.trim(), kind: "sales", tax });
       } else {
-        const key = `${date}|${code}`;
-        const v = cashByDay.get(key) ?? { date, code, amount: 0, count: 0 };
+        const key = `${date}|${code}|${tax}`;
+        const v = cashByDay.get(key) ?? { date, code, tax, amount: 0, count: 0 };
         v.amount += amount;
         v.count++;
         cashByDay.set(key, v);
       }
     }
   }
-  for (const v of cashByDay.values()) entries.push({ date: v.date, debit: c.cashSales, credit: v.code, amount: v.amount, memo: `レジ売上（現金）${v.count}件`, kind: "sales" });
+  for (const v of cashByDay.values()) entries.push({ date: v.date, debit: c.cashSales, credit: v.code, amount: v.amount, memo: `レジ売上（現金）${v.count}件`, kind: "sales", tax: v.tax });
 
   // 手で入れた売掛（会計からでないもの）は、売掛にした日に売上にする
   for (const d of receivables.docs) {
@@ -105,7 +111,7 @@ export const buildAutoJournal = onCall(async (req) => {
     if (d.get("status") !== "collected") continue;
     const amount = n(d.get("amount"));
     if (!amount) continue;
-    entries.push({ date: String(d.get("collectedDate")), debit: c.collect, credit: c.creditSales, amount, memo: `売掛の入金 ${String(d.get("customerName") ?? "")}`.trim(), kind: "receivable" });
+    entries.push({ date: String(d.get("collectedDate")), debit: c.collect, credit: c.creditSales, amount, memo: `売掛の入金 ${String(d.get("customerName") ?? "")}`.trim(), kind: "receivable", tax: 0 });
   }
 
   // 給与：支給日（なければその月の末日）の月に入れる。前の月の分を今月払うことが多いので、前の月と今月の給与を見る
@@ -136,8 +142,8 @@ export const buildAutoJournal = onCall(async (req) => {
     // 支給額（給料・通勤費・役員報酬）を「振り込む給与」に入れ、天引きした分をそこから移す：
     // 社会保険料の本人負担分は法定福利費から引き（会計ソフトと同じ。納めたときに全額を法定福利費にする）、所得税・住民税は預り金へ
     const push = (debit: string, credit: string, amount: number, memo: string) => {
-      if (amount > 0) entries.push({ date, debit, credit, amount, memo: `${label}（${memo}）`, kind: "payroll" });
-      if (amount < 0) entries.push({ date, debit: credit, credit: debit, amount: -amount, memo: `${label}（${memo}）`, kind: "payroll" });
+      if (amount > 0) entries.push({ date, debit, credit, amount, memo: `${label}（${memo}）`, kind: "payroll", tax: 0 });
+      if (amount < 0) entries.push({ date, debit: credit, credit: debit, amount: -amount, memo: `${label}（${memo}）`, kind: "payroll", tax: 0 });
     };
     push(c.wages, c.unpaid, wages, "給料");
     push(c.commute, c.unpaid, commute, "通勤費");

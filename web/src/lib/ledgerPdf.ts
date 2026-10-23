@@ -18,6 +18,8 @@ export type LedgerRow = {
   partner: string;
   /** 借方−貸方（税込。消費税の行を足したもの） */
   amount: number;
+  /** 消費税率（10・8・0）。読めなければ null */
+  taxRate: number | null;
 };
 export type LedgerFile = {
   /** 科目コードと名前（例 "740"・"消耗品費"） */
@@ -156,8 +158,13 @@ export function readLedgerPage(items: PdfText[], state: { year: number; startMon
     const [main, sub] = counterText.split("/");
     const next = lines[i + 1];
     const nextIsEntry = next?.some((t) => t.x < cols.date - 2 && /^\d+$/.test(t.str.trim()));
-    const partner = next && !nextIsEntry && next[0].y < l[0].y ? memoOf(next) : "";
-    rows.push({ no: noItem.str.trim(), date, counter: sub ? `${main}／${sub}` : main, item: memoOf(l), partner, amount: moneyOf(l) });
+    const second = next && !nextIsEntry && next[0].y < l[0].y ? next : null;
+    const partner = second ? memoOf(second) : "";
+    // 税率：2行目の右の「( 21 10% )」。％がなければ消費税のかからない取引として 0
+    const rateText = z2h([...l, ...(second ?? [])].filter((t) => t.x > cols.creditRight).map((t) => t.str).join(" "));
+    const rateMatch = rateText.match(/(\d+)\s*%/);
+    const taxRate = rateMatch ? Number(rateMatch[1]) : second || l.length ? 0 : null;
+    rows.push({ no: noItem.str.trim(), date, counter: sub ? `${main}／${sub}` : main, item: memoOf(l), partner, amount: moneyOf(l), taxRate });
   }
   return { code: title?.[1] ?? "", name: (title?.[2] ?? "").replace(/\s/g, ""), rows, total };
 }

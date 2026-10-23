@@ -67,7 +67,10 @@ export default function ReportsPage() {
   );
 }
 
-function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
+function Reports({ books: raw, config }: { books: Books; config: LedgerConfig }) {
+  // 税抜きで見る：アプリでつけた月（試算表を取り込んでいない月）は、税率で税抜きにし、消費税を仮払・仮受消費税に分ける
+  const [taxEx, setTaxEx] = useState(true);
+  const books: Books = { ...raw, taxEx };
   const thisMonth = todayJST().slice(0, 7);
   const [start, setStart] = useState(() => fiscalStartOf(thisMonth, config.fiscalStart));
   // 決算月を変えたら、期のはじまりも合わせる
@@ -83,7 +86,7 @@ function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
   const unsorted = period.during.filter((p) => p.debit === UNSORTED || p.credit === UNSORTED).length;
   // 選べる期：データのある期と、いまの期
   const starts = [...new Set([...monthsWithData(books), thisMonth].map((m) => fiscalStartOf(m, config.fiscalStart)))].sort().reverse();
-  const title = `${fiscalLabel(fixedStart)}${end !== months[11] ? `（${mo(end)}まで）` : ""}`;
+  const title = `${fiscalLabel(fixedStart)}${end !== months[11] ? `（${mo(end)}まで）` : ""}${taxEx ? "（税抜き）" : "（税込み）"}`;
 
   return (
     <>
@@ -112,6 +115,10 @@ function Reports({ books, config }: { books: Books; config: LedgerConfig }) {
           まで
         </label>
         <span className="flex-1" />
+        <label className="flex items-center gap-1 text-sm" title="試算表を取り込んだ月は、会計ソフトの数字（税込）のままです">
+          <input type="checkbox" checked={taxEx} onChange={(e) => setTaxEx(e.target.checked)} />
+          税抜きで見る
+        </label>
         <Regenerate months={months.filter((m) => m <= end && m <= thisMonth)} />
         <button onClick={() => window.print()} className="rounded-lg border bg-white px-3 py-2 text-sm">
           🖨 印刷
@@ -518,6 +525,7 @@ function GeneralLedger({ period, accounts, code, setCode, title }: { period: Per
                 <td className="px-2">{name(l.other)}</td>
                 <td className="px-2">
                   {l.memo}
+                  {l.memo2 && <span className="ml-1 text-xs text-gray-500">{l.memo2}</span>}
                   {l.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[l.source]}</span>}
                 </td>
                 <td className="px-2 text-right">{l.debit ? yen(l.debit) : ""}</td>
@@ -585,6 +593,7 @@ function Drill({ books, config, title, terms, from, to, onClose }: DrillTarget &
                   <td className="px-2 text-xs">{name(r.other)}</td>
                   <td className="px-2">
                     {r.p.memo}
+                    {r.p.memo2 && <span className="ml-1 text-xs text-gray-500">{r.p.memo2}</span>}
                     {r.p.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[r.p.source]}</span>}
                   </td>
                   <td className={`px-2 text-right ${r.value < 0 ? "text-red-600" : ""}`}>{yen(r.value)}</td>

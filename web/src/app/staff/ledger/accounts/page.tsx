@@ -15,6 +15,7 @@ import {
   fullName,
   KIND_LABEL,
   KINDS,
+  taxOf,
   sectionOf,
   SECTIONS,
   saveLedgerConfig,
@@ -273,6 +274,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 <th className="w-24 px-2 py-2 text-left">種類</th>
                 <th className="w-44 px-2 py-2 text-left">損益計算書の区分</th>
                 <th className="w-44 px-2 py-2 text-left">補助科目の親</th>
+                <th className="w-24 px-2 py-2 text-left">税率</th>
                 <th className="w-10" />
               </tr>
             </thead>
@@ -304,6 +306,20 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                   </td>
                   <td className="px-1 py-1">
                     <ParentSelect accounts={c.accounts} account={a} onChange={(parent) => setAccount(a.code, { parent })} />
+                  </td>
+                  <td className="px-1 py-1">
+                    {a.kind === "revenue" || a.kind === "expense" ? (
+                      <select
+                        value={String(taxOf(a))}
+                        aria-label={`${a.name}の税率`}
+                        onChange={(e) => setAccount(a.code, { tax: Number(e.target.value) })}
+                        className="w-full rounded border bg-white px-1 py-1"
+                      >
+                        <option value="10">10%</option>
+                        <option value="8">8%</option>
+                        <option value="0">なし</option>
+                      </select>
+                    ) : null}
                   </td>
                   <td className="px-1 text-center">
                     {!FIXED_CODES.includes(a.code) && !autoCodes.has(a.code) && (
@@ -362,6 +378,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
                 <td className="px-1 py-2">
                   <ParentSelect accounts={c.accounts} account={add} onChange={(parent) => setAdd({ ...add, parent })} />
                 </td>
+                <td />
                 <td className="px-1 py-2">
                   <button
                     disabled={!add.code.trim() || !!addProblem}
@@ -377,7 +394,7 @@ function Editor({ initial, cash, auto }: { initial: LedgerConfig; cash: CashMont
               </tr>
               {addProblem && (
                 <tr>
-                  <td colSpan={6} className="px-2 text-xs text-red-600">
+                  <td colSpan={7} className="px-2 text-xs text-red-600">
                     {addProblem}
                   </td>
                 </tr>

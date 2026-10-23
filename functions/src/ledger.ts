@@ -17,7 +17,7 @@ const TOTAL = {
   required: ["debit", "credit", "count"],
   additionalProperties: false,
 };
-const SCHEMA = {
+export const SCHEMA = {
   type: "object",
   properties: {
     accountCode: STR,
@@ -60,7 +60,7 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const PROMPT = `これは会社の会計ソフトで印刷した「総勘定元帳」の1ページをスキャンした画像です。表を読み取って、決められた形（JSON）で返してください。
+export const PROMPT = `これは会社の会計ソフトで印刷した「総勘定元帳」の1ページをスキャンした画像です。表を読み取って、決められた形（JSON）で返してください。
 
 各項目：
 - accountCode / accountName：見出しのかっこの中の科目（例「815:諸材料 費」→ accountCode "815"、accountName "諸材料費"。名前の空白は詰める）

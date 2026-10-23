@@ -5,12 +5,14 @@
 // 預金・売掛・給与・減価償却など、現金以外の取引は、ここで1行ずつ手で入れる（管理者と経理担当）
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
+  buildSuggester,
+  taxOf,
   fullName,
   autoPostings,
   importedPostings,
@@ -29,6 +31,7 @@ import {
   type AutoMonth,
   type Books,
   type JournalMonth,
+  type Suggestion,
   type Posting,
   type LedgerConfig,
 } from "@/lib/books";
@@ -126,6 +129,25 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
   const set = (i: number, p: Partial<JournalEntry>) => change(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
   const problems = entries.map((e) => journalProblem(e, month));
   const unsortedCount = entries.filter(isUnsortedJournal).length;
+  // 候補：これまでに仕分けた行（保存したもの）から、品名・取引先ごとの科目を覚える
+  const suggest = useMemo(() => buildSuggester(books.journal), [books.journal]);
+  const candidates = entries.map((e) => (isUnsortedJournal(e) || (!isBlankJournal(e) && (!e.debit || !e.credit)) ? suggest(e) : null));
+  const canApply = entries.filter((e, i) => candidates[i] && (!e.debit || !e.credit)).length;
+  const applyAll = () =>
+    change(
+      entries.map((e, i) => {
+        const c = candidates[i];
+        if (!c) return e;
+        if (!e.debit && e.credit !== c.code) return { ...e, debit: c.code };
+        if (!e.credit && e.debit !== c.code) return { ...e, credit: c.code };
+        return e;
+      }),
+    );
+  /** 税率の欄が空のとき：科目の税率（収益・費用の側） */
+  const rateLabel = (e: JournalEntry) => {
+    const a = [e.debit, e.credit].map((c) => (c ? accountOf(accounts, c) : null)).find((a) => a && (a.kind === "revenue" || a.kind === "expense"));
+    return a ? `科目(${taxOf(a) ? `${taxOf(a)}%` : "なし"})` : "—";
+  };
   const [onlyUnsorted, setOnlyUnsorted] = useState(false);
   const [allAccounts, setAllAccounts] = useState(false);
   /** プルダウンに出す科目を、その場で保存する */
@@ -155,19 +177,36 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
 
   function exportExcel() {
     const B = (v: string | number | null, o: { num?: boolean; bold?: boolean; left?: boolean } = {}): XCell => ({ v, border: true, ...o });
+    const rateOf = (p: { tax?: number | null; debit: string; credit: string }) => {
+      if (typeof p.tax === "number") return p.tax ? `${p.tax}%` : "なし";
+      const a = [p.debit, p.credit].map((c) => (c ? accountOf(accounts, c) : null)).find((a) => a && (a.kind === "revenue" || a.kind === "expense"));
+      return a ? (taxOf(a) ? `${taxOf(a)}%` : "なし") : "";
+    };
     const all = [
-      ...autoAll.map((p) => ({ ...p, from: p.source === "cash" ? "出納帳" : p.source === "bank" ? "通帳" : "自動" })),
-      ...entries.filter((e) => !isBlankJournal(e)).map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount ?? 0, memo: e.memo, from: "" })),
+      ...autoAll.map((p) => ({ ...p, memo2: p.memo2 ?? "", from: p.source === "cash" ? "出納帳" : p.source === "bank" ? "通帳" : "自動" })),
+      ...entries
+        .filter((e) => !isBlankJournal(e))
+        .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount ?? 0, tax: e.tax, memo: e.memo, memo2: e.memo2 ?? "", from: isUnsortedJournal(e) ? "未仕分け" : "" })),
     ].sort((a, b) => a.date.localeCompare(b.date));
     const rows: XCell[][] = [
       [{ v: "仕訳帳", bold: true }, null, month],
       [],
-      ["日付", "借方科目", "貸方科目", "金額", "摘要", "元"].map((h) => B(h)),
-      ...all.map((p) => [B(md(p.date)), B(name(p.debit), { left: true }), B(name(p.credit), { left: true }), B(p.amount, { num: true }), B(p.memo, { left: true }), B(p.from)]),
-      [B("合計", { bold: true }), B(null), B(null), B(autoTotal + manualTotal, { num: true, bold: true }), B(null), B(null)],
+      ["日付", "借方科目", "貸方科目", "金額", "税率", "摘要（品名）", "摘要（取引先）", "元"].map((h) => B(h)),
+      ...all.map((p) => [
+        B(md(p.date)),
+        B(p.debit ? name(p.debit) : "", { left: true }),
+        B(p.credit ? name(p.credit) : "", { left: true }),
+        B(p.amount, { num: true }),
+        B(rateOf(p)),
+        B(p.memo, { left: true }),
+        B(p.memo2, { left: true }),
+        B(p.from),
+      ]),
+      [B("合計", { bold: true }), B(null), B(null), B(autoTotal + manualTotal, { num: true, bold: true }), B(null), B(null), B(null), B(null)],
     ];
-    downloadXlsx(`journal_${month}.xlsx`, month, rows, [8, 16, 16, 12, 40, 8]);
+    downloadXlsx(`journal_${month}.xlsx`, month, rows, [8, 18, 18, 12, 7, 30, 24, 9]);
   }
+
 
   return (
     <>
@@ -198,6 +237,11 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
         {unsortedCount > 0 && (
           <>
             <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-900">この月の未仕分け {unsortedCount}行</span>
+            {canApply > 0 && (
+              <button onClick={applyAll} className="rounded-lg border border-amber-500 bg-white px-3 py-1 text-sm text-amber-900">
+                候補をまとめてあてる（{canApply}行）
+              </button>
+            )}
             <label className="flex items-center gap-1 text-sm">
               <input type="checkbox" checked={onlyUnsorted} onChange={(x) => setOnlyUnsorted(x.target.checked)} />
               未仕分けだけ出す
@@ -222,7 +266,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
         預金の出し入れ・売上の入金・給与・借入の返済など、現金出納帳にない取引を入れます。例：売上が預金に入った → 借方「普通預金」／貸方「売上高」
       </p>
       <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
-        <table className="w-full min-w-[52rem] text-sm">
+        <table className="w-full min-w-[72rem] text-sm">
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="w-36 px-2 py-2 text-left">日付</th>
@@ -234,8 +278,10 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                 貸方（減った資産・入った収益）
                 <PickFilter accounts={accounts} pick={config.pick} onChange={savePick} />
               </th>
-              <th className="w-32 px-2 py-2 text-right">金額</th>
-              <th className="px-2 py-2 text-left">摘要</th>
+              <th className="w-28 px-2 py-2 text-right">金額</th>
+              <th className="w-20 px-2 py-2 text-left">税率</th>
+              <th className="px-2 py-2 text-left">摘要（品名）</th>
+              <th className="px-2 py-2 text-left">摘要（取引先）</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -264,6 +310,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
                     className={`w-full ${isUnsortedJournal(e) && !e.debit ? "border-amber-400 font-bold text-amber-800" : ""}`}
                   />
+                  <Candidate e={e} side="debit" suggest={suggest} name={name} onPick={(code) => set(i, { debit: code })} />
                 </td>
                 <td className="px-1 py-1 align-top">
                   <AccountSelect
@@ -275,19 +322,44 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     empty={isUnsortedJournal(e) ? "（未仕分け）" : undefined}
                     className={`w-full ${isUnsortedJournal(e) && !e.credit ? "border-amber-400 font-bold text-amber-800" : ""}`}
                   />
+                  <Candidate e={e} side="credit" suggest={suggest} name={name} onPick={(code) => set(i, { credit: code })} />
                 </td>
                 <td className="px-1 py-1 align-top">
                   <Amount value={e.amount} onChange={(v) => set(i, { amount: v })} label={`${i + 1}行目の金額`} />
                 </td>
                 <td className="px-1 py-1 align-top">
+                  <select
+                    value={typeof e.tax === "number" ? String(e.tax) : ""}
+                    aria-label={`${i + 1}行目の税率`}
+                    onChange={(x) => set(i, { tax: x.target.value === "" ? null : Number(x.target.value) })}
+                    className="w-full rounded border bg-white px-1 py-1"
+                    title="空なら科目の税率"
+                  >
+                    <option value="">{rateLabel(e)}</option>
+                    <option value="10">10%</option>
+                    <option value="8">8%</option>
+                    <option value="0">なし</option>
+                  </select>
+                </td>
+                <td className="px-1 py-1 align-top">
                   <input
                     value={e.memo}
                     maxLength={80}
-                    aria-label={`${i + 1}行目の摘要`}
+                    aria-label={`${i + 1}行目の摘要（品名）`}
                     onChange={(x) => set(i, { memo: x.target.value })}
                     className="w-full rounded border px-2 py-1"
                   />
+                  {e.src && <p className="mt-0.5 text-xs text-gray-400">{e.src}</p>}
                   {problems[i] && <p className="mt-0.5 text-xs text-red-600">{problems[i]}</p>}
+                </td>
+                <td className="px-1 py-1 align-top">
+                  <input
+                    value={e.memo2 ?? ""}
+                    maxLength={60}
+                    aria-label={`${i + 1}行目の摘要（取引先）`}
+                    onChange={(x) => set(i, { memo2: x.target.value })}
+                    className="w-full rounded border px-2 py-1"
+                  />
                 </td>
                 <td className="px-1 text-center align-top">
                   {!isBlankJournal(e) && (
@@ -306,7 +378,7 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                 合計
               </td>
               <td className="px-2 text-right tabular-nums">{yen(manualTotal)}</td>
-              <td colSpan={2} />
+              <td colSpan={4} />
             </tr>
           </tfoot>
         </table>
@@ -430,7 +502,10 @@ function PostingTable({ postings, name, empty }: { postings: Posting[]; name: (c
               <td className={`px-2 ${p.debit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.debit)}</td>
               <td className={`px-2 ${p.credit === UNSORTED ? "font-bold text-amber-700" : ""}`}>{name(p.credit)}</td>
               <td className="px-2 text-right">{yen(p.amount)}</td>
-              <td className="px-2 py-1.5">{p.memo}</td>
+              <td className="px-2 py-1.5">
+                {p.memo}
+                {p.memo2 && <span className="ml-1 text-xs text-gray-500">{p.memo2}</span>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -469,5 +544,30 @@ function UnsortedMonths({ journal, month }: { journal: JournalMonth[]; month: st
         ))}
       </div>
     </section>
+  );
+}
+
+/** 空いている側の科目の候補（押すとその科目にする） */
+function Candidate({
+  e,
+  side,
+  suggest,
+  name,
+  onPick,
+}: {
+  e: JournalEntry;
+  side: "debit" | "credit";
+  suggest: (e: JournalEntry) => Suggestion | null;
+  name: (code: string) => string;
+  onPick: (code: string) => void;
+}) {
+  if (e[side] || isBlankJournal(e)) return null;
+  const c = suggest(e);
+  const other = side === "debit" ? e.credit : e.debit;
+  if (!c || c.code === other) return null;
+  return (
+    <button onClick={() => onPick(c.code)} className="mt-0.5 rounded bg-sky-100 px-1.5 py-0.5 text-left text-xs text-sky-800 hover:bg-sky-200" title={`同じ${c.by}で前に選んだ科目`}>
+      候補：{name(c.code)}（{c.by}）
+    </button>
   );
 }

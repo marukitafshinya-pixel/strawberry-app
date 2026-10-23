@@ -65,6 +65,8 @@ export type Account = {
   parent?: string;
   /** 使わなくなった科目：選べないようにする（取り込んだ試算表の金額が残っているあいだは、決算書には出る） */
   hidden?: boolean;
+  /** 消費税率（10・8・0）。仕訳に税率がないときに使う。なければ taxOf で決める */
+  tax?: number;
 };
 export const sectionOf = (a: Account): Section | null =>
   a.kind === "revenue" || a.kind === "expense"
@@ -81,6 +83,9 @@ export const OPENING = "A90";
 export const UNSORTED = "999";
 /** 試算表の取り込みの相手（借方と貸方が合っていれば、残高はいつも0になる） */
 export const TB_CLEAR = "A99";
+/** 仮払消費税・仮受消費税（税抜きで見るときに、消費税の分をここに分ける） */
+export const TAX_PAID = "A41";
+export const TAX_RECEIVED = "A42";
 /** 繰越利益剰余金（試算表では、その期の利益も入っている。取り込むときは期首の分だけ使い、利益は損益の科目から計算する） */
 export const RETAINED = "490";
 
@@ -219,8 +224,22 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   ...ADDED_V4,
   { code: OPENING, name: "開始残高", kind: "equity" },
   { code: TB_CLEAR, name: "試算表の取り込み", kind: "equity" },
+  { code: TAX_PAID, name: "仮払消費税", kind: "asset" },
+  { code: TAX_RECEIVED, name: "仮受消費税", kind: "liability" },
   { code: UNSORTED, name: "未分類", kind: "expense", section: "sgaOther" },
 ];
+
+/** 消費税のかからない科目（給与・社会保険料・税金・減価償却・利息・共済・不課税の補助科目など） */
+const NO_TAX = new Set(["716", "718", "776", "756", "756-1", "756-2", "756-10", "790-2", "840", "840-1", "840-2", "842", "854", "868", "890-2", "890-4", "890-6", "890-7", "900", "910-2", "A10", "850", "950"]);
+/** 軽減税率（8％）の科目（いちご・ジャムなど食品の売上） */
+const REDUCED_TAX = new Set(["500-3", "501-3", "501-6"]);
+/** 科目の消費税率：決めてあればそれ、なければ 収益・費用は10％（上の科目は0％・8％）、資産・負債・純資産は0％ */
+export function taxOf(a: Account): number {
+  if (typeof a.tax === "number") return a.tax;
+  if (a.kind !== "revenue" && a.kind !== "expense") return 0;
+  if (NO_TAX.has(a.code) || /不課税|非課税/.test(a.name)) return 0;
+  return REDUCED_TAX.has(a.code) ? 8 : 10;
+}
 /** 消せない科目（自動の仕訳で使う） */
 export const FIXED_CODES = [CASH, OPENING, UNSORTED, TB_CLEAR, RETAINED];
 
@@ -345,7 +364,7 @@ export function useLedgerConfig() {
           const auto = old ? DEFAULT_AUTO : { ...DEFAULT_AUTO, ...((s.get("auto") as Partial<AutoCodes> | undefined) ?? {}) };
           const itemMap = (s.get("itemMap") as Record<string, string> | undefined) ?? {};
           // 消せない科目と、自動仕訳に使う科目が入っていなければ足す（あとから足した「レジ現金」など）
-          const need = new Set([...FIXED_CODES, ...Object.values(auto)]);
+          const need = new Set([...FIXED_CODES, TAX_PAID, TAX_RECEIVED, ...Object.values(auto)]);
           const missing = DEFAULT_ACCOUNTS.filter((a) => need.has(a.code) && !accounts.some((b) => b.code === a.code));
           setState({
             value: {
@@ -396,6 +415,7 @@ export async function saveLedgerConfig(c: LedgerConfig) {
           ...(section ? { section } : {}),
           ...(parent ? { parent } : {}),
           ...(a.hidden ? { hidden: true } : {}),
+          ...(typeof a.tax === "number" ? { tax: a.tax } : {}),
         };
       }),
     chartVersion: CHART_VERSION,
@@ -430,6 +450,12 @@ export type JournalEntry = {
   amount: number | null;
   /** 摘要 */
   memo: string;
+  /** 摘要の2つめ（取引先） */
+  memo2?: string;
+  /** 消費税率（10・8・0）。null・なしなら科目の税率 */
+  tax?: number | null;
+  /** 取り込んだ元の説明（例「仮払金／JCB・伝票67」）。画面に小さく出すだけ */
+  src?: string;
   /** 取り込んだ元（例 "740:67" ＝総勘定元帳 740 の伝票67）。同じものを2回取り込まないため */
   ref?: string;
 };
@@ -445,10 +471,14 @@ export type Posting = {
   /** cash＝現金出納帳から（item は出納帳の項目）。manual＝手で入れた仕訳。auto＝レジ・売掛・給与から。bank＝預金通帳から */
   source: "cash" | "manual" | "auto" | "bank" | "imported";
   item?: string;
+  /** 摘要の2つめ（取引先） */
+  memo2?: string;
+  /** 消費税率。なければ科目の税率 */
+  tax?: number;
 };
 
 export const emptyJournal = (date = ""): JournalEntry => ({ date, debit: "", credit: "", amount: null, memo: "" });
-export const isBlankJournal = (e: JournalEntry) => !e.debit && !e.credit && e.amount === null && !e.memo.trim();
+export const isBlankJournal = (e: JournalEntry) => !e.debit && !e.credit && e.amount === null && !e.memo.trim() && !e.memo2?.trim();
 /** 未仕分け：科目が片方だけ決まっていない行（仕分けし直すために取り込んだ行）。決まるまで帳簿には入れない */
 export const isUnsortedJournal = (e: JournalEntry) => !isBlankJournal(e) && !!e.amount && (!e.debit) !== (!e.credit);
 /** 保存できない行の理由（なければ ""） */
@@ -475,7 +505,7 @@ export function useJournal() {
         (snap) =>
           setState({
             value: snap.docs
-              .map((d) => ({ month: d.id, entries: (d.get("entries") as JournalEntry[] | undefined) ?? [] }))
+              .map((d) => ({ month: d.id, entries: ((d.get("entries") as JournalEntry[] | undefined) ?? []).map(splitOldMemo) }))
               .sort((a, b) => a.month.localeCompare(b.month)),
             error: null,
           }),
@@ -490,11 +520,28 @@ export function useJournal() {
   return state;
 }
 
+/** 摘要を2つに分ける前に元帳から入れた行（「品名　取引先（相手科目・伝票N）」）を、品名・取引先・元の説明に分ける */
+export function splitOldMemo(e: JournalEntry): JournalEntry {
+  if (!e.ref || e.memo2 !== undefined || e.src !== undefined) return e;
+  const m = e.memo.match(/^(.*?)(?:　(.*?))?（([^（）]*伝票[^（）]*)）$/);
+  return m ? { ...e, memo: m[1], memo2: m[2] ?? "", src: m[3] } : e;
+}
+
 export async function saveJournalMonth(month: string, entries: JournalEntry[]) {
   const { db } = await getFirebase();
   const list = entries
     .filter((e) => !isBlankJournal(e))
-    .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: Math.round(e.amount ?? 0), memo: e.memo.trim().slice(0, 80), ...(e.ref ? { ref: e.ref.slice(0, 40) } : {}) }))
+    .map((e) => ({
+      date: e.date,
+      debit: e.debit,
+      credit: e.credit,
+      amount: Math.round(e.amount ?? 0),
+      memo: e.memo.trim().slice(0, 80),
+      ...(e.memo2?.trim() ? { memo2: e.memo2.trim().slice(0, 60) } : {}),
+      ...(typeof e.tax === "number" ? { tax: e.tax } : {}),
+      ...(e.src ? { src: e.src.slice(0, 60) } : {}),
+      ...(e.ref ? { ref: e.ref.slice(0, 60) } : {}),
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
   await setDoc(doc(db, `journal/${month}`), { entries: list, updatedAt: serverTimestamp() });
 }
@@ -522,12 +569,22 @@ export function cashPostings(cash: CashMonth[], month: string, itemMap: Record<s
 export function manualPostings(journal: JournalMonth[], month: string): Posting[] {
   return (journal.find((x) => x.month === month)?.entries ?? [])
     .filter((e) => e.amount && e.debit && e.credit)
-    .map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount ?? 0, memo: e.memo, source: "manual" as const }));
+    .map((e) => ({
+      date: e.date,
+      debit: e.debit,
+      credit: e.credit,
+      amount: e.amount ?? 0,
+      memo: e.memo,
+      ...(e.memo2 ? { memo2: e.memo2 } : {}),
+      ...(typeof e.tax === "number" ? { tax: e.tax } : {}),
+      source: "manual" as const,
+    }));
 }
 
 /** 帳簿の元になるもの全部 */
 /** imported：いまの会計ソフトから取り込んだ試算表（その月は、試算表の数字だけを使う） */
-export type Books = { cash: CashMonth[]; journal: JournalMonth[]; auto: AutoMonth[]; bank: BankMonth[]; imported: TbMonth[] };
+/** taxEx：税抜きで見る（試算表を取り込んでいない月の仕訳を、税率で税抜きにして消費税を仮払・仮受消費税に分ける） */
+export type Books = { cash: CashMonth[]; journal: JournalMonth[]; auto: AutoMonth[]; bank: BankMonth[]; imported: TbMonth[]; taxEx?: boolean };
 
 /** 帳簿の元になるデータがある月（古い順） */
 export function monthsWithData(b: Books): string[] {
@@ -539,7 +596,37 @@ export function monthPostings(b: Books, config: LedgerConfig, month: string): Po
   // 試算表を取り込んだ月は、会計ソフトでつけ終わった月なので、試算表の数字と、手で入れた仕訳（仕分けし直しなどの振替）だけを使う。
   // レジ・給与・通帳・出納帳からの仕訳は、試算表にもう入っているので数えない（二重にしない）
   if (b.imported.some((x) => x.month === month)) return [...importedPostings(b.imported, month, config.accounts), ...manualPostings(b.journal, month)];
-  return [...cashPostings(b.cash, month, config.itemMap), ...manualPostings(b.journal, month), ...autoPostings(b.auto, month), ...bankPostings(b.bank, month, config.bankRules)];
+  const list = [...cashPostings(b.cash, month, config.itemMap), ...manualPostings(b.journal, month), ...autoPostings(b.auto, month), ...bankPostings(b.bank, month, config.bankRules)];
+  return b.taxEx ? excludeTax(list, config.accounts) : list;
+}
+
+/**
+ * 税抜きにする：収益・費用の科目の側を税抜きの金額にし、消費税の分を、費用なら仮払消費税・収益なら仮受消費税に入れる。
+ * 消費税額は 税込×税率÷(100＋税率) の1円未満切り捨て（両方が収益・費用の振替は、消費税の分が打ち消し合う）
+ */
+export function excludeTax(list: Posting[], accounts: Account[]): Posting[] {
+  const out: Posting[] = [];
+  const pl = (code: string) => {
+    const a = accountOf(accounts, code);
+    return a.kind === "revenue" || a.kind === "expense" ? a : null;
+  };
+  const taxAccount = (a: Account) => (a.kind === "revenue" ? TAX_RECEIVED : TAX_PAID);
+  for (const p of list) {
+    const d = pl(p.debit);
+    const c = pl(p.credit);
+    const target = d ?? c;
+    const rate = p.tax ?? (target ? taxOf(target) : 0);
+    const tax = target && rate ? Math.trunc((p.amount * rate) / (100 + rate)) : 0;
+    if (!tax) {
+      out.push(p);
+      continue;
+    }
+    // 1行目：同じ科目どうしで税抜きの金額。2行目：消費税の分（収益・費用の側は仮払・仮受消費税、そうでない側は元の科目のまま）
+    out.push({ ...p, amount: p.amount - tax });
+    const taxRow = { ...p, amount: tax, debit: d ? taxAccount(d) : p.debit, credit: c ? taxAccount(c) : p.credit, memo: `${p.memo}（消費税）` };
+    if (taxRow.debit !== taxRow.credit) out.push(taxRow);
+  }
+  return out;
 }
 
 /** 期間（from〜to の月、両端を含む）の全部の仕訳（日付順） */
@@ -552,13 +639,21 @@ export function postingsInRange(b: Books, config: LedgerConfig, from: string, to
 
 // ---------- 自動仕訳（レジの売上・売掛・給与） ----------
 
-export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll" };
+export type AutoEntry = { date: string; debit: string; credit: string; amount: number; memo: string; kind: "sales" | "receivable" | "payroll"; tax?: number };
 /** categories：その月のレジの分類ごとの売上（分類と科目の対応を決める画面で使う） */
 export type AutoMonth = { month: string; entries: AutoEntry[]; generatedAt: Date | null; categories: Record<string, number> };
 export const AUTO_KIND_LABEL: Record<AutoEntry["kind"], string> = { sales: "レジ", receivable: "売掛", payroll: "給与" };
 
 export function autoPostings(auto: AutoMonth[], month: string): Posting[] {
-  return (auto.find((x) => x.month === month)?.entries ?? []).map((e) => ({ date: e.date, debit: e.debit, credit: e.credit, amount: e.amount, memo: e.memo, source: "auto" as const }));
+  return (auto.find((x) => x.month === month)?.entries ?? []).map((e) => ({
+    date: e.date,
+    debit: e.debit,
+    credit: e.credit,
+    amount: e.amount,
+    memo: e.memo,
+    ...(typeof e.tax === "number" ? { tax: e.tax } : {}),
+    source: "auto" as const,
+  }));
 }
 
 export function useAutoJournal() {
@@ -1052,7 +1147,10 @@ export function ledgerToJournal(file: LedgerFile): JournalEntry[] {
     debit: "",
     credit: file.code,
     amount: r.amount,
-    memo: `${r.item}${r.partner ? `　${r.partner}` : ""}（${r.counter}・伝票${r.no}）`.slice(0, 80),
+    memo: r.item.slice(0, 80),
+    memo2: r.partner.slice(0, 60),
+    tax: r.taxRate,
+    src: `${r.counter}・伝票${r.no}`.slice(0, 60),
     ref: `${file.code}:${r.no}`,
   }));
 }
@@ -1064,11 +1162,61 @@ export async function appendJournal(journal: JournalMonth[], entries: JournalEnt
   let added = 0;
   for (const [month, list] of byMonth) {
     const current = journal.find((x) => x.month === month)?.entries ?? [];
+    const byRef = new Map(list.filter((e) => e.ref).map((e) => [e.ref!, e]));
     const have = new Set(current.map((e) => e.ref).filter(Boolean));
     const fresh = list.filter((e) => !e.ref || !have.has(e.ref));
-    if (fresh.length === 0) continue;
-    await saveJournalMonth(month, [...current, ...fresh]);
+    // もう入っている行は、科目はそのままで、あとから読めるようにした項目（取引先・税率・元の説明）だけを足す
+    let filled = false;
+    const updated = current.map((e) => {
+      const n = e.ref ? byRef.get(e.ref) : undefined;
+      if (!n) return e;
+      const next = { ...e, memo2: e.memo2 || n.memo2, tax: e.tax ?? n.tax, src: e.src || n.src };
+      if (next.memo2 !== e.memo2 || next.tax !== e.tax || next.src !== e.src) filled = true;
+      return next;
+    });
+    if (fresh.length === 0 && !filled) continue;
+    await saveJournalMonth(month, [...updated, ...fresh]);
     added += fresh.length;
   }
   return added;
+}
+
+// ---------- 仕分けの候補 ----------
+
+/** 品名・取引先を見くらべるためにそろえる（全角・半角、空白、うしろの「他」） */
+const suggestKey = (s: string | undefined) =>
+  (s ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s/g, "")
+    .replace(/(他|ほか)$/, "");
+
+export type Suggestion = { code: string; by: "品名" | "取引先" };
+
+/**
+ * これまでに仕分けた行から、品名・取引先ごとに、いちばん多く選んだ借方の科目を覚える。
+ * 未仕分けの行や、借方がまだ空の行に、その科目を候補として出す（品名が合えば品名、なければ取引先）
+ */
+export function buildSuggester(journal: JournalMonth[]): (e: Pick<JournalEntry, "memo" | "memo2">) => Suggestion | null {
+  const byItem = new Map<string, Map<string, number>>();
+  const byPartner = new Map<string, Map<string, number>>();
+  const count = (m: Map<string, Map<string, number>>, key: string, code: string) => {
+    if (!key) return;
+    const c = m.get(key) ?? new Map<string, number>();
+    c.set(code, (c.get(code) ?? 0) + 1);
+    m.set(key, c);
+  };
+  for (const month of journal)
+    for (const e of month.entries) {
+      if (!e.debit || !e.credit || !e.amount) continue;
+      count(byItem, suggestKey(e.memo), e.debit);
+      count(byPartner, suggestKey(e.memo2), e.debit);
+    }
+  const best = (c: Map<string, number> | undefined) => (c ? [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] : undefined);
+  return (e) => {
+    const item = best(byItem.get(suggestKey(e.memo)));
+    if (item) return { code: item, by: "品名" };
+    const partner = best(byPartner.get(suggestKey(e.memo2)));
+    return partner ? { code: partner, by: "取引先" } : null;
+  };
 }

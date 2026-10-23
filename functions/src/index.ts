@@ -13,6 +13,7 @@ export { checkout, deleteReceivable, saveReceivable, setReceivablesStatus, voidS
 export { importWeatherMonth, refreshHarvestWeather } from "./weather.js";
 export { savePastShipments } from "./pastYield.js";
 export { readLedgerPage } from "./ledger.js";
+export { readBooksPage } from "./booksAi.js";
 export { saveGoveeKey, pollGovee, pollGoveeNow } from "./govee.js";
 export { refreshForecast } from "./forecast.js";
 export { refreshTempDiff } from "./tempDiff.js";
