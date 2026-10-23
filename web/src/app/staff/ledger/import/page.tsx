@@ -19,7 +19,7 @@ import {
   type LedgerConfig,
 } from "@/lib/books";
 import { readLedgerPdf, type LedgerFile } from "@/lib/ledgerPdf";
-import { receiptToJournal, scanLedgerFiles, scanReceipts, type Receipt } from "@/lib/booksScan";
+import { receiptLines, receiptToJournal, scanLedgerFiles, scanReceipts, type Receipt } from "@/lib/booksScan";
 import { readTrialBalance, type TbMonth, type TbParsed } from "@/lib/tbImport";
 import { openWorkbook } from "@/lib/xlsx";
 import { KeyBox } from "../../shipping/Shikiri";
@@ -385,7 +385,7 @@ function Reclassify({ journal }: { journal: JournalMonth[] }) {
 }
 
 /**
- * レシート・請求書を読む：写真・PDF（1枚1ページ）をAIで読み、税率ごとに1行の仕訳を、仕訳帳に未仕分けで入れる
+ * レシート・請求書を読む：写真・PDF（1枚1ページ）をAIで読み、明細の1行ずつ（読めなければ税率ごとに1行）の仕訳を、仕訳帳に未仕分けで入れる
  * （借方＝空、貸方＝払った科目。仕訳帳で借方の科目を選ぶ）
  */
 function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config: LedgerConfig; saved: TbMonth[] }) {
@@ -397,6 +397,8 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const importedMonths = new Set(saved.map((m) => m.month));
+  /** 試算表を取り込んだ月に入る行があるか（明細ごとの日付で見る） */
+  const inImported = (r: Receipt) => (receiptLines(r)?.map((l) => l.date) ?? [r.date]).some((d) => importedMonths.has(d.slice(0, 7)));
 
   async function pick(files: FileList) {
     setErr("");
@@ -404,7 +406,7 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
     setBusy(true);
     try {
       const r = await scanReceipts(Array.from(files), (done, total) => setProgress(`AIで読んでいます（${done}／${total}枚）`));
-      setList(r.map((x) => ({ ...x, use: x.byRate.length > 0 && !importedMonths.has(x.date.slice(0, 7)) })));
+      setList(r.map((x) => ({ ...x, use: x.byRate.length > 0 && !inImported(x) })));
     } catch (e) {
       setErr(errorText(e));
     } finally {
@@ -437,7 +439,7 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
     <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
       <h2 className="font-bold">レシート・請求書を読む</h2>
       <p className="mt-1 text-xs text-gray-500">
-        レシート・請求書・納品書の写真かPDFを選んでください（1枚に1ページ）。AIが日付・取引先・品名・税率ごとの金額を読み、税率ごとに1行ずつ、仕訳帳に未仕分けで入れます。
+        レシート・請求書・納品書の写真かPDFを選んでください（1枚に1ページ）。AIが日付・取引先・明細（品名・税率・金額）を読み、明細の1行ずつ、仕訳帳に未仕分けで入れます（税抜きの明細は税込みにします。明細が読めないときは税率ごとに1行）。
         貸方は下で選んだ「払った科目」、借方は仕訳帳で選びます（前に同じ品名・取引先で選んだ科目が候補に出ます）。試算表を取り込んだ月の分は、会計ソフトにもう入っているので、はじめはチェックを外しています。
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -463,7 +465,7 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
                 <th className="w-10 px-2 py-2" />
                 <th className="px-2 py-2 text-left">日付</th>
                 <th className="px-2 py-2 text-left">取引先</th>
-                <th className="px-2 py-2 text-left">品名</th>
+                <th className="px-2 py-2 text-left">明細（税込み）</th>
                 <th className="px-2 py-2 text-right">税率ごと</th>
                 <th className="px-2 py-2 text-right">合計</th>
                 <th className="px-2 py-2 text-left">確かめ</th>
@@ -477,11 +479,13 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
                   </td>
                   <td className="px-2 py-1.5">{r.date}</td>
                   <td className="px-2">{r.partner}</td>
-                  <td className="px-2">{r.items}</td>
+                  <td className="px-2 py-1.5">
+                    <ReceiptItems r={r} />
+                  </td>
                   <td className="px-2 text-right text-xs">{r.byRate.map((x) => `${x.rate} ${yen(x.amount)}`).join("／")}</td>
                   <td className="px-2 text-right">{yen(r.total)}</td>
                   <td className="px-2 text-xs">
-                    {importedMonths.has(r.date.slice(0, 7)) && <span className="text-amber-700">試算表を取り込んだ月です。</span>}
+                    {inImported(r) && <span className="text-amber-700">試算表を取り込んだ月です。</span>}
                     {r.problems.length ? <span className="text-amber-700">{r.problems.join("／")}</span> : <span className="text-emerald-700">✓</span>}
                     <span className="ml-1 text-gray-400">{r.fileName}</span>
                   </td>
@@ -497,5 +501,23 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
       {msg && <p className="mt-2 text-sm text-emerald-700">{msg}</p>}
       {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
     </section>
+  );
+}
+
+/** 1枚の明細（仕訳帳に入る行）。明細が読めないときは、まとめた品名 */
+function ReceiptItems({ r }: { r: Receipt }) {
+  const lines = receiptLines(r);
+  if (!lines) return <>{r.items}</>;
+  return (
+    <ul className="text-xs">
+      {lines.map((l, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="text-gray-400">{l.date.slice(5)}</span>
+          <span className="flex-1">{l.item}</span>
+          <span className="text-gray-400">{l.rate}</span>
+          <span className="w-20 text-right">{yen(l.amount)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

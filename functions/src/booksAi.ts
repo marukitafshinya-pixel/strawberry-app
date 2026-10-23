@@ -25,9 +25,19 @@ const RECEIPT_SCHEMA = {
       },
     },
     total: INT,
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { date: STR, item: STR, rate: { type: "string", enum: ["10%", "8%", "0%"] }, amount: INT },
+        required: ["date", "item", "rate", "amount"],
+        additionalProperties: false,
+      },
+    },
+    linesExcludeTax: { type: "boolean" },
     notes: STR,
   },
-  required: ["date", "partner", "items", "byRate", "total", "notes"],
+  required: ["date", "partner", "items", "byRate", "total", "lines", "linesExcludeTax", "notes"],
   additionalProperties: false,
 };
 
@@ -38,13 +48,33 @@ const RECEIPT_PROMPT = `これはお店で受け取ったレシートか、届�
 - partner：お店・会社の名前（例「コメリ」「ファームランド美瑛」。支店名はなくてよい。半角カナは全角カナに直す）
 - items：買ったものを短く（例「ナット他」「結束バンド・鎌」。いちばん高いもの1つに「他」をつけるくらいの長さ。30文字まで）
 - byRate：税率ごとの税込の金額。軽減税率（8%）の品と10%の品があれば分ける。税のかからないもの（切手・収入印紙など）は "0%"。値引きは引いたあとの金額
-- total：支払った合計（税込）
+- total：支払った合計（税込）。請求書は「今回の買い上げ（税込）」の合計で、前回の請求額・入金・繰越は入れない
+- lines：明細の1行ずつ（品物・作業ごと）。上から順に、書いてあるとおり全部
+  - date：その行の日付 "YYYY-MM-DD"（行に日付がなければ ""）
+  - item：品名（例「ミツバチ/ぶんぶん2000」。数量・単位はいらない。40文字まで）
+  - rate：その行の税率（書いていなければ、食品・飲み物は "8%"、ほかは "10%"）
+  - amount：その行の金額（数量×単価のあと。書いてあるとおりの数字。値引き・返品の行はマイナス）
+  - 入れない行：入金・振込・前回請求額・繰越・「伝票計」「小計」「合計」・消費税の行・送り先や挨拶の行
+- linesExcludeTax：lines の金額が税抜きなら true（「金額は税抜金額です」「外税」など）、税込みなら false
 - notes：読めない・自信がないところがあれば書く（なければ ""）。推測で埋めないでください
 
-byRate の合計が total と合うか確かめ、合わなければ読みなおしてください。1枚の画像に2枚以上のレシートが写っているときは、いちばん大きく写っている1枚だけを読み、notes にそう書いてください。`;
+年が2けた（例「26年」）のときは西暦の下2けた（2026年）。令和・平成で書いてあれば西暦に直してください。
+byRate の合計が total と合うか、lines の合計（税抜きなら税をたしたもの）が total とおおよそ合うかを確かめ、合わなければ読みなおしてください。1枚の画像に2枚以上のレシートが写っているときは、いちばん大きく写っている1枚だけを読み、notes にそう書いてください。`;
 
 /** エミュレーターの見本（レシート） */
-const RECEIPT_SAMPLE = { date: "2026-10-12", partner: "コメリ", items: "結束バンド他", byRate: [{ rate: "10%", amount: 3278 }], total: 3278, notes: "" };
+const RECEIPT_SAMPLE = {
+  date: "2026-10-12",
+  partner: "コメリ",
+  items: "結束バンド他",
+  byRate: [{ rate: "10%", amount: 3278 }],
+  total: 3278,
+  lines: [
+    { date: "", item: "結束バンド", rate: "10%", amount: 1980 },
+    { date: "", item: "鎌", rate: "10%", amount: 1298 },
+  ],
+  linesExcludeTax: false,
+  notes: "",
+};
 
 const MAX_SIZE = 9_000_000;
 
@@ -70,7 +100,7 @@ export const readBooksPage = onCall({ timeoutSeconds: 300, memory: "512MiB" }, a
   try {
     const stream = new Anthropic({ apiKey }).beta.messages.stream({
       model: MODEL,
-      max_tokens: kind === "ledger" ? 32000 : 4000,
+      max_tokens: kind === "ledger" ? 32000 : 16000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       output_config: { effort: "high", format: { type: "json_schema", schema: kind === "ledger" ? LEDGER_SCHEMA : RECEIPT_SCHEMA } },

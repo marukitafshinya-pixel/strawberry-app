@@ -112,7 +112,8 @@ export function AccountSelect({
 
 /** 金額の入力（全角の数字も読む） */
 export function Amount({ value, onChange, label }: { value: number | null; onChange: (v: number | null) => void; label: string }) {
-  const fmt = (v: number | null) => (v === null ? "" : String(v));
+  // 3けたごとにカンマを入れて見やすく（打っている間も）
+  const fmt = (v: number | null) => (v === null ? "" : v.toLocaleString("ja-JP"));
   const [text, setText] = useState(fmt(value));
   const [prev, setPrev] = useState(value);
   if (prev !== value) {
@@ -131,8 +132,9 @@ export function Amount({ value, onChange, label }: { value: number | null; onCha
           .replace(/[−ー－▲]/g, "-")
           .replace(/[^0-9-]/g, "")
           .replace(/(?!^)-/g, "");
-        setText(t);
-        onChange(t === "" || t === "-" ? null : Math.max(-999_999_999, Math.min(999_999_999, Number(t))));
+        const v = t === "" || t === "-" ? null : Math.max(-999_999_999, Math.min(999_999_999, Number(t)));
+        setText(v === null ? t : fmt(v));
+        onChange(v);
       }}
       className="w-full rounded border px-2 py-1 text-right tabular-nums"
     />

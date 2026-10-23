@@ -54,7 +54,18 @@ export async function scanLedgerFiles(files: File[], progress: Progress): Promis
 }
 
 /** AIが1枚のレシート・請求書から読んだもの */
-export type ReceiptResult = { date: string; partner: string; items: string; byRate: { rate: "10%" | "8%" | "0%"; amount: number }[]; total: number; notes: string };
+type Rate = "10%" | "8%" | "0%";
+export type ReceiptResult = {
+  date: string;
+  partner: string;
+  items: string;
+  byRate: { rate: Rate; amount: number }[];
+  total: number;
+  /** 明細の1行ずつ（金額は linesExcludeTax なら税抜き） */
+  lines?: { date: string; item: string; rate: Rate; amount: number }[];
+  linesExcludeTax?: boolean;
+  notes: string;
+};
 export type Receipt = ReceiptResult & { fileName: string; problems: string[] };
 
 /** レシート・請求書（写真・PDF。1枚1ページ）を読む */
@@ -69,6 +80,7 @@ export async function scanReceipts(files: File[], progress: Progress): Promise<R
       if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) problems.push("日付が読めません");
       const sum = r.byRate.reduce((n, x) => n + x.amount, 0);
       if (sum !== r.total) problems.push(`税率ごとの合計 ${sum.toLocaleString("ja-JP")} が合計 ${r.total.toLocaleString("ja-JP")} と合いません`);
+      if (r.lines?.length && !receiptLines(r)) problems.push("明細の合計が合計と合わないので、税率ごとに1行で入れます");
       if (r.notes) problems.push(r.notes);
       out.push({ ...r, fileName: pages[i].name, problems });
     } catch (e) {
@@ -79,8 +91,52 @@ export async function scanReceipts(files: File[], progress: Progress): Promise<R
   return out;
 }
 
-/** レシート・請求書を仕訳にする：税率ごとに1行（借方＝空、貸方＝払った科目） */
+const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+
+/**
+ * 明細の1行ずつを、税込みの金額にする。税抜きの明細は行ごとに税をたし、端数のずれは税率ごとのいちばん大きい行で合わせる
+ * （税率ごとの合計が、レシート・請求書の税込みの金額と同じになるように）。合計が大きく合わないときは null
+ */
+export function receiptLines(r: ReceiptResult): { date: string; item: string; rate: Rate; amount: number }[] | null {
+  const lines = (r.lines ?? []).filter((l) => l.amount);
+  if (!lines.length) return null;
+  const out = lines.map((l) => ({
+    date: isDate(l.date) ? l.date : r.date,
+    item: l.item,
+    rate: l.rate,
+    amount: r.linesExcludeTax ? Math.round((l.amount * (100 + Number(l.rate.replace("%", "")))) / 100) : l.amount,
+  }));
+  for (const rate of new Set(out.map((l) => l.rate))) {
+    const group = out.filter((l) => l.rate === rate);
+    const target = r.byRate.find((x) => x.rate === rate)?.amount;
+    if (target === undefined) return null;
+    const diff = target - group.reduce((n, l) => n + l.amount, 0);
+    if (Math.abs(diff) > Math.max(10, group.length)) return null;
+    group.reduce((m, l) => (Math.abs(l.amount) > Math.abs(m.amount) ? l : m)).amount += diff;
+  }
+  // 明細にない税率（合計だけ書いてある）があれば、合わない
+  if (r.byRate.some((x) => x.amount && !out.some((l) => l.rate === x.rate))) return null;
+  return out;
+}
+
+/**
+ * レシート・請求書を仕訳にする：明細の1行ずつ1行（借方＝空、貸方＝払った科目）。
+ * 明細が読めないとき・合わないときは、税率ごとに1行
+ */
 export function receiptToJournal(r: Receipt, payCode: string): JournalEntry[] {
+  const lines = receiptLines(r);
+  if (lines)
+    return lines.map((l, i) => ({
+      date: l.date,
+      debit: "",
+      credit: payCode,
+      amount: l.amount,
+      memo: l.item.slice(0, 80),
+      memo2: r.partner.slice(0, 60),
+      tax: Number(l.rate.replace("%", "")),
+      src: "レシート・請求書",
+      ref: `rcpt:${r.date}:${r.total}:${i}:${r.partner}`.slice(0, 60),
+    }));
   return r.byRate
     .filter((x) => x.amount)
     .map((x) => ({
