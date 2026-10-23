@@ -218,13 +218,24 @@ export function storeDaysFromSales(sales: Sale[]): Record<string, StoreDay> {
  * 店舗実績（保存した数字）に、REGI_START 以降のレジの会計から出した数字を重ねたもの。
  * レジの会計がある日は会計の数字（auto に入る）、ない日は保存した数字のまま。
  */
-export function useStoreDaysWithRegi(from: string, to: string): { days: Record<string, StoreDay> | null; auto: Record<string, StoreDay> } {
+export function useStoreDaysWithRegi(
+  from: string,
+  to: string,
+): { days: Record<string, StoreDay> | null; auto: Record<string, StoreDay>; pay: Record<string, { cash: number; credit: number }> } {
   const stored = useStoreDays(from, to);
   const need = to >= REGI_START;
   const { value: sales } = useSales(need ? (from < REGI_START ? REGI_START : from) : "9999-12-30", need ? to : "9999-12-31");
   return useMemo(() => {
-    if (!stored || !sales) return { days: null, auto: {} };
-    const auto = storeDaysFromSales(sales.filter((s) => s.date >= REGI_START && s.date >= from && s.date <= to));
-    return { days: { ...stored, ...auto }, auto };
+    if (!stored || !sales) return { days: null, auto: {}, pay: {} };
+    const regi = sales.filter((s) => s.date >= REGI_START && s.date >= from && s.date <= to);
+    const auto = storeDaysFromSales(regi);
+    // 売上合計のうち、現金と売掛（レジの会計がある日だけ。手で入れた日・取り込んだ日はわからない）
+    const pay: Record<string, { cash: number; credit: number }> = {};
+    for (const s of regi) {
+      if (s.status !== "completed") continue;
+      const p = (pay[s.date] ??= { cash: 0, credit: 0 });
+      p[s.payment === "credit" ? "credit" : "cash"] += s.total;
+    }
+    return { days: { ...stored, ...auto }, auto, pay };
   }, [stored, sales, from, to]);
 }
