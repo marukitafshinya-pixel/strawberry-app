@@ -13,7 +13,7 @@ export function ColorChartOverlay({ onClose }: { onClose: () => void }) {
         </div>
         {/* 画面の横幅いっぱいに（縦が足りなければ縦に合わせて）大きく出す */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/color-chart.webp" alt="いちご 収穫色目カラーチャート（赤色の割合：3割赤〜10割赤。未熟・収穫適期・収穫遅れ）" className="min-h-0 w-full flex-1 object-contain" />
+        <img src="/color-chart.webp?v=2" alt="いちご 収穫色目カラーチャート（赤色の割合：4割赤〜10割赤。未熟・収穫適期・収穫遅れ。いちばん太いところに横一線の点線）" className="min-h-0 w-full flex-1 object-contain" />
       </div>
     </div>
   );
