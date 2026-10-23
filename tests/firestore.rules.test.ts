@@ -633,6 +633,23 @@ describe("個別の連絡 (harvest/{date}/messages)", () => {
     await assertFails(setDoc(doc(staff(), "config/messagePresets"), { items: "x" }));
     await assertFails(setDoc(doc(worker("w8"), "config/messagePresets"), { items: [] }));
     await assertSucceeds(getDoc(doc(worker("w8"), "config/messagePresets")));
+    // 携帯への指示：収穫管理を使える人が送り、本人が「実行した」を入れる
+    const cmd = { to: "m7", kind: "goto", house: "8", at: serverTimestamp(), by: "u1", doneAt: null };
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/commands/c1`), cmd));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/commands/c2`), { ...cmd, kind: "delete" }));
+    await assertFails(setDoc(doc(worker("w8"), `harvest/${today}/commands/c3`), { ...cmd, by: "w8" }));
+    await assertFails(getDoc(doc(worker("w8"), `harvest/${today}/commands/c1`)));
+    await assertSucceeds(updateDoc(doc(worker("w7"), `harvest/${today}/commands/c1`), { doneAt: serverTimestamp() }));
+    // 携帯の声の設定：本人は使える声などを入れる。収穫管理からは声・順番だけ
+    await assertSucceeds(
+      setDoc(doc(worker("w7"), "harvestPhones/m7"), { voices: ["Kyoko"], ios: true, localVoice: null, localOrder: "voiceFirst", seenAt: serverTimestamp() }),
+    );
+    await assertFails(setDoc(doc(worker("w8"), "harvestPhones/m7"), { voices: [] }, { merge: true }));
+    await assertSucceeds(setDoc(doc(staff(), "harvestPhones/m7"), { wantVoice: "Kyoko", wantOrder: "soundFirst", wantAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(doc(staff(), "harvestPhones/m7"), { localVoice: "x" }, { merge: true }));
+    // まちがえて押したときの取り消し：収穫管理を使える人も、本人の「入った・終わった」を直せる
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/taps/m7`), { houses: { "17": { start: null } } }, { merge: true }));
+    await assertFails(setDoc(doc(worker("w8"), `harvest/${today}/taps/m7`), { houses: {} }));
   });
 });
 

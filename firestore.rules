@@ -497,8 +497,10 @@ service cloud.firestore {
     // 同じハウスの人が全員「終わった」を押したかを見るため、今日の分は従業員どうしで見られる（時刻だけで、個人情報は入れない）
     match /harvest/{date}/taps/{memberId} {
       allow read: if can(['harvest']) || (isWorker() && nearToday(date));
-      allow write: if isWorker() && nearToday(date)
-        && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId
+      // 本人のほか、収穫管理を使える人（管理者・集荷係）も、まちがえて押したときの取り消しのために直せる
+      allow write: if ((isWorker() && nearToday(date)
+          && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId)
+          || isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
         && request.resource.data.keys().hasOnly(['houses', 'updatedAt'])
         && request.resource.data.houses is map && request.resource.data.houses.size() <= 40;
     }
@@ -543,6 +545,23 @@ service cloud.firestore {
       allow write: if (can(['harvest']) || isHarvestWorker())
         && request.resource.data.keys().hasOnly(['items', 'updatedAt'])
         && request.resource.data.items is list && request.resource.data.items.size() <= 30;
+    }
+    // 収穫報告の携帯への指示（harvest/{date}/commands/{id}）：音声案内のテスト・行き先。収穫管理を使える人が送り、本人の携帯が実行して doneAt を入れる
+    match /harvest/{date}/commands/{id} {
+      allow read: if can(['harvest']) || isPickupOn(date)
+        || (isWorker() && nearToday(date) && resource.data.to == get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId);
+      allow create: if (isAdmin() || ((can(['harvest']) || isHarvestWorker()) && recentDay(date)) || isPickupOn(date))
+        && request.resource.data.keys().hasOnly(['to', 'kind', 'house', 'at', 'by', 'doneAt'])
+        && request.resource.data.to is string && request.resource.data.to.size() > 0 && request.resource.data.to.size() <= 60
+        && request.resource.data.kind in ['test', 'goto']
+        && (request.resource.data.house == null || (request.resource.data.house is string && request.resource.data.house.size() <= 10))
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.doneAt == null;
+      allow update: if isWorker() && nearToday(date)
+        && resource.data.to == get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['doneAt'])
+        && request.resource.data.doneAt == request.time;
     }
     // ハウスの使い方（収穫・いちご狩り・半分・予備・休み）：スタッフと、その日の集荷係の従業員が書く
     match /houseUse/{date} {
@@ -648,6 +667,17 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['partners', 'items', 'updatedAt'])
         && (!('partners' in request.resource.data) || (request.resource.data.partners is map && request.resource.data.partners.size() <= 2000))
         && (!('items' in request.resource.data) || (request.resource.data.items is map && request.resource.data.items.size() <= 5000));
+    }
+    // 収穫報告の携帯の声の設定（harvestPhones/{従業員の id}）：携帯は使える声・いまの設定・行き先を入れる（本人の分だけ）。
+    // 収穫管理を使える人（集荷係の従業員もふくむ）は、声・順番（want〜）だけ変えられる。声の名前だけで、個人情報は入れない
+    match /harvestPhones/{memberId} {
+      allow read: if can(['harvest']) || isWorker();
+      allow write: if (isWorker()
+          && get(/databases/$(database)/documents/workers/$(request.auth.uid)).data.memberId == memberId
+          && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(['voices', 'ios', 'localVoice', 'localOrder', 'chosen', 'seenAt']))
+        || ((can(['harvest']) || isWorker())
+          && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(['wantVoice', 'wantOrder', 'wantAt'])
+          && request.resource.data.wantAt == request.time);
     }
     // 去年の出荷実績（日ごとの合計重量）：経営の数字なので管理者だけが読める。保存はサーバー（savePastShipments）だけ
     match /pastShipments/{season} {

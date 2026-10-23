@@ -2,6 +2,8 @@
 
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
 import { MessageAlert } from "./MessageAlert";
+import { PhonePanel, usePhoneSync } from "./PhoneRemote";
+import { reportChosen, usePhoneState } from "@/lib/phoneRemote";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings, voiceTest } from "@/lib/announce";
@@ -126,6 +128,14 @@ export function TapScreen({
   const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
   const [chosen, setChosen] = useState<string | null>(null);
+  /** 行き先を決めたのはだれか（self＝本人が「ほかのハウスに行く」で選んだ、admin＝収穫管理から決めた） */
+  const [chosenBy, setChosenBy] = useState<"self" | "admin">("self");
+  // 収穫管理から見るときは、その人の携帯で選んでいる行き先を出す
+  const phone = usePhoneState(preview ? me.id : null);
+  const phoneChosen = phone?.chosen && phone.chosen.date === date ? phone.chosen : null;
+  /** いま決まっている行き先（収穫管理から見るときは、その人の携帯で選んでいるもの） */
+  const chosenNow = preview ? (phoneChosen?.house ?? null) : chosen;
+  const chosenByNow = preview ? (phoneChosen?.by ?? "self") : chosenBy;
   /** 「ほかのハウスに行く」の一覧（null＝閉じている、done＝もう終わったハウス。読み込み中は undefined） */
   const [others, setOthers] = useState<{ done: string[] | undefined } | null>(null);
 
@@ -251,8 +261,8 @@ export function TapScreen({
   /** 指示するハウス：今のハウスか、応援のハウス。ほかのハウスを選んだら、そのハウス */
   /** 自分の応援先（見るだけの画面では、その人に割り当てられている応援先） */
   const helpHouse = helpNow ? (helpNow.assign[me.id] ?? null) : null;
-  const target = inNow ? current : (chosen ?? current ?? (free ? helpHouse : null));
-  const isChosen = !inNow && chosen != null;
+  const target = inNow ? current : (chosenNow ?? current ?? (free ? helpHouse : null));
+  const isChosen = !inNow && chosenNow != null;
   const isHelp = !isChosen && current == null && target != null;
 
   // ---------- 音声案内と、画面を消さない（本人の携帯だけ。見るだけの画面ではしない） ----------
@@ -269,6 +279,25 @@ export function TapScreen({
   }, [preview]);
   /** 画面いっぱいに出す知らせ（「わかった」で消す） */
   const [notice, setNotice] = useState<string | null>(null);
+  // 収穫管理からの操作を受けとる（声の設定・音声テスト・行き先）。本人の携帯だけ
+  const sync = usePhoneSync({
+    date,
+    memberId: me.id,
+    enabled: !preview,
+    onGoto: (h) => {
+      setChosen(h);
+      setChosenBy("admin");
+      unlockSound();
+      announce(SAY.goto(h), { sound: "change", vibrate: true });
+      setNotice(`管理者の指示で、次は${h}番ハウスです`);
+    },
+    onTest: () => voiceTest(setNotice),
+  });
+  // 選んでいる行き先を、収穫管理から見えるように知らせる
+  useEffect(() => {
+    if (preview) return;
+    void reportChosen(me.id, chosen ? { date, house: chosen, by: chosenBy } : null).catch(() => {});
+  }, [preview, me.id, date, chosen, chosenBy]);
   // 休憩の合図：管理者・集荷係が押したら、効果音と声と画面で知らせる（見るだけの画面では鳴らさない）
   useBreakCall(date, !preview, () => {
     announce(SAY.break, { sound: "break", vibrate: true });
@@ -336,7 +365,8 @@ export function TapScreen({
       !(others?.done ?? []).includes(h) &&
       !((cfg?.noHelp ?? []).includes(h) && !who(h).includes(me.id)),
   );
-  const othersBox = !inNow && (planned.length > 0 || helped.length > 0) && (
+  // 収穫管理から見るときは出さない（下の「携帯の設定」から行き先を送る）
+  const othersBox = !preview && !inNow && (planned.length > 0 || helped.length > 0) && (
     <div className="text-center">
       {others == null ? (
         <button onClick={openOthers} className="rounded-2xl border-2 border-gray-400 bg-white px-5 py-3 text-lg font-bold text-gray-700">
@@ -353,6 +383,7 @@ export function TapScreen({
               onChange={(e) => {
                 if (!e.target.value) return;
                 setChosen(e.target.value);
+                setChosenBy("self");
                 setOthers(null);
               }}
               className="mt-2 w-full rounded-xl border-2 bg-white px-3 py-3 text-2xl"
@@ -426,7 +457,9 @@ export function TapScreen({
               {inNow
                 ? "いま収穫しているハウス"
                 : isChosen
-                  ? "集荷係の指示で、次は"
+                  ? chosenByNow === "admin"
+                    ? "管理者の指示で、次は"
+                    : "集荷係の指示で、次は"
                   : isHelp
                     ? "応援をお願いします。次は"
                     : pos === 0 && doneCount === 0
@@ -435,7 +468,7 @@ export function TapScreen({
             </p>
             <p className="my-1 text-7xl font-bold text-berry tabular-nums">{target}番</p>
             {!inNow && (isHelp || isChosen || pos > 0 || doneCount > 0) && <p className="text-lg text-gray-600">の収穫をお願いします</p>}
-            {isChosen && (
+            {isChosen && !preview && (
               <button onClick={() => setChosen(null)} className="mt-2 text-sm text-gray-500 underline">
                 もとの指示にもどす
               </button>
@@ -480,7 +513,7 @@ export function TapScreen({
       )}
       {error && <p className="text-red-600">保存できませんでした：{error}</p>}
       {last && (
-        <button disabled={preview || busy} onClick={() => void run(undo)} className="block w-full text-center text-sm text-gray-500 underline">
+        <button disabled={busy} onClick={() => void run(undo)} className="block w-full text-center text-sm text-gray-500 underline">
           まちがえて押したとき（{last.house}番の「{last.kind === "in" ? "入った" : "終わった"}」を取り消す）
         </button>
       )}
@@ -493,8 +526,17 @@ export function TapScreen({
           <Link href="/staff/harvest/tap/practice/" className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
             🎓 練習モード
           </Link>
-          <VoiceSettings />
+          <VoiceSettings key={sync.version} onChange={(v, o) => sync.report(v, o)} />
         </div>
+      )}
+      {preview && (
+        // 収穫管理から：その人の携帯の声の設定・音声テスト・行き先（「入った」「終わった」以外）
+        <PhonePanel
+          date={date}
+          memberId={me.id}
+          name={me.name}
+          choices={harvestHouses(template).filter((h) => !NO_HARVEST.includes(usageOf(h)) && mine[h]?.end == null && !(help?.done ?? []).includes(h))}
+        />
       )}
     </div>
   );

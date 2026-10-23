@@ -212,7 +212,7 @@ export function speak(text: string, useChosen = true, onEnd?: () => void) {
 export type VoiceOrder = "soundFirst" | "voiceFirst" | "voiceOnly";
 const ORDER_KEY = "harvestVoiceOrder";
 /** iPhone・iPad か（iPhone は効果音のすぐあとだと声が出ないことがあるので、ふだんは声→音） */
-const isIOS = () =>
+export const isIOS = () =>
   typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1));
 export function voiceOrder(): VoiceOrder {
   try {
@@ -263,6 +263,8 @@ export const SAY = {
   done: "今日の収穫はすべて終わりました！みなさん、おつかれさまでした！",
   change: (h: string) => `応援先が変更になりました！${h}番へ向かってください！`,
   help: (h: string) => `応援をお願いします！${h}番へ向かってください！`,
+  /** 収穫管理から行き先を決めたとき */
+  goto: (h: string) => `管理者の指示です！次は${h}番ハウスへ向かってください！`,
   break: "おつかれさまです！ただいまから休憩の時間です。",
 };
 
@@ -366,7 +368,7 @@ export function DimScreen({ text, onWake }: { text: string; onWake: () => void }
 }
 
 /** 声の設定：この携帯で使える日本語の声から選ぶ（選んだ声はこの携帯に覚える）。「この声で試す」で聞ける */
-export function VoiceSettings() {
+export function VoiceSettings({ onChange }: { onChange?: (voice: string | null, order: VoiceOrder) => void } = {}) {
   const [open, setOpen] = useState(false);
   const [voices, setVoices] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string>(() => (typeof window === "undefined" ? "" : (savedVoice() ?? "")));
@@ -399,6 +401,7 @@ export function VoiceSettings() {
           onChange={(e) => {
             setChosen(e.target.value);
             saveVoice(e.target.value || null);
+            onChange?.(e.target.value || null, order);
           }}
           className="mt-1 w-full rounded-lg border px-2 py-2 text-base"
           aria-label="声"
@@ -418,6 +421,7 @@ export function VoiceSettings() {
         onChange={(e) => {
           setOrder(e.target.value as VoiceOrder);
           saveVoiceOrder(e.target.value as VoiceOrder);
+          onChange?.(chosen || null, e.target.value as VoiceOrder);
         }}
         className="mt-1 w-full rounded-lg border px-2 py-2 text-base"
         aria-label="音と声の順番"
