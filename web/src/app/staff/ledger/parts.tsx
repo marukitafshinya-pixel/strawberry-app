@@ -178,15 +178,7 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(null)} />
           <div style={{ top: Math.max(8, open.top), left: open.left }} className="fixed z-50 w-80 rounded-xl border bg-white p-2 text-left text-sm font-normal text-gray-800 shadow-xl">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="名前・読み・コードで探す（syu・しゅ など）"
-              aria-label="科目を名前で探す"
-              className="w-full rounded border px-2 py-1"
-            />
-            <div className="mt-2 flex gap-2">
+            <div className="flex gap-2">
               <button type="button" onClick={() => set(shown.map((a) => a.code), true)} className="flex-1 rounded border px-2 py-1 text-xs">
                 すべて入れる{key ? "（見つけた分）" : ""}
               </button>
@@ -213,6 +205,19 @@ export function PickFilter({ accounts, pick, onChange }: { accounts: Account[]; 
               ))}
               {shown.length === 0 && <li className="px-1 py-2 text-xs text-gray-500">見つかりません</li>}
             </ul>
+            {/* 探す欄は下に：予測変換（IME）の窓が欄の下に出ても、一覧が隠れない */}
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="名前・読み・コードで探す（syu・しゅ など）"
+              aria-label="科目を名前で探す"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="mt-2 w-full rounded border px-2 py-1"
+            />
             <p className="mt-2 border-t pt-1 text-xs text-gray-500">チェックした科目だけがプルダウンに出ます（1つもなければ全部）。選ぶとすぐ保存します。</p>
           </div>
         </>
@@ -243,7 +248,7 @@ export function AccountCombo({
   only?: string[];
   className?: string;
 }) {
-  const [open, setOpen] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [open, setOpen] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null);
   const [q, setQ] = useState("");
   const [hi, setHi] = useState(0);
   const base = accounts.filter((a) => !a.hidden);
@@ -268,8 +273,9 @@ export function AccountCombo({
   };
   const show = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom > 300;
-    setOpen({ top: below ? r.bottom + 2 : Math.max(8, r.top - 302), left: Math.min(r.left, window.innerWidth - 340), width: Math.max(r.width, 320) });
+    // パソコンの予測変換（IME）の窓は、打っている欄のすぐ下に出る。重ならないよう、上に余裕があれば上に出す
+    const above = r.top > 330;
+    setOpen({ top: above ? r.top - 322 : r.bottom + 2, left: Math.min(r.left, window.innerWidth - 340), width: Math.max(r.width, 320), above });
     setHi(0);
   };
   const row = (a: Account | null, i: number) => (
@@ -314,7 +320,8 @@ export function AccountCombo({
           if (!open) show(e.currentTarget);
         }}
         onKeyDown={(e) => {
-          if (!open) return;
+          // 予測変換で字を決めている間の Enter・↑↓ は、IME のためのもの
+          if (!open || e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "ArrowDown") {
             e.preventDefault();
             setHi(Math.min(hi + 1, options.length - 1));
@@ -330,10 +337,18 @@ export function AccountCombo({
             (e.target as HTMLInputElement).blur();
           }
         }}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className={`rounded border bg-white px-2 py-1 ${className}`}
       />
       {open && (
-        <ul style={{ top: open.top, left: open.left, width: open.width }} className="fixed z-50 max-h-72 overflow-auto rounded-xl border bg-white py-1 text-sm shadow-xl">
+        <div
+          style={{ top: open.top, left: open.left, width: open.width }}
+          className={`pointer-events-none fixed z-50 flex h-80 flex-col *:pointer-events-auto ${open.above ? "justify-end" : ""}`}
+        >
+          <ul className="max-h-72 overflow-auto rounded-t-xl border bg-white py-1 text-sm shadow-xl">
           {row(null, 0)}
           {q
             ? hit.map((a, i) => row(a, i + 1))
@@ -346,7 +361,9 @@ export function AccountCombo({
           {others.length > 0 && <li className="bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600">ほかの科目</li>}
           {others.map((a, i) => row(a, hit.length + 1 + i))}
           {q && hit.length + others.length === 0 && <li className="px-2 py-2 text-xs text-gray-500">見つかりません</li>}
-        </ul>
+          </ul>
+          <p className="rounded-b-xl border border-t-0 bg-gray-50 px-2 py-1 text-xs text-gray-500 shadow-xl">半角英数で「syu」と打てば、予測変換は出ません</p>
+        </div>
       )}
     </>
   );
