@@ -12,6 +12,7 @@ import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
   buildSuggester,
+  buildTemplates,
   taxOf,
   fullName,
   autoPostings,
@@ -143,6 +144,33 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
         return e;
       }),
     );
+  // 前に同じ摘要で入れた仕訳（ほかの月の保存したもの＋この月の今の行）
+  const templates = useMemo(
+    () => buildTemplates([...books.journal.filter((m) => m.month !== month), { month, entries }]),
+    [books.journal, month, entries],
+  );
+  /** 摘要を打ち終えたら：前に同じ摘要で入れた仕訳があれば、空いている借方・貸方（と税率）に入れる。入っている欄は変えない */
+  const fillFromMemo = (i: number) => {
+    const e = entries[i];
+    if (!e || isBlankJournal(e) || (e.debit && e.credit)) return;
+    const t = templates(e);
+    if (!t) return;
+    const debit = e.debit || (t.debit !== e.credit ? t.debit : "");
+    const credit = e.credit || (t.credit !== debit ? t.credit : "");
+    if (debit === e.debit && credit === e.credit) return;
+    set(i, { debit, credit, ...(typeof e.tax === "number" || t.tax === undefined ? {} : { tax: t.tax }) });
+  };
+  /** 欄で Enter：右の欄へ（いちばん右なら次の行の最初へ）。予測変換で字を決めている間の Enter は使わない */
+  const enterToNext = (ev: React.KeyboardEvent<HTMLElement>) => {
+    if (ev.key !== "Enter" || ev.nativeEvent.isComposing || ev.keyCode === 229 || ev.shiftKey) return;
+    const t = ev.target as HTMLElement;
+    if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
+    const fields = Array.from(ev.currentTarget.querySelectorAll<HTMLElement>("input, select")).filter((f) => !(f as HTMLInputElement).disabled);
+    const next = fields[fields.indexOf(t) + 1];
+    if (!next) return;
+    ev.preventDefault();
+    next.focus();
+  };
   /** 税率の欄が空のとき：科目の税率（収益・費用の側） */
   const rateLabel = (e: JournalEntry) => {
     const a = [e.debit, e.credit].map((c) => (c ? accountOf(accounts, c) : null)).find((a) => a && (a.kind === "revenue" || a.kind === "expense"));
@@ -270,6 +298,8 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
           <thead className="bg-gray-50 text-xs text-gray-600">
             <tr>
               <th className="w-36 px-2 py-2 text-left">日付</th>
+              <th className="px-2 py-2 text-left">摘要（品名）</th>
+              <th className="px-2 py-2 text-left">摘要（取引先）</th>
               <th className="px-2 py-2 text-left">
                 借方（増えた資産・かかった費用）
                 <PickFilter accounts={accounts} pick={config.pick} onChange={savePick} />
@@ -280,12 +310,10 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
               </th>
               <th className="w-28 px-2 py-2 text-right">金額</th>
               <th className="w-20 px-2 py-2 text-left">税率</th>
-              <th className="px-2 py-2 text-left">摘要（品名）</th>
-              <th className="px-2 py-2 text-left">摘要（取引先）</th>
               <th className="w-10" />
             </tr>
           </thead>
-          <tbody>
+          <tbody onKeyDown={enterToNext}>
             {entries.map((e, i) =>
               onlyUnsorted && !isUnsortedJournal(e) && !isBlankJournal(e) ? null : (
               <tr key={i} className={`border-t ${problems[i] ? "bg-red-50" : isUnsortedJournal(e) ? "bg-amber-50" : ""}`}>
@@ -298,6 +326,28 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     aria-label={`${i + 1}行目の日付`}
                     onChange={(x) => set(i, { date: x.target.value })}
                     className="w-full rounded border px-1 py-1"
+                  />
+                </td>
+                <td className="px-1 py-1 align-top">
+                  <input
+                    value={e.memo}
+                    maxLength={80}
+                    aria-label={`${i + 1}行目の摘要（品名）`}
+                    onChange={(x) => set(i, { memo: x.target.value })}
+                    onBlur={() => fillFromMemo(i)}
+                    className="w-full rounded border px-2 py-1"
+                  />
+                  {e.src && <p className="mt-0.5 text-xs text-gray-400">{e.src}</p>}
+                  {problems[i] && <p className="mt-0.5 text-xs text-red-600">{problems[i]}</p>}
+                </td>
+                <td className="px-1 py-1 align-top">
+                  <input
+                    value={e.memo2 ?? ""}
+                    maxLength={60}
+                    aria-label={`${i + 1}行目の摘要（取引先）`}
+                    onChange={(x) => set(i, { memo2: x.target.value })}
+                    onBlur={() => fillFromMemo(i)}
+                    className="w-full rounded border px-2 py-1"
                   />
                 </td>
                 <td className="px-1 py-1 align-top">
@@ -341,26 +391,6 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
                     <option value="0">なし</option>
                   </select>
                 </td>
-                <td className="px-1 py-1 align-top">
-                  <input
-                    value={e.memo}
-                    maxLength={80}
-                    aria-label={`${i + 1}行目の摘要（品名）`}
-                    onChange={(x) => set(i, { memo: x.target.value })}
-                    className="w-full rounded border px-2 py-1"
-                  />
-                  {e.src && <p className="mt-0.5 text-xs text-gray-400">{e.src}</p>}
-                  {problems[i] && <p className="mt-0.5 text-xs text-red-600">{problems[i]}</p>}
-                </td>
-                <td className="px-1 py-1 align-top">
-                  <input
-                    value={e.memo2 ?? ""}
-                    maxLength={60}
-                    aria-label={`${i + 1}行目の摘要（取引先）`}
-                    onChange={(x) => set(i, { memo2: x.target.value })}
-                    className="w-full rounded border px-2 py-1"
-                  />
-                </td>
                 <td className="px-1 text-center align-top">
                   {!isBlankJournal(e) && (
                     <button onClick={() => change(entries.filter((_, j) => j !== i))} className="px-1 py-1 text-gray-400 hover:text-red-600" aria-label={`${i + 1}行目を消す`}>
@@ -374,11 +404,11 @@ function Editor({ month, books, config }: { month: string; books: Books; config:
           </tbody>
           <tfoot className="border-t-2 bg-gray-50 font-bold">
             <tr>
-              <td colSpan={3} className="px-2 py-2">
+              <td colSpan={5} className="px-2 py-2">
                 合計
               </td>
               <td className="px-2 text-right tabular-nums">{yen(manualTotal)}</td>
-              <td colSpan={4} />
+              <td colSpan={2} />
             </tr>
           </tfoot>
         </table>

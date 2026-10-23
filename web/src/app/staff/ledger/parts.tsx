@@ -330,7 +330,8 @@ export function AccountCombo({
             setHi(Math.max(hi - 1, 0));
           } else if (e.key === "Enter") {
             e.preventDefault();
-            if (options[hi] !== undefined) choose(options[hi]);
+            // 何も打たず、↑↓でも選んでいなければ、今の科目のまま（次の欄へ進むだけ）
+            if ((q || hi > 0) && options[hi] !== undefined) choose(options[hi]);
             (e.target as HTMLInputElement).blur();
           } else if (e.key === "Escape") {
             setOpen(null);

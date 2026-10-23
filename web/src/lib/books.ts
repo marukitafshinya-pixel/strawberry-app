@@ -1276,6 +1276,35 @@ export function buildSuggester(journal: JournalMonth[]): (e: Pick<JournalEntry, 
   };
 }
 
+/** 前に同じ摘要で入れた仕訳の、借方・貸方・税率 */
+export type EntryTemplate = { debit: string; credit: string; tax: number | null | undefined; by: Suggestion["by"] };
+
+/**
+ * これまでに入れた仕訳（借方・貸方とも入っているもの）から、品名・取引先ごとに、いちばん新しい仕訳の科目と税率を覚える。
+ * 仕訳帳で摘要を打ったとき、空いている科目・税率に入れる（品名が合えば品名、なければ取引先）
+ */
+export function buildTemplates(journal: JournalMonth[]): (e: Pick<JournalEntry, "memo" | "memo2">) => EntryTemplate | null {
+  const byItem = new Map<string, { date: string; t: Omit<EntryTemplate, "by"> }>();
+  const byPartner = new Map<string, { date: string; t: Omit<EntryTemplate, "by"> }>();
+  const keep = (m: typeof byItem, key: string, e: JournalEntry) => {
+    if (!key) return;
+    const old = m.get(key);
+    if (!old || old.date <= e.date) m.set(key, { date: e.date, t: { debit: e.debit, credit: e.credit, tax: e.tax } });
+  };
+  for (const month of journal)
+    for (const e of month.entries) {
+      if (!e.debit || !e.credit || !e.amount) continue;
+      keep(byItem, suggestKey(e.memo), e);
+      keep(byPartner, suggestKey(e.memo2), e);
+    }
+  return (e) => {
+    const item = byItem.get(suggestKey(e.memo));
+    if (item) return { ...item.t, by: "品名" };
+    const partner = byPartner.get(suggestKey(e.memo2));
+    return partner ? { ...partner.t, by: "取引先" } : null;
+  };
+}
+
 /**
  * 読み込むときの自動の仕分け：前に仕分けた行と同じ品名（なければ取引先）なら、空いている側にその科目を入れる。
  * 入れた行の数も返す（入れた行は未仕分けでなくなり、保存すると帳簿に入る）
