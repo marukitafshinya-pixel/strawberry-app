@@ -3,7 +3,7 @@
 import { collection, deleteField, doc, documentId, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useRef, useState } from "react";
 import { errorText } from "@/lib/callFunction";
 import { addDays, shiftMonth, todayJST, weekday } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
@@ -12,7 +12,17 @@ import { yen } from "@/lib/reservations";
 import { guessYear } from "@/lib/shipping";
 import { RangeSummary } from "./RangeSummary";
 import { decodeCsv, parseCsv } from "@/lib/csv";
-import { AIRREGI_KEYS, STORE_ITEMS, STORE_KEYS, parseAirregiDailyCsv, parseStoreSheet, REGI_START, useStoreDaysWithRegi, type StoreDay, type StoreKey } from "@/lib/store";
+import {
+  AIRREGI_KEYS,
+  STORE_ITEMS,
+  STORE_KEYS,
+  parseAirregiDailyCsv,
+  parseStoreSheet,
+  REGI_START,
+  useStoreDaysWithRegi,
+  type StoreDay,
+  type StoreKey,
+} from "@/lib/store";
 import { openWorkbook, type Workbook } from "@/lib/xlsx";
 
 const lastDayOf = (ym: string) => addDays(`${shiftMonth(ym, 1)}-01`, -1);
@@ -34,7 +44,7 @@ function StoreView() {
   /** 期間を指定して集計する欄を開いているか */
   const [showRange, setShowRange] = useState(false);
   const setMonth = (m: string) => router.replace(`/staff/store/?month=${m}`);
-  const { days: loaded, auto } = useStoreDaysWithRegi(`${month}-01`, lastDayOf(month));
+  const { days: loaded, auto, pay } = useStoreDaysWithRegi(`${month}-01`, lastDayOf(month));
   const year = month.slice(0, 4);
   const { days: yearData } = useStoreDaysWithRegi(`${year}-01-01`, `${year}-12-31`);
   // 取り込みのあと、表を読み直すための番号
@@ -50,24 +60,33 @@ function StoreView() {
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">店舗実績</h1>
         <div className="flex flex-wrap gap-2">
-        <Link href={`/staff/store/weekly/?year=${year}&unit=day`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
-          実績集計（日ごと）
-        </Link>
-        <Link href={`/staff/store/weekly/?year=${year}`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
-          実績集計（週ごと）
-        </Link>
-        <Link href={`/staff/store/weekly/?year=${year}&unit=month`} className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800">
-          実績集計（月ごと）
-        </Link>
-        <Link href="/staff/report/items/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
-          商品別の実績
-        </Link>
-        <button
-          onClick={() => setShowRange(!showRange)}
-          className={`rounded-lg border border-berry px-4 py-2 text-sm font-bold ${showRange ? "bg-berry text-white" : "bg-white text-berry"}`}
-        >
-          📅 期間を指定して集計
-        </button>
+          <Link
+            href={`/staff/store/weekly/?year=${year}&unit=day`}
+            className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
+          >
+            実績集計（日ごと）
+          </Link>
+          <Link
+            href={`/staff/store/weekly/?year=${year}`}
+            className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
+          >
+            実績集計（週ごと）
+          </Link>
+          <Link
+            href={`/staff/store/weekly/?year=${year}&unit=month`}
+            className="rounded-lg border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
+          >
+            実績集計（月ごと）
+          </Link>
+          <Link href="/staff/report/items/" className="rounded-lg border border-berry bg-white px-4 py-2 text-sm font-bold text-berry">
+            商品別の実績
+          </Link>
+          <button
+            onClick={() => setShowRange(!showRange)}
+            className={`rounded-lg border border-berry px-4 py-2 text-sm font-bold ${showRange ? "bg-berry text-white" : "bg-white text-berry"}`}
+          >
+            📅 期間を指定して集計
+          </button>
         </div>
       </div>
       {showRange && <RangeSummary />}
@@ -92,7 +111,7 @@ function StoreView() {
       ) : (
         <>
           <StoreImport defaultYear={Number(year)} onDone={() => setVersion((v) => v + 1)} />
-          <Grid key={`${month}_${version}`} month={month} loaded={loaded} auto={auto} />
+          <Grid key={`${month}_${version}`} month={month} loaded={loaded} auto={auto} pay={pay} />
         </>
       )}
       {yearData && <YearSummary year={year} data={yearData} />}
@@ -102,7 +121,18 @@ function StoreView() {
   );
 }
 
-function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, StoreDay>; auto: Record<string, StoreDay> }) {
+/** pay＝売上合計のうち、現金と売掛（レジの会計がある日だけ） */
+function Grid({
+  month,
+  loaded,
+  auto,
+  pay,
+}: {
+  month: string;
+  loaded: Record<string, StoreDay>;
+  auto: Record<string, StoreDay>;
+  pay: Record<string, { cash: number; credit: number }>;
+}) {
   const [data, setData] = useState<Record<string, StoreDay>>(loaded);
   const [changed, setChanged] = useState<string[]>([]);
   const [message, setMessage] = useState("");
@@ -115,6 +145,9 @@ function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, S
   // レジの会計から出した日は、その数字を使う（手では直せない）
   const view = (d: string) => auto[d] ?? data[d];
   const rowTotal = (k: StoreKey) => days.reduce((n, d) => n + (view(d)?.[k] ?? 0), 0);
+  /** 売上合計のうち、現金・売掛の月の合計（レジの会計がある日だけ） */
+  const payTotal = (k: "cash" | "credit") => days.reduce((n, d) => n + (pay[d]?.[k] ?? 0), 0);
+  const hasPay = days.some((d) => pay[d]);
 
   useEffect(() => {
     if (changed.length === 0) return;
@@ -161,13 +194,15 @@ function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, S
   }
 
   function exportCsv() {
-    const rows: (string | number)[][] = [["日付", "曜日", ...STORE_ITEMS.map((i) => i.label)]];
+    // レジの会計がある月は、売上合計のうち現金・売掛の列も付ける
+    const payHead = hasPay ? ["売上合計のうち現金", "売上合計のうち売掛"] : [];
+    const rows: (string | number)[][] = [["日付", "曜日", ...STORE_ITEMS.map((i) => i.label), ...payHead]];
     for (const d of days) {
       const day = view(d);
       if (!day || Object.keys(day).length === 0) continue;
-      rows.push([d, weekday(d), ...STORE_KEYS.map((k) => day[k] ?? "")]);
+      rows.push([d, weekday(d), ...STORE_KEYS.map((k) => day[k] ?? ""), ...(hasPay ? [pay[d]?.cash ?? "", pay[d]?.credit ?? ""] : [])]);
     }
-    rows.push(["合計", "", ...STORE_KEYS.map((k) => rowTotal(k))]);
+    rows.push(["合計", "", ...STORE_KEYS.map((k) => rowTotal(k)), ...(hasPay ? [payTotal("cash"), payTotal("credit")] : [])]);
     downloadCsv(`store_${month}.csv`, rows);
   }
 
@@ -187,7 +222,10 @@ function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, S
             <tr>
               <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 text-left">項目</th>
               {days.map((d) => (
-                <th key={d} className={`px-1 py-1 text-center font-semibold ${d === today ? "bg-berry/15" : ""} ${weekday(d) === "日" ? "text-red-600" : weekday(d) === "土" ? "text-blue-600" : ""}`}>
+                <th
+                  key={d}
+                  className={`px-1 py-1 text-center font-semibold ${d === today ? "bg-berry/15" : ""} ${weekday(d) === "日" ? "text-red-600" : weekday(d) === "土" ? "text-blue-600" : ""}`}
+                >
                   <div>{Number(d.slice(8))}</div>
                   <div className="font-normal">{weekday(d)}</div>
                 </th>
@@ -200,24 +238,47 @@ function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, S
               const isSales = it.unit === "円";
               const group = i % 2 === 0 || it.key === "discount";
               return (
-                <tr key={it.key} className={group ? "border-t-2 border-gray-300" : "border-t"}>
-                  <td className={`sticky left-0 z-10 whitespace-nowrap bg-white px-2 py-1 ${isSales ? "font-semibold" : "pl-4 text-gray-600"}`}>{it.label}</td>
-                  {days.map((d) => (
-                    <td key={d} className={`px-0.5 py-0.5 ${auto[d] ? "bg-sky-50" : d === today ? "bg-berry/5" : ""}`}>
-                      {auto[d] ? (
-                        <div className={`${isSales ? "w-20" : "w-12"} px-1 py-1 text-right text-sm tabular-nums text-sky-900`} title="レジの会計から自動">
-                          {auto[d][it.key] !== undefined ? num(auto[d][it.key]!) : ""}
-                        </div>
-                      ) : (
-                        <Cell wide={isSales} value={data[d]?.[it.key]} onChange={(v) => setCell(d, it.key, v)} label={`${Number(d.slice(8))}日 ${it.label}`} />
-                      )}
+                <Fragment key={it.key}>
+                  <tr className={group ? "border-t-2 border-gray-300" : "border-t"}>
+                    <td className={`sticky left-0 z-10 whitespace-nowrap bg-white px-2 py-1 ${isSales ? "font-semibold" : "pl-4 text-gray-600"}`}>
+                      {it.label}
                     </td>
-                  ))}
-                  <td className="whitespace-nowrap bg-berry/5 px-2 text-right font-semibold tabular-nums">
-                    {num(rowTotal(it.key))}
-                    {isSales ? "円" : "人"}
-                  </td>
-                </tr>
+                    {days.map((d) => (
+                      <td key={d} className={`px-0.5 py-0.5 ${auto[d] ? "bg-sky-50" : d === today ? "bg-berry/5" : ""}`}>
+                        {auto[d] ? (
+                          <div className={`${isSales ? "w-20" : "w-12"} px-1 py-1 text-right text-sm tabular-nums text-sky-900`} title="レジの会計から自動">
+                            {auto[d][it.key] !== undefined ? num(auto[d][it.key]!) : ""}
+                          </div>
+                        ) : (
+                          <Cell
+                            wide={isSales}
+                            value={data[d]?.[it.key]}
+                            onChange={(v) => setCell(d, it.key, v)}
+                            label={`${Number(d.slice(8))}日 ${it.label}`}
+                          />
+                        )}
+                      </td>
+                    ))}
+                    <td className="whitespace-nowrap bg-berry/5 px-2 text-right font-semibold tabular-nums">
+                      {num(rowTotal(it.key))}
+                      {isSales ? "円" : "人"}
+                    </td>
+                  </tr>
+                  {/* 売上合計の下に、そのうち現金・売掛（レジの会計がある日だけ） */}
+                  {it.key === "total" &&
+                    hasPay &&
+                    (["cash", "credit"] as const).map((k) => (
+                      <tr key={k} className="border-t text-sky-900">
+                        <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-2 py-1 pl-4">うち{k === "cash" ? "現金" : "売掛"}</td>
+                        {days.map((d) => (
+                          <td key={d} className={`px-0.5 py-0.5 ${auto[d] ? "bg-sky-50" : d === today ? "bg-berry/5" : ""}`}>
+                            <div className="w-20 px-1 py-1 text-right text-sm tabular-nums">{pay[d] ? num(pay[d][k]) : ""}</div>
+                          </td>
+                        ))}
+                        <td className="whitespace-nowrap bg-berry/5 px-2 text-right font-semibold tabular-nums">{num(payTotal(k))}円</td>
+                      </tr>
+                    ))}
+                </Fragment>
               );
             })}
           </tbody>
@@ -225,16 +286,36 @@ function Grid({ month, loaded, auto }: { month: string; loaded: Record<string, S
       </div>
       {Object.keys(auto).length > 0 && (
         <p className="mt-1 text-xs text-sky-800">
-          水色の日は、アプリのレジの会計から自動で入っています（{Number(REGI_START.slice(5, 7))}月{Number(REGI_START.slice(8))}日から）。売上合計＝会計の合計、客数（合計）＝会計の数、値引額＝値引きの合計、直売・カフェ・いちご狩りの客数＝その分類の数量（いちご狩りは人数）です。直したいときは、取引履歴で会計を直してください。
+          水色の日は、アプリのレジの会計から自動で入っています（{Number(REGI_START.slice(5, 7))}月{Number(REGI_START.slice(8))}
+          日から）。売上合計＝会計の合計、客数（合計）＝会計の数、値引額＝値引きの合計、直売・カフェ・いちご狩りの客数＝その分類の数量（いちご狩りは人数）です。直したいときは、取引履歴で会計を直してください。
         </p>
       )}
-      <p className="mt-1 text-xs text-gray-500">売上は円、客数は人で入れてください。売上合計はExcelと同じく、入れた数字をそのまま使います（値引き後の金額など）。</p>
+      <p className="mt-1 text-xs text-gray-500">
+        売上は円、客数は人で入れてください。売上合計はExcelと同じく、入れた数字をそのまま使います（値引き後の金額など）。
+      </p>
 
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile label={`${Number(month.slice(5))}月の売上合計`} value={yen(rowTotal("total"))} sub={`客数 ${num(rowTotal("totalCustomers"))}人・客単価 ${perCustomer(rowTotal("total"), rowTotal("totalCustomers"))}`} strong />
-        <Tile label="直売売上" value={yen(rowTotal("direct"))} sub={`客数 ${num(rowTotal("directCustomers"))}人・客単価 ${perCustomer(rowTotal("direct"), rowTotal("directCustomers"))}`} />
-        <Tile label="カフェ売上" value={yen(rowTotal("cafe"))} sub={`客数 ${num(rowTotal("cafeCustomers"))}人・客単価 ${perCustomer(rowTotal("cafe"), rowTotal("cafeCustomers"))}`} />
-        <Tile label="いちご狩り売上" value={yen(rowTotal("ichigo"))} sub={`客数 ${num(rowTotal("ichigoCustomers"))}人・客単価 ${perCustomer(rowTotal("ichigo"), rowTotal("ichigoCustomers"))}`} />
+        <Tile
+          label={`${Number(month.slice(5))}月の売上合計`}
+          value={yen(rowTotal("total"))}
+          sub={`客数 ${num(rowTotal("totalCustomers"))}人・客単価 ${perCustomer(rowTotal("total"), rowTotal("totalCustomers"))}${hasPay ? `／うち現金 ${yen(payTotal("cash"))}・売掛 ${yen(payTotal("credit"))}` : ""}`}
+          strong
+        />
+        <Tile
+          label="直売売上"
+          value={yen(rowTotal("direct"))}
+          sub={`客数 ${num(rowTotal("directCustomers"))}人・客単価 ${perCustomer(rowTotal("direct"), rowTotal("directCustomers"))}`}
+        />
+        <Tile
+          label="カフェ売上"
+          value={yen(rowTotal("cafe"))}
+          sub={`客数 ${num(rowTotal("cafeCustomers"))}人・客単価 ${perCustomer(rowTotal("cafe"), rowTotal("cafeCustomers"))}`}
+        />
+        <Tile
+          label="いちご狩り売上"
+          value={yen(rowTotal("ichigo"))}
+          sub={`客数 ${num(rowTotal("ichigoCustomers"))}人・客単価 ${perCustomer(rowTotal("ichigo"), rowTotal("ichigoCustomers"))}`}
+        />
         <Tile label="値引額" value={yen(rowTotal("discount"))} />
         <Tile label="営業日数" value={`${days.filter((d) => (view(d)?.total ?? 0) > 0).length}日`} />
       </div>
@@ -308,9 +389,10 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
     try {
       const book = await openWorkbook(await f.arrayBuffer());
       setFile({ name: f.name, book });
-      const daily = book.sheetNames.filter((n) => /日別実績/.test(n))
-          // 年の新しいものを先に。同じ年なら「集計」のタブ（週ごとのまとめ）は後にする
-          .sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0) || Number(/集計/.test(x)) - Number(/集計/.test(y)));
+      const daily = book.sheetNames
+        .filter((n) => /日別実績/.test(n))
+        // 年の新しいものを先に。同じ年なら「集計」のタブ（週ごとのまとめ）は後にする
+        .sort((x, y) => (guessYear([y]) ?? 0) - (guessYear([x]) ?? 0) || Number(/集計/.test(x)) - Number(/集計/.test(y)));
       await openSheet(book, daily[0] ?? book.sheetNames[0], f.name);
     } catch (e) {
       setError(`読み込めませんでした：${e instanceof Error ? e.message : String(e)}`);
@@ -344,7 +426,12 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       const { db } = await getFirebase();
       // 今入っている内容を読んでから、表にある項目だけ上書きする（表が空欄のところはそのまま）
       const snap = await getDocs(query(collection(db, "storeDaily"), where(documentId(), ">=", ok.from!), where(documentId(), "<=", ok.to!)));
-      const current = new Map(snap.docs.map((d) => [d.id, Object.fromEntries(STORE_KEYS.filter((k) => typeof d.get(k) === "number").map((k) => [k, d.get(k) as number])) as StoreDay]));
+      const current = new Map(
+        snap.docs.map((d) => [
+          d.id,
+          Object.fromEntries(STORE_KEYS.filter((k) => typeof d.get(k) === "number").map((k) => [k, d.get(k) as number])) as StoreDay,
+        ]),
+      );
       const fromAirregi = new Set(snap.docs.filter((d) => d.get("airregi") === true).map((d) => d.id));
       const writes: [string, StoreDay, boolean][] = [];
       let kept = 0;
@@ -357,10 +444,12 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
           kept++;
         }
         // 空いているところだけ入れるときは、今入っている項目は変えない
-        if (onlyEmpty) for (const k of STORE_KEYS) if (k in add && cur[k] !== undefined && cur[k] !== add[k]) {
-          delete add[k];
-          kept++;
-        }
+        if (onlyEmpty)
+          for (const k of STORE_KEYS)
+            if (k in add && cur[k] !== undefined && cur[k] !== add[k]) {
+              delete add[k];
+              kept++;
+            }
         const next = { ...cur, ...add };
         const air = !!csv || fromAirregi.has(date);
         if (STORE_KEYS.every((k) => cur[k] === next[k]) && air === fromAirregi.has(date)) continue;
@@ -368,11 +457,14 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
       }
       for (let i = 0; i < writes.length; i += 400) {
         const batch = writeBatch(db);
-        for (const [date, day, air] of writes.slice(i, i + 400)) batch.set(doc(db, `storeDaily/${date}`), { ...day, ...(air ? { airregi: true } : {}), updatedAt: serverTimestamp() });
+        for (const [date, day, air] of writes.slice(i, i + 400))
+          batch.set(doc(db, `storeDaily/${date}`), { ...day, ...(air ? { airregi: true } : {}), updatedAt: serverTimestamp() });
         await batch.commit();
       }
       if (kept > 0) setMessage(`（アプリに入っている数字・エアレジの数字は、${kept}か所そのまま残しました）`);
-      setMessage((m) => `${writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。"}${m.startsWith("（") ? m : ""}`);
+      setMessage(
+        (m) => `${writes.length > 0 ? `${writes.length}日分を保存しました。` : "すでに同じ内容が入っていました（変更なし）。"}${m.startsWith("（") ? m : ""}`,
+      );
       setFile(null);
       setTable(null);
       setCsv(null);
@@ -414,28 +506,33 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
         <section className="mt-2 rounded-2xl border border-berry/40 bg-white p-4 text-sm shadow-sm">
           <h2 className="font-bold">店舗実績の取り込み（{file.name}）</h2>
           {file.book && (
-<div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2">
-              <span className="text-gray-600">タブ</span>
-              <select value={sheet} disabled={busy} onChange={(e) => openSheet(file.book!, e.target.value, file.name).catch((er) => setError(String(er)))} className="rounded-lg border px-2 py-1 text-base">
-                {file.book!.sheetNames.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="text-gray-600">何年の実績ですか</span>
-              <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border px-2 py-1 text-base">
-                {Array.from({ length: 8 }, (_, i) => defaultYear + 1 - i).map((y) => (
-                  <option key={y} value={y}>
-                    {y}年
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">タブ</span>
+                <select
+                  value={sheet}
+                  disabled={busy}
+                  onChange={(e) => openSheet(file.book!, e.target.value, file.name).catch((er) => setError(String(er)))}
+                  className="rounded-lg border px-2 py-1 text-base"
+                >
+                  {file.book!.sheetNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">何年の実績ですか</span>
+                <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border px-2 py-1 text-base">
+                  {Array.from({ length: 8 }, (_, i) => defaultYear + 1 - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}年
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           )}
           {!table && !csv ? (
             <p className="mt-2 text-gray-500">読み込み中…</p>
@@ -456,7 +553,9 @@ function StoreImport({ defaultYear, onDone }: { defaultYear: number; onDone: () 
                   <input type="checkbox" className="mt-1" checked={onlyEmpty} onChange={(e) => setOnlyEmpty(e.target.checked)} />
                   <span>
                     <b>アプリに入っている数字は変えない</b>（空いているところだけ入れる）
-                    <span className="block text-xs text-gray-600">チェックを外すと、取り込むファイルの数字で上書きします（アプリで直した数字も元に戻ります）。</span>
+                    <span className="block text-xs text-gray-600">
+                      チェックを外すと、取り込むファイルの数字で上書きします（アプリで直した数字も元に戻ります）。
+                    </span>
                   </span>
                 </label>
                 <p className="mt-1 text-xs text-gray-500">表が空欄（0）の日・項目は、今入っている内容のままです。</p>
@@ -523,7 +622,9 @@ function Cell({ value, onChange, label, wide }: { value: number | undefined; onC
 function YearSummary({ year, data }: { year: string; data: Record<string, StoreDay> }) {
   const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
   const sum = (m: string, k: StoreKey) => Object.entries(data).reduce((n, [d, v]) => n + (d.startsWith(m) ? (v[k] ?? 0) : 0), 0);
-  const rows = months.map((m) => ({ m, ...Object.fromEntries(STORE_KEYS.map((k) => [k, sum(m, k)])) }) as { m: string } & Record<StoreKey, number>).filter((r) => STORE_KEYS.some((k) => r[k] > 0));
+  const rows = months
+    .map((m) => ({ m, ...Object.fromEntries(STORE_KEYS.map((k) => [k, sum(m, k)])) }) as { m: string } & Record<StoreKey, number>)
+    .filter((r) => STORE_KEYS.some((k) => r[k] > 0));
   if (rows.length === 0) return null;
   const cols: { k: StoreKey; label: string }[] = [
     { k: "direct", label: "直売" },
