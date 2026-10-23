@@ -2,9 +2,9 @@
 
 // 帳簿：いまの会計ソフトから取り込む。月ごとの合計残高試算表（貸借対照表・損益計算書・製造原価のシート。.xls / .xlsx）を読み、
 // 合っているかを確かめてから tbImport/{YYYY-MM} に保存する（管理者と経理担当）。取り込んだ月は、帳簿でその数字だけを使う
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { errorText } from "@/lib/callFunction";
+import { callFunction, errorText } from "@/lib/callFunction";
 import {
   appendJournal,
   autoClassify,
@@ -22,6 +22,7 @@ import { readLedgerPdf, type LedgerFile } from "@/lib/ledgerPdf";
 import { receiptToJournal, scanLedgerFiles, scanReceipts, type Receipt } from "@/lib/booksScan";
 import { readTrialBalance, type TbMonth, type TbParsed } from "@/lib/tbImport";
 import { openWorkbook } from "@/lib/xlsx";
+import { KeyBox } from "../../shipping/Shikiri";
 import { AccountSelect, canUseLedger, LedgerHeader, yen } from "../parts";
 
 const ym = (m: string) => `${m.slice(0, 4)}年${Number(m.slice(5))}月`;
@@ -44,6 +45,7 @@ export default function ImportPage() {
         <>
           <Import config={config} saved={saved} />
           <Saved saved={saved} />
+          <AiKey admin={role === "admin"} />
           <Reclassify journal={journal} />
           <Receipts journal={journal} config={config} saved={saved} />
         </>
@@ -221,6 +223,24 @@ function Saved({ saved }: { saved: TbMonth[] }) {
  * 総勘定元帳から仕分けし直す：会計ソフトの総勘定元帳（PDF）の行を、仕訳帳に「未仕分け」で入れる。
  * 貸方はその元帳の科目、借方は空にしておき、仕訳帳で新しい科目を選ぶ（選んだ行から、元の科目から新しい科目へ移る）
  */
+/** スキャン・写真・レシートを読むAIの鍵（仕切書・経費の仕分けと同じ鍵）。まだなければ、ここで登録できる */
+function AiKey({ admin }: { admin: boolean }) {
+  const [key, setKey] = useState<{ set: boolean; last4: string } | null>(null);
+  useEffect(() => {
+    callFunction<object, { set: boolean; last4: string }>("aiKeyStatus", {})
+      .then(setKey)
+      .catch(() => {});
+  }, []);
+  if (!key) return null;
+  return (
+    <section className="mt-6 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="font-bold">AIの鍵</h2>
+      <p className="mt-1 text-xs text-gray-600">スキャンしたPDF・写真・レシートを読むのに使います（文字の入っているPDFと試算表の取り込みには要りません）。</p>
+      <KeyBox status={key} admin={admin} onChange={setKey} />
+    </section>
+  );
+}
+
 function Reclassify({ journal }: { journal: JournalMonth[] }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<(LedgerFile & { fileName: string })[]>([]);

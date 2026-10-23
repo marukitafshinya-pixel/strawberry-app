@@ -23,7 +23,7 @@ export async function loadKey(): Promise<string | null> {
 
 /** AIの鍵が登録されているか（鍵そのものは返さない。末尾4文字だけ） */
 export const aiKeyStatus = onCall(async (req) => {
-  await assertCan(req, ["shipping"]);
+  await assertCan(req, ["shipping", "ledger"]);
   const k = await loadKey();
   return { set: !!k, last4: k ? k.slice(-4) : "" };
 });
