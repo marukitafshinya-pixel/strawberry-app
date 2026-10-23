@@ -486,7 +486,35 @@ export default function HarvestPage() {
         )}
       </div>
       {unassignedNote}
-      {content}
+      {/* パソコンの表の画面でも、収穫する人それぞれの「収穫報告」の画面と指示一覧を切り替えて見られる */}
+      <div className="mt-3 flex gap-1 border-b">
+        {(
+          [
+            ["sheet", "🍓 収穫管理"],
+            ["tap", "📱 収穫報告"],
+            ["list", "📋 指示一覧"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setTapView(v)}
+            className={`rounded-t-lg px-4 py-2 text-sm font-bold whitespace-nowrap ${tapView === v ? "border border-b-white bg-white text-berry" : "text-gray-500"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tapView === "tap" && template && haichi && use && members ? (
+        <div className="max-w-md">
+          <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec ?? undefined} />
+        </div>
+      ) : tapView === "list" && template && haichi && use && members && rec && hp ? (
+        <div className="max-w-3xl">
+          <TapList date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec} houseEnd={fc?.houseEnd ?? {}} />
+        </div>
+      ) : (
+        content
+      )}
     </>
   );
 }

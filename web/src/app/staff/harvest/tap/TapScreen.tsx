@@ -420,7 +420,7 @@ export function TapScreen({
         </div>
       )}
       {preview ? (
-        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">{me.name} さんの携帯に出ている画面です（ここでは見るだけで、押せません）</p>
+        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">{me.name} さんの携帯に出ている画面です（「入った」「終わった」はここでは押せません。取り消しと、下の携帯の設定はここから操作できます）</p>
       ) : (
         <div className="flex items-center justify-between">
           {back}
