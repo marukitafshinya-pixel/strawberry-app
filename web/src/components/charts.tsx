@@ -29,7 +29,8 @@ const SURFACE = "#ffffff";
 export const yenShort = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "")}万` : n.toLocaleString("ja-JP"));
 const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 
-export type Series = { key: string; label: string; color: string };
+/** width＝線の太さ（折れ線だけ。決めていなければ2px） */
+export type Series = { key: string; label: string; color: string; width?: number };
 
 /** 上だけ角を丸めた長方形（データの端を丸め、ゼロ側は四角のまま） */
 function topRoundedRect(x: number, y: number, w: number, h: number, r: number): string {
@@ -1010,7 +1011,7 @@ export function CompareLines({
               d={pathOf((r) => r.prev[s.key])}
               fill="none"
               stroke={s.color}
-              strokeWidth={2}
+              strokeWidth={s.width ?? 2}
               strokeDasharray="5 4"
               opacity={0.6}
               strokeLinejoin="round"
@@ -1018,7 +1019,7 @@ export function CompareLines({
             />
           ))}
         {series.map((s) => (
-          <path key={s.key} d={pathOf((r) => r.values[s.key])} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <path key={s.key} d={pathOf((r) => r.values[s.key])} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" />
         ))}
         {hover != null &&
           series.map((s) => {

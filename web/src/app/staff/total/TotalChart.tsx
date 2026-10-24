@@ -16,7 +16,7 @@ type Unit = "week" | "month";
 const SERIES: Series[] = [
   { key: "store", label: "店舗合計", color: SERIES_COLORS[0] },
   { key: "ship", label: "出荷合計", color: SERIES_COLORS[1] },
-  { key: "ichigo", label: "いちご合計", color: SERIES_COLORS[2] },
+  { key: "ichigo", label: "いちご合計", color: SERIES_COLORS[2], width: 4 },
 ];
 const DAY = 86_400_000;
 const yen = (n: number | null) => (n == null ? "－" : n.toLocaleString("ja-JP"));
