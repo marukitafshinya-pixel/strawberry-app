@@ -780,6 +780,7 @@ function Sheet({
       planned={!rec[h]?.members && who(h).length > 0}
       here={(id) => hereOf(id) === h}
       tapped={(id) => entered(h, id)}
+      stopped={(id) => !!rec[h]?.stopFor?.includes(id)}
       moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
@@ -1009,6 +1010,7 @@ function Members({
   planned,
   here,
   tapped,
+  stopped,
   moved,
   finished,
   names,
@@ -1021,6 +1023,8 @@ function Members({
   here: (id: string) => boolean;
   /** その人が「入った」を押した（または管理者・集荷係が時刻を入れた）。今いるハウスの名前を水色にする（押すまでは緑） */
   tapped: (id: string) => boolean;
+  /** その人だけ、このハウスで終了（🏁を付ける） */
+  stopped: (id: string) => boolean;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -1050,6 +1054,7 @@ function Members({
           }`}
         >
           {(finished || moved(id)) && !here(id) ? "✓ " : ""}
+          {stopped(id) ? "🏁" : ""}
           {names.get(id) ?? "（いない人）"} ×
         </button>
       ))}

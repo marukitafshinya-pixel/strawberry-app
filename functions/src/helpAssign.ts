@@ -15,6 +15,8 @@ export type HelpHouse = {
   helpers?: string[];
   /** 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（次のハウス・応援に行かない） */
   stopHere?: boolean;
+  /** 🏁個人でここで終了：この人たち（従業員の id）は、このハウスを終えたらその日の収穫をここまでにする */
+  stopFor?: string[];
 };
 export type HelpForecast = { start?: number | null; end?: number | null; members?: string[] };
 export type HelpTaps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
@@ -67,7 +69,7 @@ export function helpCandidates(i: HelpInput): string[] {
 export function stoppedAt(i: Pick<HelpInput, "houses" | "taps" | "fh">, id: string): string | null {
   const mine = i.taps[id] ?? {};
   for (const [h, r] of Object.entries(i.houses)) {
-    if (!r?.stopHere) continue;
+    if (!r?.stopHere && !(r?.stopFor ?? []).includes(id)) continue;
     const was = mine[h]?.start != null || [...(r.members ?? i.fh[h]?.members ?? []), ...(r.helpers ?? [])].includes(id);
     if (!was || (r.left ?? []).includes(id)) continue;
     const end = mine[h]?.end ?? r.end;

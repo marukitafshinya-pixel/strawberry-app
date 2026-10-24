@@ -108,6 +108,8 @@ export type HelpInfo = {
   ranking?: { house: string; finish: number; crew: number; started: boolean }[];
   /** 🏁ここで終了のハウス */
   stops?: string[];
+  /** 🏁個人でここで終了：ハウス → その人たち */
+  stopFor?: Record<string, string[]>;
 };
 export const fetchHelpHouse = (free = false) => callFunction<{ free: boolean }, HelpInfo>("harvestHelpHouse", { free });
 
@@ -279,4 +281,14 @@ export function useMessagePresets(): string[] | null {
 export async function saveMessagePresets(items: string[]) {
   const { db } = await getFirebase();
   await setDoc(doc(db, "config", "messagePresets"), { items, updatedAt: serverTimestamp() });
+}
+
+/** 🏁個人でここで終了を付ける・外す（その人がこのハウスを終えたら、その日の収穫をここまでにする） */
+export async function setStopFor(date: string, house: string, memberId: string, on: boolean) {
+  const { db } = await getFirebase();
+  await setDoc(
+    doc(db, "harvest", date),
+    { houses: { [house]: { stopFor: on ? arrayUnion(memberId) : arrayRemove(memberId) } }, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }

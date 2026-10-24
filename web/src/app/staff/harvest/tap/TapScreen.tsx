@@ -110,6 +110,7 @@ export function TapScreen({
   taps,
   me,
   preview = false,
+  rec,
 }: {
   date: string;
   template: HaichiTemplate;
@@ -119,6 +120,8 @@ export function TapScreen({
   taps: DayTaps;
   me: ShiftMember;
   preview?: boolean;
+  /** 収穫管理の記録（収穫管理から見るとき。個人の「ここで終了」に使う） */
+  rec?: HarvestDoc;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -152,7 +155,8 @@ export function TapScreen({
     edited: help?.members,
     houseDone: help?.done,
     houseStarted: help?.started,
-    stops: [...new Set([...(help?.stops ?? []), ...freshStops])],
+    // 🏁ここで終了：ハウスの人全員の分と、自分だけの分
+    stops: [...new Set([...(help?.stops ?? []), ...Object.keys(help?.stopFor ?? {}).filter((x) => help!.stopFor![x].includes(me.id)), ...freshStops])],
   });
   /** 取り消せる最後の操作：今のハウスの「入った」か、その前に「終わった」を押したハウス */
   const lastOut = Object.keys(mine)
@@ -225,7 +229,7 @@ export function TapScreen({
     logHarvest(date, { house: h, end: now, tap: "out" });
     // 同じハウスの人が全員押したら、ハウスの「終わった」（最後の人の時刻）
     const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
-    if (info?.stops) setFreshStops(info.stops);
+    if (info) setFreshStops([...(info.stops ?? []), ...Object.keys(info.stopFor ?? {}).filter((x) => info.stopFor![x].includes(me.id))]);
     const ends = crewOf(h, all).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
     // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）ときは、ハウスの「終わった」は入れない（ほかの人がまだ収穫している）
     const othersBefore = !who(h).includes(me.id) && info?.started?.[h] != null && info.started[h].start < (mine[h]?.start ?? now);
@@ -540,6 +544,8 @@ export function TapScreen({
           memberId={me.id}
           name={me.name}
           choices={harvestHouses(template).filter((h) => !NO_HARVEST.includes(usageOf(h)) && mine[h]?.end == null && !(help?.done ?? []).includes(h))}
+          target={target}
+          stopAt={Object.keys(rec ?? {}).find((h) => rec?.[h]?.stopFor?.includes(me.id) && rec[h].end == null) ?? null}
         />
       )}
     </div>
@@ -587,7 +593,7 @@ export function TapPreview({
           </option>
         ))}
       </select>
-      <TapScreen key={me.id} date={date} template={template} haichi={haichi} use={use} members={members} taps={taps} me={me} preview />
+      <TapScreen key={me.id} date={date} template={template} haichi={haichi} use={use} members={members} taps={taps} me={me} preview rec={rec} />
     </div>
   );
 }
@@ -620,7 +626,16 @@ export function TapList({
   const changeKey =
     JSON.stringify(taps) +
     JSON.stringify(
-      Object.entries(rec).map(([h, r]) => [h, r.start ?? null, r.end ?? null, r.members ?? null, r.helpers ?? null, r.left ?? null, r.stopHere ?? false]),
+      Object.entries(rec).map(([h, r]) => [
+        h,
+        r.start ?? null,
+        r.end ?? null,
+        r.members ?? null,
+        r.helpers ?? null,
+        r.left ?? null,
+        r.stopHere ?? false,
+        r.stopFor ?? null,
+      ]),
     );
   useEffect(() => {
     let alive = true;
@@ -655,8 +670,9 @@ export function TapList({
       .filter(([, r]) => r.start != null && r.end == null)
       .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [] }]),
   );
-  const stops = Object.keys(rec).filter((h) => rec[h]?.stopHere);
   const rows = people.map((m) => {
+    // 🏁ここで終了：ハウスの人全員の分と、その人だけの分
+    const stops = Object.keys(rec).filter((h) => rec[h]?.stopHere || rec[h]?.stopFor?.includes(m.id));
     const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited, houseDone, houseStarted, stops });
     const h = st.current;
     const text = st.stopped

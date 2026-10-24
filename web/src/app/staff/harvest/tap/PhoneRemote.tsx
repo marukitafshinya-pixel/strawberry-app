@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isIOS, japaneseVoices, saveVoice, saveVoiceOrder, savedVoice, voiceOrder, type VoiceOrder } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
-import { PRESENCE_MS, usePresenceAll } from "@/lib/harvestTap";
+import { PRESENCE_MS, setStopFor, usePresenceAll } from "@/lib/harvestTap";
 import { doneCommand, reportPhone, sendCommand, setPhonePrefs, useMyCommands, usePhoneState, type PhoneState } from "@/lib/phoneRemote";
 
 /** 収穫管理で変えた声・順番を、この携帯で最後に受けとった時刻（同じ変更を何度も受けとらない） */
@@ -82,7 +82,24 @@ export function usePhoneSync({
 }
 
 /** 収穫管理の側：その人の携帯の設定と操作 */
-export function PhonePanel({ date, memberId, name, choices }: { date: string; memberId: string; name: string; choices: string[] }) {
+export function PhonePanel({
+  date,
+  memberId,
+  name,
+  choices,
+  target,
+  stopAt,
+}: {
+  date: string;
+  memberId: string;
+  name: string;
+  choices: string[];
+  /** その人のいまのハウス（入っている・次に行く） */
+  target: string | null;
+  /** その人だけの「ここで終了」を付けているハウス */
+  stopAt: string | null;
+}) {
+  const [stopPick, setStopPick] = useState("");
   const phone = usePhoneState(memberId);
   const presence = usePresenceAll(date);
   const [now, setNow] = useState(() => Date.now());
@@ -177,6 +194,43 @@ export function PhonePanel({ date, memberId, name, choices }: { date: string; me
         </select>
         <span className="mt-1 block text-xs text-gray-500">選ぶと、{name}さんの携帯に「管理者の指示で、次は◯番」と出て、声で知らせます。</span>
       </label>
+      {/* 🏁 個人でここで終了：その人がこのハウスを終えたら、次のハウスも応援も出さずに今日の収穫をここまでにする（ハウスの人全員の🏁はそのまま） */}
+      <div className="rounded-xl border border-emerald-300 bg-white p-2">
+        <p className="font-bold">🏁 {name}さんだけ、ここで終了</p>
+        {stopAt ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-emerald-700 px-3 py-1 font-bold text-white">🏁 {stopAt}番で終了</span>
+            <button
+              onClick={() => run(setStopFor(date, stopAt, memberId, false), `${stopAt}番の「ここで終了」を外しました`)}
+              className="rounded-lg border bg-white px-3 py-1"
+            >
+              外す
+            </button>
+          </div>
+        ) : (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <select value={stopPick || target || ""} onChange={(e) => setStopPick(e.target.value)} className="rounded-lg border bg-white px-2 py-2 text-base">
+              <option value="">ハウスを選ぶ</option>
+              {[...new Set([...(target ? [target] : []), ...choices])].map((h) => (
+                <option key={h} value={h}>
+                  {h}番{h === target ? "（いまのハウス）" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              disabled={!(stopPick || target)}
+              onClick={() => {
+                const h = stopPick || target!;
+                run(setStopFor(date, h, memberId, true), `${name}さんは${h}番を終えたら終了にしました`);
+              }}
+              className="rounded-lg bg-emerald-700 px-3 py-2 font-bold text-white disabled:opacity-40"
+            >
+              ここで終了にする
+            </button>
+          </div>
+        )}
+        <p className="mt-1 text-xs text-gray-500">このハウスを終えたら、次のハウスも応援も出さずに「今日の収穫はここまでです」と知らせます。</p>
+      </div>
       {msg && <p className="rounded-lg bg-white p-2 font-bold text-sky-900">{msg}</p>}
     </div>
   );
