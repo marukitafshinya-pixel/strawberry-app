@@ -124,6 +124,8 @@ export function TapScreen({
   const [error, setError] = useState("");
   /** 押し終わるたびに増やす（ハウスの「終わった」が入ってから、応援先を聞き直すため） */
   const [pressed, setPressed] = useState(0);
+  /** 画面を黒くしているか（電池の節約：その間は応援先を聞く間隔を2分にする） */
+  const dimRef = useRef(false);
   /** サーバーから聞いたこと（応援の行き先・入れ直した収穫者など）。n＝聞いたときの「終わった」の数 */
   const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
@@ -177,7 +179,13 @@ export function TapScreen({
     void ask();
     // ほかの人の「終わった」は、本人の記録のあとにハウスの「終わった」が入るので、少しあとにもう一度聞く
     const again = setTimeout(ask, 4000);
-    const t = setInterval(ask, 60_000);
+    // 1分ごとに聞き直す。画面を黒くしている間は2分ごと（だれかが押したときは、黒い画面でもすぐ聞く）
+    let tick = 0;
+    const t = setInterval(() => {
+      tick++;
+      if (dimRef.current && tick % 2 === 1) return;
+      void ask();
+    }, 60_000);
     return () => {
       alive = false;
       clearTimeout(again);
@@ -305,6 +313,9 @@ export function TapScreen({
   });
   // 30秒触らないと画面を黒くする（電池の節約）。知らせが出ているときは黒くしない
   const { dim, wake } = useIdleDim(keepAwake && !notice, 30_000);
+  useEffect(() => {
+    dimRef.current = dim;
+  }, [dim]);
   /** 「終わった」を押したあと、次のハウスがわかったら読み上げる（押したハウス） */
   const afterOut = useRef<string | null>(null);
   /** 最後に読み上げた行き先（同じ行き先を2回言わない） */
@@ -408,7 +419,7 @@ export function TapScreen({
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
       {/* 収穫管理からの個別の連絡（本人の携帯だけ） */}
-      {!preview && <MessageAlert date={date} me={me} />}
+      {!preview && <MessageAlert date={date} me={me} slow={dim} />}
       {dim && <DimScreen text={target ? (inNow ? `${target}番 収穫中` : `次は ${target}番`) : ""} onWake={wake} />}
       {notice && (
         // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）
@@ -420,7 +431,9 @@ export function TapScreen({
         </div>
       )}
       {preview ? (
-        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">{me.name} さんの携帯に出ている画面です（「入った」「終わった」はここでは押せません。取り消しと、下の携帯の設定はここから操作できます）</p>
+        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">
+          {me.name} さんの携帯に出ている画面です（「入った」「終わった」はここでは押せません。取り消しと、下の携帯の設定はここから操作できます）
+        </p>
       ) : (
         <div className="flex items-center justify-between">
           {back}

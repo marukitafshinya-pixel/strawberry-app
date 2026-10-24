@@ -2,15 +2,16 @@
 
 // 個別の連絡を受けとる（従業員の携帯。収穫報告・勤務の画面）：自分あての連絡が来たら、効果音と声で読み上げ、画面いっぱいに出す。
 // 「了解です」を押すまで出しつづけ、押すと送った人の画面に「✓ 了解です」と出る（開いていない間に来た連絡は、開いたときに出す）。
-// 開いている間は「開いている印」を30秒ごとに入れる（送る人の画面で、相手がいま開いているかを見るため）
+// 開いている間は「開いている印」を30秒ごと（画面を黒くしている間は2分ごと）に入れる（送る人の画面で、相手がいま開いているかを見るため）
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { announce, unlockSound } from "@/lib/announce";
 import { ackMessage, useMessages, usePresence } from "@/lib/harvestTap";
 import type { ShiftMember } from "@/lib/shift";
 
-export function MessageAlert({ date, me }: { date: string; me: ShiftMember }) {
-  usePresence(date, me.id);
+/** slow＝画面を黒くしている間（電池の節約のため、開いている印を2分ごとにする） */
+export function MessageAlert({ date, me, slow = false }: { date: string; me: ShiftMember; slow?: boolean }) {
+  usePresence(date, me.id, true, slow);
   const msgs = useMessages(date, me.id);
   const pending = (msgs ?? []).filter((m) => m.ackAt == null);
   /** 読み上げた連絡（同じ連絡を何度も読まない） */
