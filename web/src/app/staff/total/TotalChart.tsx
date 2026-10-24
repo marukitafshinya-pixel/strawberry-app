@@ -1,7 +1,8 @@
 "use client";
 
 // いちごトータル実績のグラフ：店舗合計・出荷合計・いちご合計（出荷＋店舗）を、週・月で重ねて見る。
-// 実績だけで描く（予測・チケット・規格外・催事は入れない）。前年と比べるときは、前の年の同じ番目の週・同じ月を点線で重ねる
+// 6月〜11月だけを出す。実績だけで描く（予測・チケット・規格外・催事は入れない）。
+// 前年と比べるときは、前の年の同じ番目の週（6月1日を含む週から数える）・同じ月を点線で重ねる
 import { useState } from "react";
 import { CompareLines, Legend, SERIES_COLORS, type Series } from "@/components/charts";
 import { todayJST } from "@/lib/date";
@@ -21,9 +22,12 @@ const DAY = 86_400_000;
 const yen = (n: number | null) => (n == null ? "－" : n.toLocaleString("ja-JP"));
 const utc = (d: string) => Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
-/** その年の第1週のはじめ（1月1日を含む週の月曜） */
+/** グラフに出す月（6月〜11月） */
+const FIRST_MONTH = 6;
+const LAST_MONTH = 11;
+/** 1番目の週のはじめ（6月1日を含む週の月曜） */
 const weekBase = (year: number) => {
-  const t = Date.UTC(year, 0, 1);
+  const t = Date.UTC(year, FIRST_MONTH - 1, 1);
   return t - ((new Date(t).getUTCDay() + 6) % 7) * DAY;
 };
 
@@ -35,12 +39,14 @@ const shipByDay = (s: Shipments) =>
 /** 日ごとの店舗の金額（直売・カフェ・いちご狩り。内訳がない日は売上合計） */
 const storeByDay = (s: StoreDays) => Object.entries(s).map(([d, x]) => [d, (x.direct ?? 0) + (x.cafe ?? 0) + (x.ichigo ?? 0) || (x.total ?? 0)] as const);
 
-/** 週・月ごとに足す。index＝何番目の週（0から）・何月（0〜11） */
+/** 週・月ごとに足す（6月〜11月の日だけ）。index＝何番目の週（0から）・6月から何か月目（0から） */
 function bucket(days: (readonly [string, number])[], year: number, unit: Unit, n: number) {
   const out = Array<number>(n).fill(0);
   for (const [d, v] of days) {
-    const i = unit === "month" ? Number(d.slice(5, 7)) - 1 : Math.floor((utc(d) - weekBase(year)) / (7 * DAY));
-    if (d.startsWith(`${year}-`) && i >= 0 && i < n) out[i] += v;
+    const m = Number(d.slice(5, 7));
+    if (!d.startsWith(`${year}-`) || m < FIRST_MONTH || m > LAST_MONTH) continue;
+    const i = unit === "month" ? m - FIRST_MONTH : Math.floor((utc(d) - weekBase(year)) / (7 * DAY));
+    if (i >= 0 && i < n) out[i] += v;
   }
   return out;
 }
@@ -61,19 +67,21 @@ export function TotalChart({
   const [unit, setUnit] = useState<Unit>("month");
   const [compare, setCompare] = useState(false);
   const today = todayJST();
-  const n = unit === "month" ? 12 : Math.floor((Date.UTC(year, 11, 31) - weekBase(year)) / (7 * DAY)) + 1;
+  const n = unit === "month" ? LAST_MONTH - FIRST_MONTH + 1 : Math.floor((Date.UTC(year, LAST_MONTH, 0) - weekBase(year)) / (7 * DAY)) + 1;
   const ship = bucket(shipByDay(shipments), year, unit, n);
   const st = bucket(storeByDay(store), year, unit, n);
   const pShip = bucket(shipByDay(prevShipments), year - 1, unit, n);
   const pSt = bucket(storeByDay(prevStore), year - 1, unit, n);
-  /** その週・月のはじめの日 */
+  /** その週・月のはじめの日（はじめの週は6月1日から） */
   const startOf = (i: number) =>
-    unit === "month" ? `${year}-${String(i + 1).padStart(2, "0")}-01` : ymd(Math.max(weekBase(year) + i * 7 * DAY, Date.UTC(year, 0, 1)));
+    unit === "month"
+      ? `${year}-${String(i + FIRST_MONTH).padStart(2, "0")}-01`
+      : ymd(Math.max(weekBase(year) + i * 7 * DAY, Date.UTC(year, FIRST_MONTH - 1, 1)));
   const label = (i: number) => {
     const d = startOf(i);
-    return unit === "month" ? `${i + 1}月` : `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}〜`;
+    return unit === "month" ? `${i + FIRST_MONTH}月` : `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}〜`;
   };
-  let rows = Array.from({ length: n }, (_, i) => {
+  const rows = Array.from({ length: n }, (_, i) => {
     // まだ来ていない週・月は線を切る
     const come = startOf(i) <= today;
     return {
@@ -81,15 +89,8 @@ export function TotalChart({
       label: label(i),
       values: { store: come ? st[i] : null, ship: come ? ship[i] : null, ichigo: come ? st[i] + ship[i] : null },
       prev: { store: pSt[i], ship: pShip[i], ichigo: pSt[i] + pShip[i] },
-      any: st[i] + ship[i] + (compare ? pSt[i] + pShip[i] : 0) > 0,
     };
   });
-  // 週は、売上のある週の前後だけにしぼる（夏などの売上のない週を出さない）
-  if (unit === "week") {
-    const first = rows.findIndex((r) => r.any);
-    const last = rows.findLastIndex((r) => r.any);
-    if (first >= 0) rows = rows.slice(first, last + 1);
-  }
   const btn = (on: boolean) => `rounded-lg border px-3 py-1.5 text-sm ${on ? "bg-berry font-bold text-white" : "bg-white"}`;
   const pct = (v: number | null, p: number | null) => (v != null && p ? `${Math.round((v / p) * 100)}%` : "");
 
@@ -124,8 +125,8 @@ export function TotalChart({
         <CompareLines rows={rows} series={SERIES} compare={compare} />
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        実績だけで描いています（予測・チケット・規格外・催事は入れていません）。いちご合計＝出荷合計＋店舗合計。
-        {unit === "week" ? "週は月曜はじまりです。" : ""}
+        6月〜11月の実績だけで描いています（予測・チケット・規格外・催事は入れていません）。いちご合計＝出荷合計＋店舗合計。
+        {unit === "week" ? "週は月曜はじまり（はじめの週は6月1日から）です。" : ""}
       </p>
       <details className="mt-2">
         <summary className="cursor-pointer text-sm text-gray-600">数字の表を見る</summary>
