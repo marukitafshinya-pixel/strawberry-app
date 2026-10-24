@@ -54,7 +54,7 @@ import {
 } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { announce, SAY, unlockSound } from "@/lib/announce";
-import { callBreak, nowMinJST, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
+import { callBreak, nowMinJST, setStopFor, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
 import { MessageButton } from "./MessageButton";
 
@@ -781,6 +781,12 @@ function Sheet({
       here={(id) => hereOf(id) === h}
       tapped={(id) => entered(h, id)}
       stopped={(id) => !!rec[h]?.stopFor?.includes(id)}
+      onStop={(id) => {
+        const on = !!rec[h]?.stopFor?.includes(id);
+        const name = names.get(id) ?? "";
+        if (!confirm(on ? `${name}さんの「${h}番でここで終了」を外しますか？` : `${name}さんだけ、${h}番を終えたら今日の収穫を終了にしますか？`)) return;
+        run(setStopFor(date, h, id, !on));
+      }}
       moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
@@ -1011,6 +1017,7 @@ function Members({
   here,
   tapped,
   stopped,
+  onStop,
   moved,
   finished,
   names,
@@ -1025,6 +1032,8 @@ function Members({
   tapped: (id: string) => boolean;
   /** その人だけ、このハウスで終了（🏁を付ける） */
   stopped: (id: string) => boolean;
+  /** その人だけの「ここで終了」を付け外しする（名前の横の🏁） */
+  onStop: (id: string) => void;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -1037,26 +1046,38 @@ function Members({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {ids.map((id) => (
-        <button
-          key={id}
-          onPointerDown={(e) => onPick(id, e)}
-          title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
-          className={`touch-none select-none rounded-full border px-2 py-1 ${
-            here(id) && tapped(id)
-              ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
-              : here(id)
-                ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
-                : finished || moved(id)
-                  ? "border-gray-400 bg-gray-300 text-gray-600"
-                  : planned
-                    ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
-                    : "bg-amber-50"
-          }`}
-        >
-          {(finished || moved(id)) && !here(id) ? "✓ " : ""}
-          {stopped(id) ? "🏁" : ""}
-          {names.get(id) ?? "（いない人）"} ×
-        </button>
+        <span key={id} className="inline-flex items-center">
+          <button
+            onPointerDown={(e) => onPick(id, e)}
+            title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
+            className={`touch-none select-none rounded-full border px-2 py-1 ${
+              here(id) && tapped(id)
+                ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
+                : here(id)
+                  ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
+                  : finished || moved(id)
+                    ? "border-gray-400 bg-gray-300 text-gray-600"
+                    : planned
+                      ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
+                      : "bg-amber-50"
+            }`}
+          >
+            {(finished || moved(id)) && !here(id) ? "✓ " : ""}
+            {stopped(id) ? "🏁" : ""}
+            {names.get(id) ?? "（いない人）"} ×
+          </button>
+          {/* その人だけ、このハウスで終了（まだ終わっていないハウス・移っていない人だけ） */}
+          {!finished && !moved(id) && (
+            <button
+              onClick={() => onStop(id)}
+              title={stopped(id) ? "この人の「ここで終了」を外す" : "この人だけ、このハウスを終えたら今日の収穫を終了にする"}
+              aria-label={`${names.get(id) ?? ""}さんだけここで終了`}
+              className={`ml-0.5 rounded-full px-1 text-xs ${stopped(id) ? "bg-emerald-700" : "opacity-30 hover:opacity-70"}`}
+            >
+              🏁
+            </button>
+          )}
+        </span>
       ))}
       <select
         value=""
