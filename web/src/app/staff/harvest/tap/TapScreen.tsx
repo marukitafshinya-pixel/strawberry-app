@@ -56,8 +56,8 @@ export function tapStateOf(a: {
   edited?: Record<string, string[]>;
   /** 収穫管理で「終わった」が入っているハウス */
   houseDone?: string[];
-  /** 収穫管理で「入った」が入っていて「終わった」がまだのハウス（入った時刻・移った人） */
-  houseStarted?: Record<string, { start: number; left: string[] }>;
+  /** 収穫管理で「入った」が入っていて「終わった」がまだのハウス（入った時刻・移った人・自動で入った時刻か） */
+  houseStarted?: Record<string, { start: number; left: string[]; auto?: boolean }>;
   /** 🏁ここで終了のハウス */
   stops?: string[];
 }) {
@@ -80,14 +80,15 @@ export function tapStateOf(a: {
   const seq = [...planned, ...helped];
   /** 自分にとって終わったハウス：自分で「終わった」を押したか、収穫管理で「終わった」が入っている */
   const isDone = (h: string) => mine[h]?.end != null || !!a.houseDone?.includes(h);
-  /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす） */
-  const takenByHelper = (h: string) => mine[h]?.start == null && tappedIn(h).some((id) => !who(h).includes(id));
+  /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす。集荷係が収穫管理で自分の名前を入れたハウスは飛ばさない） */
+  const takenByHelper = (h: string) => mine[h]?.start == null && !a.edited?.[h]?.includes(meId) && tappedIn(h).some((id) => !who(h).includes(id));
   // 今のハウス：① 自分で「入った」を押してまだ終わっていないハウス
-  // ② 集荷係が収穫管理に「入った」を入れたハウス（携帯を忘れた人など。移った人は除く）
+  // ② 集荷係が収穫管理に「入った」を手で入れたハウス（携帯を忘れた人など。移った人は除く）。
+  //    ほかの人が携帯で押した時刻・画面が自動で入れた時刻では、収穫中にしない（本人が押したと思って押し忘れないように）
   // ③ なければ、予定の順で次のハウス
   const byTap = seq.find((h) => mine[h]?.start != null && !isDone(h)) ?? null;
   // （予定の順でいちばん先のハウス。あとの予定のハウスにほかの人が先に入っても、今のハウスが終わるまでは動かさない）
-  const byRec = seq.find((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].left.includes(meId)) ?? null;
+  const byRec = seq.find((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].auto && !a.houseStarted[h].left.includes(meId)) ?? null;
   // 🏁ここで終了のハウスで終えた（そのあとほかのハウスに入っていない）なら、今日の収穫はここまで
   const later = (h: string, x: string) =>
     mine[h]?.end != null ? mine[x]?.start != null && mine[x].start! >= mine[h].end! : mine[x]?.start != null && seq.indexOf(x) > seq.indexOf(h);
@@ -104,7 +105,7 @@ export function tapStateOf(a: {
   /** 収穫中か（自分で押したか、収穫管理に入っている） */
   const inNow = current != null && (inByTap || current === byRec);
   /** 収穫中のハウスに入った時刻 */
-  const startAt = current == null ? null : (mine[current]?.start ?? a.houseStarted?.[current]?.start ?? null);
+  const startAt = current == null ? null : (mine[current]?.start ?? (current === byRec ? a.houseStarted?.[current]?.start : null) ?? null);
   /** 予定が全部終わって、応援に行けるか */
   const free = planned.length > 0 && current == null && stopped == null;
   const doneCount = seq.filter((h) => isDone(h)).length;
@@ -680,7 +681,7 @@ export function TapList({
   const houseStarted = Object.fromEntries(
     Object.entries(rec)
       .filter(([, r]) => r.start != null && r.end == null)
-      .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [] }]),
+      .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [], auto: r.startAuto === true }]),
   );
   const rows = people.map((m) => {
     // 🏁ここで終了：ハウスの人全員の分と、その人だけの分

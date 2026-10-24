@@ -42,6 +42,8 @@ type House = {
   members?: string[];
   membersEdited?: boolean;
   start?: number | null;
+  /** 「入った」が、携帯で押した時刻・画面が自動で入れた時刻か（手で打ち込んだときは false） */
+  startAuto?: boolean;
   end?: number | null;
   cases?: number;
   left?: string[];
@@ -295,11 +297,12 @@ export const harvestHelpHouse = onCall(async (req) => {
       .filter(([, v]) => v?.membersEdited && Array.isArray(v.members))
       .map(([h, v]) => [h, v.members!]),
   );
-  // 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）：入った時刻と、移った人（携帯を忘れた人の分を集荷係が入れたときも、今いる場所がわかるように）
+  // 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）：入った時刻と、移った人（携帯を忘れた人の分を集荷係が入れたときも、今いる場所がわかるように）。
+  // auto＝ほかの人が携帯で押した時刻・画面が自動で入れた時刻（そのハウスの人を、押していないのに収穫中にしない）
   const started = Object.fromEntries(
     Object.entries(houses)
       .filter(([, v]) => v?.start != null && v?.end == null)
-      .map(([h, v]) => [h, { start: v.start!, left: Array.isArray(v.left) ? v.left : [] }]),
+      .map(([h, v]) => [h, { start: v.start!, left: Array.isArray(v.left) ? v.left : [], auto: v.startAuto === true }]),
   );
   // 応援が必要な順（向かっている人も人数に数える）：収穫管理（スタッフ・管理者・集荷係）の指示一覧に出す
   const ranking = helpRanking({ ...input, assigns: assign });

@@ -103,7 +103,7 @@ export type HelpInfo = {
   done: string[];
   members: Record<string, string[]>;
   /** 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）→ 入った時刻と、終わる前にほかへ移った人 */
-  started?: Record<string, { start: number; left: string[] }>;
+  started?: Record<string, { start: number; left: string[]; auto?: boolean }>;
   /** 応援が必要な順（いまのままだと終わるのがおそい順）：ハウス・終わる見込み（分）・いまの人数（向かっている人もふくむ）・もう入っているか */
   ranking?: { house: string; finish: number; crew: number; started: boolean }[];
   /** 🏁ここで終了のハウス */
