@@ -17,6 +17,8 @@ import {
   clock,
   fmtCases,
   planHarvest,
+  startsOf,
+  withStarts,
   harvestHouses,
   HOUSE_USES,
   houseUseOf,
@@ -54,7 +56,7 @@ import {
 } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { announce, SAY, unlockSound } from "@/lib/announce";
-import { callBreak, nowMinJST, setStopFor, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
+import { callBreak, nowMinJST, setStartFor, setStopFor, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
 import { MessageButton } from "./MessageButton";
 
@@ -131,7 +133,8 @@ export default function HarvestPage() {
     return () => document.removeEventListener("pointerdown", unlockSound);
   }, []);
   useBreakCall(date, date === todayJST(), () => announce(SAY.break, { sound: "break" }));
-  const plan = template && haichi ? planHarvest(template, haichi) : null;
+  // ▶ここからスタートを指定した人は、そのハウスを回る順の最初にする
+  const plan = template && haichi ? withStarts(planHarvest(template, haichi), startsOf(rec)) : null;
   const houses = template ? harvestHouses(template) : [];
   const jst = new Date(tick + 9 * 3600e3);
   const nowMin = jst.getUTCHours() * 60 + jst.getUTCMinutes();
@@ -753,7 +756,11 @@ function Sheet({
       start.current = null;
       setDrag(null);
       if (!s) return;
-      if (!s.moved) return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id), membersEdited: true }));
+      // 動かさずに離した：確かめてから外す（まちがえて押して消えないように）
+      if (!s.moved) {
+        if (!confirm(`${names.get(s.id) ?? ""}さんを No.${s.from} から外しますか？`)) return;
+        return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id), membersEdited: true }));
+      }
       const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
       if (target?.dataset.drop) dropTo(s.id, s.from, target.dataset.drop);
     };
@@ -781,6 +788,22 @@ function Sheet({
       here={(id) => hereOf(id) === h}
       tapped={(id) => entered(h, id)}
       stopped={(id) => !!rec[h]?.stopFor?.includes(id)}
+      isStart={(id) => !!rec[h]?.startFor?.includes(id)}
+      canStart={(id) => rec[h]?.end == null && !leftHouse(h, id) && !Object.values(taps?.[id] ?? {}).some((t) => t?.start != null)}
+      onStart={(id) => {
+        const name = names.get(id) ?? "";
+        if (rec[h]?.startFor?.includes(id)) return;
+        if (!confirm(`${name}さんのスタートを No.${h} にしますか？（ここから収穫を始めます）`)) return;
+        run(
+          setStartFor(
+            date,
+            h,
+            id,
+            rows.filter((x) => rec[x]?.startFor?.includes(id)),
+            rec[h]?.start == null ? startTime : null,
+          ),
+        );
+      }}
       onStop={(id) => {
         const on = !!rec[h]?.stopFor?.includes(id);
         const name = names.get(id) ?? "";
@@ -1017,6 +1040,9 @@ function Members({
   here,
   tapped,
   stopped,
+  isStart,
+  canStart,
+  onStart,
   onStop,
   moved,
   finished,
@@ -1034,6 +1060,10 @@ function Members({
   stopped: (id: string) => boolean;
   /** その人だけの「ここで終了」を付け外しする（名前の横の🏁） */
   onStop: (id: string) => void;
+  /** ▶ここからスタート：このハウスがその人のスタートか・指定できるか（まだどこにも「入った」を押していない人）・指定する */
+  isStart: (id: string) => boolean;
+  canStart: (id: string) => boolean;
+  onStart: (id: string) => void;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -1066,6 +1096,17 @@ function Members({
             {stopped(id) ? "🏁" : ""}
             {names.get(id) ?? "（いない人）"} ×
           </button>
+          {/* ▶ここからスタート：まだどこにも「入った」を押していない人だけ。名前を移したり消したりしてスタートがわからなくなったときに */}
+          {canStart(id) && (
+            <button
+              onClick={() => onStart(id)}
+              title={isStart(id) ? "この人はここからスタート" : "この人のスタートをこのハウスにする"}
+              aria-label={`${names.get(id) ?? ""}さんはここからスタート`}
+              className={`ml-0.5 rounded-full px-1 text-xs font-bold ${isStart(id) ? "bg-emerald-600 text-white" : "text-emerald-700 opacity-40 hover:opacity-80"}`}
+            >
+              ▶
+            </button>
+          )}
           {/* その人だけ、このハウスで終了（まだ終わっていないハウス・移っていない人だけ） */}
           {!finished && !moved(id) && (
             <button

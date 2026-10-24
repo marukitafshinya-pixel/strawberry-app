@@ -9,7 +9,18 @@ import { useEffect, useRef, useState } from "react";
 import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings, voiceTest } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import type { HaichiDay, HaichiTemplate } from "@/lib/haichi";
-import { clock, harvestHouses, logHarvest, planHarvest, useHarvestConfig, type HarvestDoc, type HarvestPlan, type HouseUseMap } from "@/lib/harvest";
+import {
+  clock,
+  harvestHouses,
+  logHarvest,
+  planHarvest,
+  startsOf,
+  useHarvestConfig,
+  withStarts,
+  type HarvestDoc,
+  type HarvestPlan,
+  type HouseUseMap,
+} from "@/lib/harvest";
 import { refreshHarvestSpeeds } from "@/lib/harvestForecast";
 import {
   useBreakCall,
@@ -142,7 +153,8 @@ export function TapScreen({
   /** 「ほかのハウスに行く」の一覧（null＝閉じている、done＝もう終わったハウス。読み込み中は undefined） */
   const [others, setOthers] = useState<{ done: string[] | undefined } | null>(null);
 
-  const plan = planHarvest(template, haichi);
+  // ▶ここからスタートを指定した人は、そのハウスを回る順の最初にする（収穫管理から見るときは記録から、携帯ではサーバーから）
+  const plan = withStarts(planHarvest(template, haichi), preview && rec ? startsOf(rec) : (help?.startFor ?? {}));
   const cfg = useHarvestConfig();
   /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（聞き直すのを待たずに使う） */
   const [freshStops, setFreshStops] = useState<string[]>([]);
@@ -650,7 +662,7 @@ export function TapList({
       clearInterval(t);
     };
   }, [changeKey]);
-  const plan = planHarvest(template, haichi);
+  const plan = withStarts(planHarvest(template, haichi), startsOf(rec));
   // 集荷係が収穫管理で入れ直したハウスの収穫者
   const edited = Object.fromEntries(
     Object.entries(rec)
