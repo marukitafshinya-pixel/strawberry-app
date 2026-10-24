@@ -124,8 +124,6 @@ export function TapScreen({
   const [error, setError] = useState("");
   /** 押し終わるたびに増やす（ハウスの「終わった」が入ってから、応援先を聞き直すため） */
   const [pressed, setPressed] = useState(0);
-  /** 画面を黒くしているか（電池の節約：その間は応援先を聞く間隔を2分にする） */
-  const dimRef = useRef(false);
   /** サーバーから聞いたこと（応援の行き先・入れ直した収穫者など）。n＝聞いたときの「終わった」の数 */
   const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
@@ -143,7 +141,7 @@ export function TapScreen({
 
   const plan = planHarvest(template, haichi);
   const cfg = useHarvestConfig();
-  /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（1分ごとに聞くのを待たずに使う） */
+  /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（聞き直すのを待たずに使う） */
   const [freshStops, setFreshStops] = useState<string[]>([]);
   const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount, stopped } = tapStateOf({
     plan,
@@ -162,7 +160,7 @@ export function TapScreen({
     .sort((a, b) => mine[b].end! - mine[a].end!)[0];
   const last = inByTap ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
 
-  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）。
+  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・5分ごと。応援先を待っている間は1分ごと）。
   // 自分の予定が終わったら（free）、応援先を割り当ててもらう（見るだけの画面では割り当てない）
   const askFree = free && !preview;
   // 手があいて応援先を待っている・向かっている間は、だれかが押すたびに聞き直す（応援先をその場で見直すため）
@@ -179,13 +177,9 @@ export function TapScreen({
     void ask();
     // ほかの人の「終わった」は、本人の記録のあとにハウスの「終わった」が入るので、少しあとにもう一度聞く
     const again = setTimeout(ask, 4000);
-    // 1分ごとに聞き直す。画面を黒くしている間は2分ごと（だれかが押したときは、黒い画面でもすぐ聞く）
-    let tick = 0;
-    const t = setInterval(() => {
-      tick++;
-      if (dimRef.current && tick % 2 === 1) return;
-      void ask();
-    }, 60_000);
+    // 5分ごとに聞き直す（電池の節約のため間をあける。だれかが押したときや、自分が押したときはすぐ聞く）。
+    // 自分の予定が終わって応援先を待っている・向かっている間だけは、1分ごと（応援先が決まるのを待たせないため）
+    const t = setInterval(ask, askFree ? 60_000 : 5 * 60_000);
     return () => {
       alive = false;
       clearTimeout(again);
@@ -313,9 +307,6 @@ export function TapScreen({
   });
   // 30秒触らないと画面を黒くする（電池の節約）。知らせが出ているときは黒くしない
   const { dim, wake } = useIdleDim(keepAwake && !notice, 30_000);
-  useEffect(() => {
-    dimRef.current = dim;
-  }, [dim]);
   /** 「終わった」を押したあと、次のハウスがわかったら読み上げる（押したハウス） */
   const afterOut = useRef<string | null>(null);
   /** 最後に読み上げた行き先（同じ行き先を2回言わない） */
@@ -419,7 +410,7 @@ export function TapScreen({
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
       {/* 収穫管理からの個別の連絡（本人の携帯だけ） */}
-      {!preview && <MessageAlert date={date} me={me} slow={dim} />}
+      {!preview && <MessageAlert date={date} me={me} />}
       {dim && <DimScreen text={target ? (inNow ? `${target}番 収穫中` : `次は ${target}番`) : ""} onWake={wake} />}
       {notice && (
         // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）

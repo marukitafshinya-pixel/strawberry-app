@@ -201,11 +201,8 @@ export async function ackMessage(date: string, id: string) {
   await updateDoc(doc(db, "harvest", date, "messages", id), { ackAt: serverTimestamp() });
 }
 
-/**
- * アプリを開いている印を、開いている間（画面が見えている間）30秒ごとに入れる（従業員の携帯）。
- * slow＝画面を黒くしている間（電池の節約）：2分ごと
- */
-export function usePresence(date: string, memberId: string | null, enabled = true, slow = false) {
+/** アプリを開いている印を、開いている間（画面が見えている間）10分ごとに入れる（従業員の携帯。電池の節約のため間をあける）。開いたときはすぐ入れる */
+export function usePresence(date: string, memberId: string | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !memberId) return;
     let alive = true;
@@ -218,18 +215,18 @@ export function usePresence(date: string, memberId: string | null, enabled = tru
         .catch(() => {});
     };
     beat();
-    const t = setInterval(beat, slow ? 120_000 : 30_000);
+    const t = setInterval(beat, 10 * 60_000);
     document.addEventListener("visibilitychange", beat);
     return () => {
       alive = false;
       clearInterval(t);
       document.removeEventListener("visibilitychange", beat);
     };
-  }, [date, memberId, enabled, slow]);
+  }, [date, memberId, enabled]);
 }
 
-/** この時間（ミリ秒）より前の印しかなければ、アプリを開いていないとみなす（黒い画面の間は2分ごとなので、それより長く） */
-export const PRESENCE_MS = 150_000;
+/** この時間（ミリ秒）より前の印しかなければ、アプリを開いていないとみなす（印は10分ごとなので、それより少し長く） */
+export const PRESENCE_MS = 11 * 60_000;
 
 /** みんなの、アプリを開いている印（従業員の id → 最後の時刻 ミリ秒）。送る人の画面で使う */
 export function usePresenceAll(date: string, enabled = true): Record<string, number> | null {
