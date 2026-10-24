@@ -25,6 +25,8 @@ export type HouseHarvest = {
   startAuto?: boolean;
   /** 🏁ここで終了：このハウスを終えた人は、その日の収穫をここまでにする（管理者・集荷係が付ける。その日だけ） */
   stopHere?: boolean;
+  /** 🏁個人でここで終了：この人たち（従業員の id）は、このハウスを終えたらその日の収穫をここまでにする */
+  stopFor?: string[];
 };
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;

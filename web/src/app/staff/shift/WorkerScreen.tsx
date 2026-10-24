@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { useTempWatchers } from "@/lib/govee";
 import { codeColor, useGrowingSpan, useReservedPeople, useShiftDays, type ShiftConfig, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 import { ShiftTable } from "./ShiftTable";
+import { MessageAlert } from "../harvest/tap/MessageAlert";
 
 /** 定時出勤の記号（〇。似た字の ○ も同じに扱う） */
 const WORK_CODES = ["〇", "○"];
@@ -84,6 +85,8 @@ export function WorkerScreen({
 
   return (
     <div className="space-y-5">
+      {/* 収穫管理からの個別の連絡（本人の携帯だけ） */}
+      {!preview && <MessageAlert date={today} me={me} />}
       {picking && (
         <Link href="/staff/harvest/tap/" className="block rounded-2xl bg-sky-600 p-4 text-center text-xl font-bold text-white shadow">
           🍓 収穫報告（入った・終わった）

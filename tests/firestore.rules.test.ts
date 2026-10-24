@@ -1,7 +1,7 @@
 // セキュリティルールのテスト（練習用Firebase＝エミュレーターで実行）
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeEach, describe, it } from "vitest";
 
 let env: RulesTestEnvironment;
@@ -594,6 +594,62 @@ describe("収穫管理：毎日使える従業員（社員など）", () => {
     await assertFails(
       setDoc(doc(worker("w6"), "shiftMembers/m6"), { name: "鈴木", group: "パート", floor: false, harvestEntry: true, order: 1, active: true, uid: "w6" }),
     );
+  });
+});
+
+describe("個別の連絡 (harvest/{date}/messages)", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const worker = (uid: string) => env.authenticatedContext(uid, { role: "worker" }).firestore();
+  it("収穫管理を使える人が送れて、従業員は自分あての分だけ読めて「わかった」だけ入れられる", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "workers/w7"), { memberId: "m7", loginId: "ito", active: true });
+      await setDoc(doc(db, "workers/w8"), { memberId: "m8", loginId: "kato", active: true });
+      await setDoc(doc(db, "shiftMembers/m8"), { name: "加藤", group: "パート", floor: false, order: 1, active: true, uid: "w8" });
+    });
+    const msg = { to: "m7", text: "集荷場に来てください", at: serverTimestamp(), by: "u1", ackAt: null };
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/messages/x1`), msg));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/messages/x2`), { ...msg, by: "someone" }));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/messages/x3`), { ...msg, text: "" }));
+    // 集荷係でも毎日使える人でもない従業員は送れない
+    await assertFails(setDoc(doc(worker("w8"), `harvest/${today}/messages/x4`), { ...msg, by: "w8" }));
+    // 本人は読める（自分あてだけを探す）。ほかの人あては読めない
+    await assertSucceeds(getDocs(query(collection(worker("w7"), `harvest/${today}/messages`), where("to", "==", "m7"))));
+    await assertSucceeds(getDoc(doc(worker("w7"), `harvest/${today}/messages/x1`)));
+    await assertFails(getDoc(doc(worker("w8"), `harvest/${today}/messages/x1`)));
+    await assertFails(getDocs(collection(worker("w8"), `harvest/${today}/messages`)));
+    // 「わかった」だけ入れられる（文は変えられない・ほかの人は入れられない）
+    await assertFails(updateDoc(doc(worker("w8"), `harvest/${today}/messages/x1`), { ackAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(worker("w7"), `harvest/${today}/messages/x1`), { text: "x", ackAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(worker("w7"), `harvest/${today}/messages/x1`), { ackAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(doc(staff(), `harvest/${today}/messages/x1`)));
+    // アプリを開いている印：本人の分だけ書ける。収穫管理を使える人が読める
+    await assertSucceeds(setDoc(doc(worker("w7"), `harvest/${today}/presence/m7`), { at: serverTimestamp() }));
+    await assertFails(setDoc(doc(worker("w7"), `harvest/${today}/presence/m8`), { at: serverTimestamp() }));
+    await assertSucceeds(getDoc(doc(staff(), `harvest/${today}/presence/m7`)));
+    await assertFails(getDoc(doc(worker("w8"), `harvest/${today}/presence/m7`)));
+    // 定型文：収穫管理を使える人が編集できる。ふつうの従業員は読むだけ
+    await assertSucceeds(setDoc(doc(staff(), "config/messagePresets"), { items: ["集荷場に来てください"] }));
+    await assertFails(setDoc(doc(staff(), "config/messagePresets"), { items: "x" }));
+    await assertFails(setDoc(doc(worker("w8"), "config/messagePresets"), { items: [] }));
+    await assertSucceeds(getDoc(doc(worker("w8"), "config/messagePresets")));
+    // 携帯への指示：収穫管理を使える人が送り、本人が「実行した」を入れる
+    const cmd = { to: "m7", kind: "goto", house: "8", at: serverTimestamp(), by: "u1", doneAt: null };
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/commands/c1`), cmd));
+    await assertFails(setDoc(doc(staff(), `harvest/${today}/commands/c2`), { ...cmd, kind: "delete" }));
+    await assertFails(setDoc(doc(worker("w8"), `harvest/${today}/commands/c3`), { ...cmd, by: "w8" }));
+    await assertFails(getDoc(doc(worker("w8"), `harvest/${today}/commands/c1`)));
+    await assertSucceeds(updateDoc(doc(worker("w7"), `harvest/${today}/commands/c1`), { doneAt: serverTimestamp() }));
+    // 携帯の声の設定：本人は使える声などを入れる。収穫管理からは声・順番だけ
+    await assertSucceeds(
+      setDoc(doc(worker("w7"), "harvestPhones/m7"), { voices: ["Kyoko"], ios: true, localVoice: null, localOrder: "voiceFirst", seenAt: serverTimestamp() }),
+    );
+    await assertFails(setDoc(doc(worker("w8"), "harvestPhones/m7"), { voices: [] }, { merge: true }));
+    await assertSucceeds(setDoc(doc(staff(), "harvestPhones/m7"), { wantVoice: "Kyoko", wantOrder: "soundFirst", wantAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(doc(staff(), "harvestPhones/m7"), { localVoice: "x" }, { merge: true }));
+    // まちがえて押したときの取り消し：収穫管理を使える人も、本人の「入った・終わった」を直せる
+    await assertSucceeds(setDoc(doc(staff(), `harvest/${today}/taps/m7`), { houses: { "17": { start: null } } }, { merge: true }));
+    await assertFails(setDoc(doc(worker("w8"), `harvest/${today}/taps/m7`), { houses: {} }));
   });
 });
 

@@ -1,6 +1,9 @@
 "use client";
 
 // 収穫報告の画面の中身。収穫する人の画面（page.tsx）と、収穫管理の「収穫報告の画面を見る」（preview＝見るだけ）で使う
+import { MessageAlert } from "./MessageAlert";
+import { PhonePanel, usePhoneSync } from "./PhoneRemote";
+import { reportChosen, usePhoneState } from "@/lib/phoneRemote";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { announce, DimScreen, SAY, unlockSound, useIdleDim, useWakeLock, VoiceSettings, voiceTest } from "@/lib/announce";
@@ -107,6 +110,7 @@ export function TapScreen({
   taps,
   me,
   preview = false,
+  rec,
 }: {
   date: string;
   template: HaichiTemplate;
@@ -116,6 +120,8 @@ export function TapScreen({
   taps: DayTaps;
   me: ShiftMember;
   preview?: boolean;
+  /** 収穫管理の記録（収穫管理から見るとき。個人の「ここで終了」に使う） */
+  rec?: HarvestDoc;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -125,12 +131,20 @@ export function TapScreen({
   const [help, setHelp] = useState<(HelpInfo & { n: number }) | null>(null);
   /** 集荷係の指示で、ほかのハウスへ行くとき：選んだハウス */
   const [chosen, setChosen] = useState<string | null>(null);
+  /** 行き先を決めたのはだれか（self＝本人が「ほかのハウスに行く」で選んだ、admin＝収穫管理から決めた） */
+  const [chosenBy, setChosenBy] = useState<"self" | "admin">("self");
+  // 収穫管理から見るときは、その人の携帯で選んでいる行き先を出す
+  const phone = usePhoneState(preview ? me.id : null);
+  const phoneChosen = phone?.chosen && phone.chosen.date === date ? phone.chosen : null;
+  /** いま決まっている行き先（収穫管理から見るときは、その人の携帯で選んでいるもの） */
+  const chosenNow = preview ? (phoneChosen?.house ?? null) : chosen;
+  const chosenByNow = preview ? (phoneChosen?.by ?? "self") : chosenBy;
   /** 「ほかのハウスに行く」の一覧（null＝閉じている、done＝もう終わったハウス。読み込み中は undefined） */
   const [others, setOthers] = useState<{ done: string[] | undefined } | null>(null);
 
   const plan = planHarvest(template, haichi);
   const cfg = useHarvestConfig();
-  /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（1分ごとに聞くのを待たずに使う） */
+  /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（聞き直すのを待たずに使う） */
   const [freshStops, setFreshStops] = useState<string[]>([]);
   const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount, stopped } = tapStateOf({
     plan,
@@ -141,7 +155,8 @@ export function TapScreen({
     edited: help?.members,
     houseDone: help?.done,
     houseStarted: help?.started,
-    stops: [...new Set([...(help?.stops ?? []), ...freshStops])],
+    // 🏁ここで終了：ハウスの人全員の分と、自分だけの分
+    stops: [...new Set([...(help?.stops ?? []), ...Object.keys(help?.stopFor ?? {}).filter((x) => help!.stopFor![x].includes(me.id)), ...freshStops])],
   });
   /** 取り消せる最後の操作：今のハウスの「入った」か、その前に「終わった」を押したハウス */
   const lastOut = Object.keys(mine)
@@ -149,7 +164,7 @@ export function TapScreen({
     .sort((a, b) => mine[b].end! - mine[a].end!)[0];
   const last = inByTap ? { house: current!, kind: "in" as const } : lastOut ? { house: lastOut, kind: "out" as const } : null;
 
-  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・1分ごと）。
+  // 集荷係が入れ直した収穫者と応援の行き先を聞く（開いたとき・押したとき・5分ごと。応援先を待っている間は1分ごと）。
   // 自分の予定が終わったら（free）、応援先を割り当ててもらう（見るだけの画面では割り当てない）
   const askFree = free && !preview;
   // 手があいて応援先を待っている・向かっている間は、だれかが押すたびに聞き直す（応援先をその場で見直すため）
@@ -166,7 +181,9 @@ export function TapScreen({
     void ask();
     // ほかの人の「終わった」は、本人の記録のあとにハウスの「終わった」が入るので、少しあとにもう一度聞く
     const again = setTimeout(ask, 4000);
-    const t = setInterval(ask, 60_000);
+    // 5分ごとに聞き直す（電池の節約のため間をあける。だれかが押したときや、自分が押したときはすぐ聞く）。
+    // 自分の予定が終わって応援先を待っている・向かっている間だけは、1分ごと（応援先が決まるのを待たせないため）
+    const t = setInterval(ask, askFree ? 60_000 : 5 * 60_000);
     return () => {
       alive = false;
       clearTimeout(again);
@@ -212,7 +229,7 @@ export function TapScreen({
     logHarvest(date, { house: h, end: now, tap: "out" });
     // 同じハウスの人が全員押したら、ハウスの「終わった」（最後の人の時刻）
     const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
-    if (info?.stops) setFreshStops(info.stops);
+    if (info) setFreshStops([...(info.stops ?? []), ...Object.keys(info.stopFor ?? {}).filter((x) => info.stopFor![x].includes(me.id))]);
     const ends = crewOf(h, all).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
     // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）ときは、ハウスの「終わった」は入れない（ほかの人がまだ収穫している）
     const othersBefore = !who(h).includes(me.id) && info?.started?.[h] != null && info.started[h].start < (mine[h]?.start ?? now);
@@ -250,8 +267,8 @@ export function TapScreen({
   /** 指示するハウス：今のハウスか、応援のハウス。ほかのハウスを選んだら、そのハウス */
   /** 自分の応援先（見るだけの画面では、その人に割り当てられている応援先） */
   const helpHouse = helpNow ? (helpNow.assign[me.id] ?? null) : null;
-  const target = inNow ? current : (chosen ?? current ?? (free ? helpHouse : null));
-  const isChosen = !inNow && chosen != null;
+  const target = inNow ? current : (chosenNow ?? current ?? (free ? helpHouse : null));
+  const isChosen = !inNow && chosenNow != null;
   const isHelp = !isChosen && current == null && target != null;
 
   // ---------- 音声案内と、画面を消さない（本人の携帯だけ。見るだけの画面ではしない） ----------
@@ -268,6 +285,25 @@ export function TapScreen({
   }, [preview]);
   /** 画面いっぱいに出す知らせ（「わかった」で消す） */
   const [notice, setNotice] = useState<string | null>(null);
+  // 収穫管理からの操作を受けとる（声の設定・音声テスト・行き先）。本人の携帯だけ
+  const sync = usePhoneSync({
+    date,
+    memberId: me.id,
+    enabled: !preview,
+    onGoto: (h) => {
+      setChosen(h);
+      setChosenBy("admin");
+      unlockSound();
+      announce(SAY.goto(h), { sound: "change", vibrate: true });
+      setNotice(`管理者の指示で、次は${h}番ハウスです`);
+    },
+    onTest: () => voiceTest(setNotice),
+  });
+  // 選んでいる行き先を、収穫管理から見えるように知らせる
+  useEffect(() => {
+    if (preview) return;
+    void reportChosen(me.id, chosen ? { date, house: chosen, by: chosenBy } : null).catch(() => {});
+  }, [preview, me.id, date, chosen, chosenBy]);
   // 休憩の合図：管理者・集荷係が押したら、効果音と声と画面で知らせる（見るだけの画面では鳴らさない）
   useBreakCall(date, !preview, () => {
     announce(SAY.break, { sound: "break", vibrate: true });
@@ -335,7 +371,8 @@ export function TapScreen({
       !(others?.done ?? []).includes(h) &&
       !((cfg?.noHelp ?? []).includes(h) && !who(h).includes(me.id)),
   );
-  const othersBox = !inNow && (planned.length > 0 || helped.length > 0) && (
+  // 収穫管理から見るときは出さない（下の「携帯の設定」から行き先を送る）
+  const othersBox = !preview && !inNow && (planned.length > 0 || helped.length > 0) && (
     <div className="text-center">
       {others == null ? (
         <button onClick={openOthers} className="rounded-2xl border-2 border-gray-400 bg-white px-5 py-3 text-lg font-bold text-gray-700">
@@ -352,6 +389,7 @@ export function TapScreen({
               onChange={(e) => {
                 if (!e.target.value) return;
                 setChosen(e.target.value);
+                setChosenBy("self");
                 setOthers(null);
               }}
               className="mt-2 w-full rounded-xl border-2 bg-white px-3 py-3 text-2xl"
@@ -375,6 +413,8 @@ export function TapScreen({
   const big = "w-full rounded-3xl py-8 text-4xl font-bold shadow disabled:opacity-40";
   return (
     <div className="mx-auto max-w-md space-y-5 pb-10">
+      {/* 収穫管理からの個別の連絡（本人の携帯だけ） */}
+      {!preview && <MessageAlert date={date} me={me} />}
       {dim && <DimScreen text={target ? (inNow ? `${target}番 収穫中` : `次は ${target}番`) : ""} onWake={wake} />}
       {notice && (
         // 応援先の知らせ：画面いっぱいに出す（「わかった」で消す）
@@ -386,7 +426,9 @@ export function TapScreen({
         </div>
       )}
       {preview ? (
-        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">{me.name} さんの携帯に出ている画面です（ここでは見るだけで、押せません）</p>
+        <p className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">
+          {me.name} さんの携帯に出ている画面です（「入った」「終わった」はここでは押せません。取り消しと、下の携帯の設定はここから操作できます）
+        </p>
       ) : (
         <div className="flex items-center justify-between">
           {back}
@@ -423,7 +465,9 @@ export function TapScreen({
               {inNow
                 ? "いま収穫しているハウス"
                 : isChosen
-                  ? "集荷係の指示で、次は"
+                  ? chosenByNow === "admin"
+                    ? "管理者の指示で、次は"
+                    : "集荷係の指示で、次は"
                   : isHelp
                     ? "応援をお願いします。次は"
                     : pos === 0 && doneCount === 0
@@ -432,7 +476,7 @@ export function TapScreen({
             </p>
             <p className="my-1 text-7xl font-bold text-berry tabular-nums">{target}番</p>
             {!inNow && (isHelp || isChosen || pos > 0 || doneCount > 0) && <p className="text-lg text-gray-600">の収穫をお願いします</p>}
-            {isChosen && (
+            {isChosen && !preview && (
               <button onClick={() => setChosen(null)} className="mt-2 text-sm text-gray-500 underline">
                 もとの指示にもどす
               </button>
@@ -477,7 +521,7 @@ export function TapScreen({
       )}
       {error && <p className="text-red-600">保存できませんでした：{error}</p>}
       {last && (
-        <button disabled={preview || busy} onClick={() => void run(undo)} className="block w-full text-center text-sm text-gray-500 underline">
+        <button disabled={busy} onClick={() => void run(undo)} className="block w-full text-center text-sm text-gray-500 underline">
           まちがえて押したとき（{last.house}番の「{last.kind === "in" ? "入った" : "終わった"}」を取り消す）
         </button>
       )}
@@ -490,8 +534,19 @@ export function TapScreen({
           <Link href="/staff/harvest/tap/practice/" className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-700">
             🎓 練習モード
           </Link>
-          <VoiceSettings />
+          <VoiceSettings key={sync.version} onChange={(v, o) => sync.report(v, o)} />
         </div>
+      )}
+      {preview && (
+        // 収穫管理から：その人の携帯の声の設定・音声テスト・行き先（「入った」「終わった」以外）
+        <PhonePanel
+          date={date}
+          memberId={me.id}
+          name={me.name}
+          choices={harvestHouses(template).filter((h) => !NO_HARVEST.includes(usageOf(h)) && mine[h]?.end == null && !(help?.done ?? []).includes(h))}
+          target={target}
+          stopAt={Object.keys(rec ?? {}).find((h) => rec?.[h]?.stopFor?.includes(me.id) && rec[h].end == null) ?? null}
+        />
       )}
     </div>
   );
@@ -538,7 +593,7 @@ export function TapPreview({
           </option>
         ))}
       </select>
-      <TapScreen key={me.id} date={date} template={template} haichi={haichi} use={use} members={members} taps={taps} me={me} preview />
+      <TapScreen key={me.id} date={date} template={template} haichi={haichi} use={use} members={members} taps={taps} me={me} preview rec={rec} />
     </div>
   );
 }
@@ -571,7 +626,16 @@ export function TapList({
   const changeKey =
     JSON.stringify(taps) +
     JSON.stringify(
-      Object.entries(rec).map(([h, r]) => [h, r.start ?? null, r.end ?? null, r.members ?? null, r.helpers ?? null, r.left ?? null, r.stopHere ?? false]),
+      Object.entries(rec).map(([h, r]) => [
+        h,
+        r.start ?? null,
+        r.end ?? null,
+        r.members ?? null,
+        r.helpers ?? null,
+        r.left ?? null,
+        r.stopHere ?? false,
+        r.stopFor ?? null,
+      ]),
     );
   useEffect(() => {
     let alive = true;
@@ -606,8 +670,9 @@ export function TapList({
       .filter(([, r]) => r.start != null && r.end == null)
       .map(([h, r]) => [h, { start: r.start!, left: r.left ?? [] }]),
   );
-  const stops = Object.keys(rec).filter((h) => rec[h]?.stopHere);
   const rows = people.map((m) => {
+    // 🏁ここで終了：ハウスの人全員の分と、その人だけの分
+    const stops = Object.keys(rec).filter((h) => rec[h]?.stopHere || rec[h]?.stopFor?.includes(m.id));
     const st = tapStateOf({ plan, template, use, taps, meId: m.id, edited, houseDone, houseStarted, stops });
     const h = st.current;
     const text = st.stopped

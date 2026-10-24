@@ -47,6 +47,7 @@ type House = {
   left?: string[];
   helpers?: string[];
   stopHere?: boolean;
+  stopFor?: string[];
 };
 
 /** 画面側（web/src/lib/harvest.ts）と同じ、はじめのハウスのまとまり */
@@ -305,6 +306,12 @@ export const harvestHelpHouse = onCall(async (req) => {
   const stops = Object.entries(houses)
     .filter(([, v]) => v?.stopHere === true)
     .map(([h]) => h);
+  // 🏁個人でここで終了：ハウス → その人たち
+  const stopFor = Object.fromEntries(
+    Object.entries(houses)
+      .filter(([, v]) => Array.isArray(v?.stopFor) && v.stopFor.length > 0)
+      .map(([h, v]) => [h, v.stopFor!]),
+  );
   return {
     house: me ? (assign[me] ?? null) : null,
     assign,
@@ -315,5 +322,6 @@ export const harvestHelpHouse = onCall(async (req) => {
     started,
     ranking,
     stops,
+    stopFor,
   };
 });

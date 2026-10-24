@@ -54,8 +54,9 @@ import {
 } from "@/lib/harvestForecast";
 import { useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { announce, SAY, unlockSound } from "@/lib/announce";
-import { callBreak, nowMinJST, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
+import { callBreak, nowMinJST, setStopFor, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
+import { MessageButton } from "./MessageButton";
 
 /** その日の収穫者・予定の開始時刻（保存していなければ作業配置表から） */
 function helpersFor(rec: HarvestDoc, plan: HarvestPlan, startTime: number) {
@@ -251,6 +252,8 @@ export default function HarvestPage() {
       ☕ 休憩の合図
     </button>
   );
+  /** 個別の連絡：今日出勤している人を選んで、メッセージを相手の携帯で読み上げる（管理者・集荷係） */
+  const messageButton = day && date === todayJST() && members && <MessageButton date={date} members={members} />;
   const breakBox = day && (
     <span className="flex items-center gap-1 text-sm whitespace-nowrap text-gray-600">
       休憩
@@ -373,7 +376,10 @@ export default function HarvestPage() {
           </div>
           {unassignedNote}
           <div className="mt-1 flex items-center justify-between gap-2">
-            {breakCall || <span />}
+            <span className="flex flex-wrap gap-1">
+              {breakCall}
+              {messageButton}
+            </span>
             {breakBox}
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
@@ -471,6 +477,7 @@ export default function HarvestPage() {
         {cfg && <StartTime value={cfg.startTime} isAdmin={isAdmin} />}
         {breakBox}
         {breakCall}
+        {messageButton}
         {toggle}
         {isAdmin && (
           <Link href="/staff/harvest/report/" className="rounded-lg border border-berry bg-white px-3 py-2 text-sm font-bold text-berry">
@@ -479,7 +486,35 @@ export default function HarvestPage() {
         )}
       </div>
       {unassignedNote}
-      {content}
+      {/* パソコンの表の画面でも、収穫する人それぞれの「収穫報告」の画面と指示一覧を切り替えて見られる */}
+      <div className="mt-3 flex gap-1 border-b">
+        {(
+          [
+            ["sheet", "🍓 収穫管理"],
+            ["tap", "📱 収穫報告"],
+            ["list", "📋 指示一覧"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setTapView(v)}
+            className={`rounded-t-lg px-4 py-2 text-sm font-bold whitespace-nowrap ${tapView === v ? "border border-b-white bg-white text-berry" : "text-gray-500"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tapView === "tap" && template && haichi && use && members ? (
+        <div className="max-w-md">
+          <TapPreview date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec ?? undefined} />
+        </div>
+      ) : tapView === "list" && template && haichi && use && members && rec && hp ? (
+        <div className="max-w-3xl">
+          <TapList date={date} template={template} haichi={haichi} use={use.houses} members={members} rec={rec} houseEnd={fc?.houseEnd ?? {}} />
+        </div>
+      ) : (
+        content
+      )}
     </>
   );
 }
@@ -745,6 +780,13 @@ function Sheet({
       planned={!rec[h]?.members && who(h).length > 0}
       here={(id) => hereOf(id) === h}
       tapped={(id) => entered(h, id)}
+      stopped={(id) => !!rec[h]?.stopFor?.includes(id)}
+      onStop={(id) => {
+        const on = !!rec[h]?.stopFor?.includes(id);
+        const name = names.get(id) ?? "";
+        if (!confirm(on ? `${name}さんの「${h}番でここで終了」を外しますか？` : `${name}さんだけ、${h}番を終えたら今日の収穫を終了にしますか？`)) return;
+        run(setStopFor(date, h, id, !on));
+      }}
       moved={(id) => leftHouse(h, id) && hereOf(id) !== h}
       finished={rec[h]?.end != null}
       names={names}
@@ -974,6 +1016,8 @@ function Members({
   planned,
   here,
   tapped,
+  stopped,
+  onStop,
   moved,
   finished,
   names,
@@ -986,6 +1030,10 @@ function Members({
   here: (id: string) => boolean;
   /** その人が「入った」を押した（または管理者・集荷係が時刻を入れた）。今いるハウスの名前を水色にする（押すまでは緑） */
   tapped: (id: string) => boolean;
+  /** その人だけ、このハウスで終了（🏁を付ける） */
+  stopped: (id: string) => boolean;
+  /** その人だけの「ここで終了」を付け外しする（名前の横の🏁） */
+  onStop: (id: string) => void;
   moved: (id: string) => boolean;
   finished: boolean;
   names: Map<string, string>;
@@ -998,25 +1046,38 @@ function Members({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {ids.map((id) => (
-        <button
-          key={id}
-          onPointerDown={(e) => onPick(id, e)}
-          title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
-          className={`touch-none select-none rounded-full border px-2 py-1 ${
-            here(id) && tapped(id)
-              ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
-              : here(id)
-                ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
-                : finished || moved(id)
-                  ? "border-gray-400 bg-gray-300 text-gray-600"
-                  : planned
-                    ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
-                    : "bg-amber-50"
-          }`}
-        >
-          {(finished || moved(id)) && !here(id) ? "✓ " : ""}
-          {names.get(id) ?? "（いない人）"} ×
-        </button>
+        <span key={id} className="inline-flex items-center">
+          <button
+            onPointerDown={(e) => onPick(id, e)}
+            title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
+            className={`touch-none select-none rounded-full border px-2 py-1 ${
+              here(id) && tapped(id)
+                ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
+                : here(id)
+                  ? `border-emerald-700 bg-emerald-600 font-bold text-white ${planned ? "border-dashed" : ""}`
+                  : finished || moved(id)
+                    ? "border-gray-400 bg-gray-300 text-gray-600"
+                    : planned
+                      ? "border-dashed border-sky-400 bg-sky-50 text-sky-900"
+                      : "bg-amber-50"
+            }`}
+          >
+            {(finished || moved(id)) && !here(id) ? "✓ " : ""}
+            {stopped(id) ? "🏁" : ""}
+            {names.get(id) ?? "（いない人）"} ×
+          </button>
+          {/* その人だけ、このハウスで終了（まだ終わっていないハウス・移っていない人だけ） */}
+          {!finished && !moved(id) && (
+            <button
+              onClick={() => onStop(id)}
+              title={stopped(id) ? "この人の「ここで終了」を外す" : "この人だけ、このハウスを終えたら今日の収穫を終了にする"}
+              aria-label={`${names.get(id) ?? ""}さんだけここで終了`}
+              className={`ml-0.5 rounded-full px-1 text-xs ${stopped(id) ? "bg-emerald-700" : "opacity-30 hover:opacity-70"}`}
+            >
+              🏁
+            </button>
+          )}
+        </span>
       ))}
       <select
         value=""
