@@ -398,7 +398,7 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
   const [err, setErr] = useState("");
   const importedMonths = new Set(saved.map((m) => m.month));
   /** 試算表を取り込んだ月に入る行があるか（明細ごとの日付で見る） */
-  const inImported = (r: Receipt) => (receiptLines(r)?.map((l) => l.date) ?? [r.date]).some((d) => importedMonths.has(d.slice(0, 7)));
+  const inImported = (r: Receipt) => (receiptLines(r)?.lines.map((l) => l.date) ?? [r.date]).some((d) => importedMonths.has(d.slice(0, 7)));
 
   async function pick(files: FileList) {
     setErr("");
@@ -506,7 +506,7 @@ function Receipts({ journal, config, saved }: { journal: JournalMonth[]; config:
 
 /** 1枚の明細（仕訳帳に入る行）。明細が読めないときは、まとめた品名 */
 function ReceiptItems({ r }: { r: Receipt }) {
-  const lines = receiptLines(r);
+  const lines = receiptLines(r)?.lines;
   if (!lines) return <>{r.items}</>;
   return (
     <ul className="text-xs">
