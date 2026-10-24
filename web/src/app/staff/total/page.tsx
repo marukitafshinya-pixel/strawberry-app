@@ -10,6 +10,7 @@ import { downloadCsv } from "@/lib/report";
 import { shipAmount, useShipments } from "@/lib/shipping";
 import { useStoreDaysWithRegi } from "@/lib/store";
 import { Num } from "./Num";
+import { TotalChart } from "./TotalChart";
 import { OTHER_ITEMS, canForecast, saveOtherSales, useOtherSales, type Forecast, type ForecastKey, type OtherKey, type OtherMonths } from "@/lib/totalSales";
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -65,6 +66,7 @@ function TotalView() {
   const { days: prevStore } = useStoreDaysWithRegi(`${year - 1}-01-01`, `${year - 1}-12-31`);
   const other = useOtherSales(year);
   const prevOther = useOtherSales(year - 1);
+  const [chart, setChart] = useState(false);
 
   if (!can("total")) return <p>この画面は使えません。</p>;
   return (
@@ -83,6 +85,9 @@ function TotalView() {
         <button onClick={() => setYear(year + 1)} className="rounded-lg border bg-white px-3 py-2">
           次の年 ›
         </button>
+        <button onClick={() => setChart(!chart)} className={`rounded-lg border px-3 py-2 ${chart ? "bg-berry font-bold text-white" : "bg-white"}`}>
+          📈 {chart ? "グラフを閉じる" : "グラフで見る"}
+        </button>
         {year !== thisYear && (
           <button onClick={() => setYear(thisYear)} className="rounded-lg border bg-white px-3 py-2 text-sm">
             今年
@@ -92,7 +97,10 @@ function TotalView() {
       {!shipments || !store || !other || !prevShipments || !prevStore || !prevOther ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
       ) : (
-        <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} prevShipments={prevShipments} prevStore={prevStore} prevOther={prevOther.months} />
+        <>
+          {chart && <TotalChart year={year} shipments={shipments} store={store} prevShipments={prevShipments} prevStore={prevStore} />}
+          <Table key={year} year={year} shipments={shipments} store={store} saved={other.months} savedForecast={other.forecast} prevShipments={prevShipments} prevStore={prevStore} prevOther={prevOther.months} />
+        </>
       )}
     </div>
   );
