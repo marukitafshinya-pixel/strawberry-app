@@ -19,6 +19,9 @@ type Paper = "narrow" | "a4";
 /** 収入印紙が必要になる金額。消費税額を書いてあるので、税抜の金額で判定する。実際の要否は税理士に確認する */
 const STAMP_THRESHOLD = 50000;
 
+/** 但し書きで選べる文 */
+const NOTE_OPTIONS = ["いちご代として", "いちご狩り代として", "飲食代として"];
+
 export default function ReceiptPage() {
   return (
     <Suspense fallback={<p className="text-gray-500">読み込み中…</p>}>
@@ -53,7 +56,8 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
   const [kind, setKind] = useState<Kind>(params.get("kind") === "invoice" ? "invoice" : "receipt");
   const [paper, setPaper] = useState<Paper>("narrow");
   const [addressee, setAddressee] = useState(sale.customerName);
-  const [note, setNote] = useState("いちご狩り代として");
+  // 但し書き：はじめは空欄。押すと決まった文から選べる
+  const [note, setNote] = useState("");
   const [issueDate, setIssueDate] = useState(sale.date);
   const handlers = useHandlers();
   const [handler, setHandler] = useState(() => (typeof window !== "undefined" ? loadLastHandler() : ""));
@@ -110,7 +114,14 @@ function Receipt({ settings: s, sale }: { settings: Settings; sale: Sale }) {
               </label>
               <label className="block text-sm">
                 <span className="text-gray-600">但し書き</span>
-                <input value={note} maxLength={40} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base" />
+                <select value={note} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base">
+                  <option value="">（空欄）</option>
+                  {NOTE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block text-sm">
                 <span className="text-gray-600">扱者</span>
