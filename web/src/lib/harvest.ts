@@ -27,6 +27,8 @@ export type HouseHarvest = {
   stopHere?: boolean;
   /** 🏁個人でここで終了：この人たち（従業員の id）は、このハウスを終えたらその日の収穫をここまでにする */
   stopFor?: string[];
+  /** ▶ここからスタート：この人たち（従業員の id）は、このハウスから収穫を始める（作業配置表の最初のハウスより優先） */
+  startFor?: string[];
 };
 /** ハウスの名前 → 記録 */
 export type HarvestDoc = Record<string, HouseHarvest>;
@@ -172,6 +174,19 @@ export function planHarvest(t: HaichiTemplate, day: HaichiDay): HarvestPlan {
   }
   return { members, routes };
 }
+
+/**
+ * 収穫管理で「▶ここからスタート」を指定した人は、そのハウスを回る順の最初にする（作業配置表の矢印の順は、そのあとに続ける）。
+ * start＝ハウス → その人たち（収穫管理の記録の startFor、またはサーバーから受けとったもの）
+ */
+export function withStarts(plan: HarvestPlan, start: Record<string, string[] | undefined>): HarvestPlan {
+  const routes = { ...plan.routes };
+  for (const [h, ids] of Object.entries(start)) for (const m of ids ?? []) routes[m] = [h, ...(routes[m] ?? []).filter((x) => x !== h)];
+  return { ...plan, routes };
+}
+/** 収穫管理の記録から、ハウス → ▶ここからスタートの人たち */
+export const startsOf = (rec: HarvestDoc | null | undefined): Record<string, string[]> =>
+  Object.fromEntries(Object.entries(rec ?? {}).flatMap(([h, r]) => (r?.startFor?.length ? [[h, r.startFor]] : [])));
 
 /** 時刻の入力を分にする。「710」「7:10」「7.10」→ 7:10、「6」→ 6:00。空なら null、読めなければ undefined */
 export function parseClock(s: string): number | null | undefined {

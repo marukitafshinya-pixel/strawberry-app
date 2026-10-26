@@ -103,13 +103,15 @@ export type HelpInfo = {
   done: string[];
   members: Record<string, string[]>;
   /** 収穫中のハウス（収穫管理に「入った」があって「終わった」がまだ）→ 入った時刻と、終わる前にほかへ移った人 */
-  started?: Record<string, { start: number; left: string[] }>;
+  started?: Record<string, { start: number; left: string[]; auto?: boolean }>;
   /** 応援が必要な順（いまのままだと終わるのがおそい順）：ハウス・終わる見込み（分）・いまの人数（向かっている人もふくむ）・もう入っているか */
   ranking?: { house: string; finish: number; crew: number; started: boolean }[];
   /** 🏁ここで終了のハウス */
   stops?: string[];
   /** 🏁個人でここで終了：ハウス → その人たち */
   stopFor?: Record<string, string[]>;
+  /** ▶ここからスタート：ハウス → その人たち */
+  startFor?: Record<string, string[]>;
 };
 export const fetchHelpHouse = (free = false) => callFunction<{ free: boolean }, HelpInfo>("harvestHelpHouse", { free });
 
@@ -291,4 +293,17 @@ export async function setStopFor(date: string, house: string, memberId: string, 
     { houses: { [house]: { stopFor: on ? arrayUnion(memberId) : arrayRemove(memberId) } }, updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+/**
+ * ▶ここからスタート：その人のスタートのハウスを決める（ほかのハウスのスタートは外す。1人1か所）。
+ * start＝そのハウスの「入った」がまだなければ入れる収穫の開始時刻（自動で入れた扱い。本人が押すまで緑）
+ */
+export async function setStartFor(date: string, house: string, memberId: string, others: string[], start: number | null) {
+  const { db } = await getFirebase();
+  const houses: Record<string, Record<string, unknown>> = {
+    [house]: { startFor: arrayUnion(memberId), ...(start != null ? { start, startAuto: true } : {}) },
+  };
+  for (const h of others) if (h !== house) houses[h] = { startFor: arrayRemove(memberId) };
+  await setDoc(doc(db, "harvest", date), { houses, updatedAt: serverTimestamp() }, { merge: true });
 }

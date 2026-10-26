@@ -29,7 +29,8 @@ const SURFACE = "#ffffff";
 export const yenShort = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "")}万` : n.toLocaleString("ja-JP"));
 const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 
-export type Series = { key: string; label: string; color: string };
+/** width＝線の太さ（折れ線だけ。決めていなければ2px） */
+export type Series = { key: string; label: string; color: string; width?: number };
 
 /** 上だけ角を丸めた長方形（データの端を丸め、ゼロ側は四角のまま） */
 function topRoundedRect(x: number, y: number, w: number, h: number, r: number): string {
@@ -925,6 +926,131 @@ export function TimeScrollChart({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 金額の折れ線で、今年（実線）と前年（点線・同じ色）を重ねる（例：いちごトータル実績の週・月）。
+ * 値のないところ（まだ来ていない週など）は線を切る。さわったところに縦の線と、金額・前年比の吹き出しを出す
+ */
+export function CompareLines({
+  rows,
+  series,
+  compare,
+  height = 260,
+}: {
+  rows: { key: string; label: string; values: Record<string, number | null>; prev: Record<string, number | null> }[];
+  series: Series[];
+  compare: boolean;
+  height?: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [box, W] = useWidth<HTMLDivElement>(640);
+  const pad = { l: 44, r: 12, t: 10, b: 24 };
+  const plotW = W - pad.l - pad.r;
+  const H = height;
+  const plotH = H - pad.t - pad.b;
+  const vals = rows.flatMap((r) => series.flatMap((s) => [r.values[s.key], compare ? r.prev[s.key] : null])).filter((v): v is number => typeof v === "number");
+  const ticks = tightTicks(Math.max(0, ...vals));
+  const hi = ticks[ticks.length - 1] || 1;
+  const x = (i: number) => pad.l + (rows.length <= 1 ? plotW / 2 : (plotW * i) / (rows.length - 1));
+  const y = (v: number) => pad.t + plotH - (v / hi) * plotH;
+  const every = Math.max(1, Math.ceil(rows.length / 8));
+  const pathOf = (get: (r: (typeof rows)[number]) => number | null) => {
+    let d = "";
+    let pen = false;
+    rows.forEach((r, i) => {
+      const v = get(r);
+      if (typeof v !== "number") {
+        pen = false;
+        return;
+      }
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    return d;
+  };
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = rows.length <= 1 ? 0 : Math.round(((px - pad.l) / plotW) * (rows.length - 1));
+    setHover(Math.max(0, Math.min(rows.length - 1, i)));
+  };
+  return (
+    <div className="relative" ref={box}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full touch-none"
+        role="img"
+        aria-label="折れ線グラフ"
+        onPointerMove={onMove}
+        onPointerDown={onMove}
+        onPointerLeave={() => setHover(null)}
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
+            <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize={11} fill={TEXT_MUTED}>
+              {yenShort(t)}
+            </text>
+          </g>
+        ))}
+        {rows.map((r, i) =>
+          i % every === 0 ? (
+            <text key={r.key} x={x(i)} y={H - 6} textAnchor="middle" fontSize={11} fill={TEXT_MUTED}>
+              {r.label}
+            </text>
+          ) : null,
+        )}
+        {hover != null && <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + plotH} stroke={TEXT_MUTED} strokeWidth={1} strokeDasharray="3 3" />}
+        {compare &&
+          series.map((s) => (
+            <path
+              key={`prev-${s.key}`}
+              d={pathOf((r) => r.prev[s.key])}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={s.width ?? 2}
+              strokeDasharray="5 4"
+              opacity={0.6}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          ))}
+        {series.map((s) => (
+          <path key={s.key} d={pathOf((r) => r.values[s.key])} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {hover != null &&
+          series.map((s) => {
+            const v = rows[hover]?.values[s.key];
+            return typeof v === "number" ? <circle key={s.key} cx={x(hover)} cy={y(v)} r={4} fill={s.color} stroke={SURFACE} strokeWidth={2} /> : null;
+          })}
+      </svg>
+      {hover != null && rows[hover] && (
+        <Tooltip x={(x(hover) / W) * 100}>
+          <div className="font-bold">{rows[hover].label}</div>
+          <ul className="mt-1 space-y-0.5">
+            {series.map((s) => {
+              const v = rows[hover].values[s.key];
+              const p = rows[hover].prev[s.key];
+              return (
+                <li key={s.key} className="flex items-center gap-2 text-xs">
+                  <span className="inline-block h-2 w-2 rounded-sm" style={{ background: s.color }} />
+                  <span className="text-gray-500">{s.label}</span>
+                  <span className="ml-auto font-semibold tabular-nums">{typeof v === "number" ? yen(v) : "－"}</span>
+                  {compare && (
+                    <span className="text-gray-500 tabular-nums">
+                      前年 {typeof p === "number" ? yen(p) : "－"}
+                      {typeof v === "number" && p ? `（${Math.round((v / p) * 100)}%）` : ""}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Tooltip>
+      )}
     </div>
   );
 }
