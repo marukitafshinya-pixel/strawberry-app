@@ -2,6 +2,7 @@
 
 // 給与集計表のPDF（「〇年〇月度分給与集計表」。表計算ソフトから印刷したPDF）を読み取る。
 // PDFの中の文字をそのまま読むので、画像（スキャン）のPDFは読めない。ファイルはこの端末の中だけで読み、どこにも送らない。
+import { openPdf } from "./pdf";
 import { PAY_ITEMS, computeRow, type PayKey, type PayRow, type PayrollCsvEntry } from "./payroll";
 
 /** PDFの文字1つ分のかたまり（x・y は左下から、w は幅。単位はポイント） */
@@ -183,9 +184,7 @@ export function parsePayrollPdfText(items: PdfText[]): PayrollPdfResult {
 
 /** PDFファイルを読み取る（1ページ目だけ） */
 export async function readPayrollPdf(file: File): Promise<PayrollPdfResult> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const task = await openPdf(await file.arrayBuffer());
   try {
     const doc = await task.promise;
     const page = await doc.getPage(1);

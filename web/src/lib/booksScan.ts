@@ -178,8 +178,8 @@ export function receiptToJournal(r: Receipt, payCode: string): JournalEntry[] {
 type BankPageResult = { rows: { date: string; desc: string; deposit: number; withdrawal: number; balance: number | null }[]; notes: string };
 
 /**
- * 預金通帳（写真・PDF。1ページずつ）を読み、通帳の行にする（どの預金かは account）。
- * 残高のつながり（前の残高＋入金−出金＝残高）が合わない行と、日付が読めない行は problems に書く
+ * 預金通帳（写真・PDF。1ページずつ）を読み、通帳の行にする（どの預金かは account）。行は通帳の順のまま返す。
+ * 日付が読めない行は problems に書く（残高のつながりは、画面で bankBalanceProblems で確かめる）
  */
 export async function scanBankFiles(files: File[], account: string, progress: Progress): Promise<{ rows: BankRow[]; problems: string[] }> {
   const pages = await filesToPages(files);
@@ -205,13 +205,5 @@ export async function scanBankFiles(files: File[], account: string, progress: Pr
     }
   }
   progress(pages.length, pages.length);
-  // 残高のつながり（ページの順のまま見る）
-  for (let i = 1; i < rows.length; i++) {
-    const a = rows[i - 1].balance;
-    const b = rows[i].balance;
-    if (a === null || b === null) continue;
-    const want = a + rows[i].deposit - rows[i].withdrawal;
-    if (want !== b) problems.push(`${rows[i].date} ${rows[i].desc}：前の残高から計算すると ${want.toLocaleString("ja-JP")} 円ですが、残高は ${b.toLocaleString("ja-JP")} 円と読みました。金額を確かめてください`);
-  }
-  return { rows: [...rows].sort((a, b) => a.date.localeCompare(b.date)), problems };
+  return { rows, problems };
 }

@@ -9,6 +9,7 @@ import { decodeCsv, parseCsv } from "@/lib/csv";
 import { shiftMonth, todayJST } from "@/lib/date";
 import {
   accountOf,
+  bankBalanceProblems,
   fullName,
   balanceOf,
   guessBankColumns,
@@ -32,6 +33,7 @@ import {
   type Books,
   type LedgerConfig,
 } from "@/lib/books";
+import { readBankPdf } from "@/lib/bankPdf";
 import { scanBankFiles } from "@/lib/booksScan";
 import { reiwa } from "@/lib/payroll";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
@@ -143,9 +145,23 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
     if (files.some(isCsv)) return setErr("CSVは1つずつ選んでください（写真・PDFといっしょには選べません）");
     setBusy(true);
     try {
-      const r = await scanBankFiles(files, account, (done, total) => setProgress(`AIで読んでいます（${done}／${total}ページ）`));
-      setScan({ name: files.map((f) => f.name).join("・"), ...r });
-      if (!r.rows.length) setErr("入出金の行が読めませんでした");
+      // 文字の入っているPDF（ネットバンキングの明細）は、その場で読む（速い・正確）。写真・スキャンはAIで読む
+      const rows: BankRow[] = [];
+      const problems: string[] = [];
+      for (const [i, f] of files.entries()) {
+        const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+        const text = isPdf ? await readBankPdf(f, account).catch(() => null) : null;
+        if (text) {
+          rows.push(...text);
+          continue;
+        }
+        const r = await scanBankFiles([f], account, (done, total) => setProgress(`AIで読んでいます（${i + 1}／${files.length}ファイル・${done}／${total}ページ）`));
+        rows.push(...r.rows);
+        problems.push(...r.problems);
+      }
+      problems.push(...bankBalanceProblems(rows));
+      setScan({ name: files.map((f) => f.name).join("・"), rows: [...rows].sort((a, b) => a.date.localeCompare(b.date)), problems: [...new Set(problems)] });
+      if (!rows.length) setErr("入出金の行が読めませんでした");
     } catch (e) {
       setErr(errorText(e));
     } finally {

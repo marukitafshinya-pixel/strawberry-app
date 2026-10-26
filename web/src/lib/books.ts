@@ -740,8 +740,13 @@ export function useBank() {
   return useMonthDocs<BankMonth>("bank", (id, d) => ({ month: id, rows: (d.rows as BankRow[] | undefined) ?? [] }));
 }
 
-/** 全角・半角（ｶﾅ も）をそろえ、小文字にする */
-const normalize = (t: string) => t.normalize("NFKC").replace(/\s+/g, " ").toLowerCase();
+/** 全角・半角（ｶﾅ も）をそろえ、小文字にする。カタカナのあとの「-」は長音「ー」にする（通帳の「ﾎ-ﾌﾞ」→「ホーブ」） */
+const normalize = (t: string) =>
+  t
+    .normalize("NFKC")
+    .replace(/(?<=[ァ-ヶー])[-‐－−]/g, "ー")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 
 /** 摘要に合う言葉の科目（なければ null）。全角・半角（ｶﾅ も）、大文字・小文字は区別しない */
 export function ruleFor(desc: string, rules: BankRule[]): BankRule | null {
@@ -763,7 +768,7 @@ export function bankPostings(bank: BankMonth[], month: string, rules: BankRule[]
 }
 
 const z2h = (s: string) => s.replace(/[０-９．／－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
-/** 通帳の日付（2026/10/5・2026-10-05・2026年10月5日・20261005・R8.10.5・令和8年10月5日）→ YYYY-MM-DD */
+/** 通帳の日付（2026/10/5・2026-10-05・2026年10月5日・20261005・R8.10.5・令和8年10月5日・26-10-05・08-10-05）→ YYYY-MM-DD */
 export function parseBankDate(v: string): string | null {
   const t = z2h(v);
   let ymd: number[] | null = null;
@@ -771,13 +776,16 @@ export function parseBankDate(v: string): string | null {
   if ((x = t.match(/^(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/))) ymd = [Number(x[1]), Number(x[2]), Number(x[3])];
   else if ((x = t.match(/^(\d{4})(\d{2})(\d{2})$/))) ymd = [Number(x[1]), Number(x[2]), Number(x[3])];
   else if ((x = t.match(/^(R|r|令和)\s*(\d{1,2})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/))) ymd = [2018 + Number(x[2]), Number(x[3]), Number(x[4])];
+  // 年が2けた（通帳・ネットバンキング）：15 までは令和（08-10-05＝令和8年）、それより大きければ西暦の下2けた（26-10-05＝2026年）
+  else if ((x = t.match(/^(\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})$/))) ymd = [Number(x[1]) <= 15 ? 2018 + Number(x[1]) : 2000 + Number(x[1]), Number(x[2]), Number(x[3])];
   if (!ymd) return null;
   const [y, m, d] = ymd;
   if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 const money = (v: string | undefined): number => {
-  const t = z2h(v ?? "").replace(/[,，\s￥¥円+]/g, "");
+  // 円の印は「\」で出ることもある（Shift_JIS の ¥）
+  const t = z2h(v ?? "").replace(/[,，\s￥¥\\円+]/g, "");
   const n = Number(t);
   return t && Number.isFinite(n) ? Math.round(n) : 0;
 };
@@ -787,20 +795,28 @@ export type BankColumns = { date: number; desc: number; deposit: number; withdra
 
 /** 見出しの行と列を探す（銀行ごとに名前が違うので、よくある名前で探す） */
 export function guessBankColumns(rows: string[][]): BankColumns | null {
-  const find = (row: string[], words: string[]) => row.findIndex((c) => words.some((w) => c.replace(/\s/g, "").includes(w)));
+  // 言葉は前のものほど優先（「お取引」より「お取引内容」）。ほかの列で使った見出しは使わない（「お取引日」を摘要にしない）
+  const find = (row: string[], words: string[], used: number[] = []) => {
+    for (const w of words) {
+      const i = row.findIndex((c, j) => !used.includes(j) && c.replace(/\s/g, "").includes(w));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i] ?? [];
     const date = find(row, ["取引日", "年月日", "日付", "お取引日", "勘定日"]);
     const deposit = find(row, ["お預り", "お預かり", "預入", "入金", "受入"]);
     const withdrawal = find(row, ["お支払", "お引出", "引出", "出金", "払出", "支払"]);
     if (date < 0 || (deposit < 0 && withdrawal < 0)) continue;
-    return { header: i, date, deposit, withdrawal, desc: find(row, ["摘要", "お取引内容", "取引内容", "内容", "お取引", "備考"]), balance: find(row, ["残高"]) };
+    const balance = find(row, ["残高"]);
+    return { header: i, date, deposit, withdrawal, desc: find(row, ["摘要", "お取引内容", "取引内容", "内容", "お取引", "備考"], [date, deposit, withdrawal, balance]), balance };
   }
   return null;
 }
 
 /** 通帳のCSVを行にする（日付が読めない行と、入出金のない行は入れない） */
-export function readBankRows(rows: string[][], col: BankColumns, account: string): BankRow[] {
+export function readBankRows(rows: string[][], col: BankColumns, account: string, sort = true): BankRow[] {
   const out: BankRow[] = [];
   for (const row of rows.slice(col.header + 1)) {
     const date = parseBankDate(row[col.date] ?? "");
@@ -811,7 +827,20 @@ export function readBankRows(rows: string[][], col: BankColumns, account: string
     const balance = col.balance >= 0 && (row[col.balance] ?? "").trim() ? money(row[col.balance]) : null;
     out.push({ date, desc: col.desc >= 0 ? (row[col.desc] ?? "").trim().slice(0, 80) : "", deposit, withdrawal, balance, account });
   }
-  return out.sort((a, b) => a.date.localeCompare(b.date));
+  return sort ? out.sort((a, b) => a.date.localeCompare(b.date)) : out;
+}
+
+/** 残高のつながり（前の残高＋入金−出金＝残高）が合わない行の知らせ。行は通帳の順のまま渡す */
+export function bankBalanceProblems(rows: BankRow[]): string[] {
+  const out: string[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1].balance;
+    const b = rows[i].balance;
+    if (a === null || b === null) continue;
+    const want = a + rows[i].deposit - rows[i].withdrawal;
+    if (want !== b) out.push(`${rows[i].date} ${rows[i].desc}：前の残高から計算すると ${want.toLocaleString("ja-JP")} 円ですが、残高は ${b.toLocaleString("ja-JP")} 円です。金額を確かめてください`);
+  }
+  return out;
 }
 
 /**

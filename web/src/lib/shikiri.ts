@@ -2,6 +2,7 @@
 
 // 仕切書（出荷先から届く支払明細書）の読み取り結果と、アプリの出荷実績への当てはめ
 import type { DayItems, Grade } from "./shipping";
+import { openPdf } from "./pdf";
 
 export type ShikiriEntry = { day: number; qty: number; price: number };
 export type ShikiriRow = { size: string; entries: ShikiriEntry[]; qtyTotal: number | null };
@@ -32,9 +33,7 @@ export async function filesToPages(files: File[]): Promise<Page[]> {
   const pages: Page[] = [];
   for (const f of files) {
     if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const task = pdfjs.getDocument({ data: new Uint8Array(await f.arrayBuffer()) });
+      const task = await openPdf(await f.arrayBuffer());
       const doc = await task.promise;
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i);

@@ -183,9 +183,8 @@ export function mergeTaxRows(rows: LedgerRow[]): LedgerRow[] {
 
 /** PDFのファイルを読む（ブラウザ） */
 export async function readLedgerPdf(file: File): Promise<LedgerFile> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const { openPdf } = await import("./pdf");
+  const task = await openPdf(await file.arrayBuffer());
   const doc = await task.promise;
   const pages: PdfText[][] = [];
   for (let i = 1; i <= doc.numPages; i++) {
