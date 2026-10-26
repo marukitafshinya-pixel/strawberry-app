@@ -23,3 +23,17 @@ body {
     border-color: var(--color-gray-300);
   }
 }
+
+/* 帳簿の内訳だけを印刷するとき：ページのほかのところは出さない（内訳は body の直下に出している） */
+@media print {
+  body.print-drill > *:not(.drill-print) {
+    display: none !important;
+  }
+  body.print-drill > .drill-print {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+}

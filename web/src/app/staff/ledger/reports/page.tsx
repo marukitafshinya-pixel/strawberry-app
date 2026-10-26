@@ -2,7 +2,8 @@
 
 // 帳簿：決算書・元帳。期（会計年度）ごとに、損益計算書（月別）・貸借対照表・試算表・総勘定元帳を出す
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/lib/auth";
 import { callFunction, errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
@@ -217,6 +218,19 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
   const base = lineValue(lines.find((l) => l.label === (which === "pl" ? "売上高計" : "当期総製造費用"))!, sumAll);
   const ratio = (v: number) => (base ? ((v / base) * 100).toFixed(2) : "");
   const [drill, setDrill] = useState<DrillTarget | null>(null);
+  // 「内訳もいっしょに印刷」：表のあとに、金額のある科目ごとの内訳（仕訳）を印刷に出す
+  const [withDetails, setWithDetails] = useState(false);
+  // 補助科目のある科目は、補助科目に出る分を除いた、その科目だけの分（同じ仕訳を2回出さない）
+  const items = lines.flatMap((l, k) => {
+    if (l.type !== "item") return [];
+    const subs: string[] = [];
+    for (const c of lines.slice(k + 1)) {
+      if (c.type !== "item" || c.indent <= l.indent) break;
+      subs.push(...c.terms.map((t) => t.code));
+    }
+    const own = { ...l, terms: l.terms.filter((t) => !subs.includes(t.code)) };
+    return own.terms.length && lineValue(own, sumAll) ? [own] : [];
+  });
 
   function excel() {
     const rows: XCell[][] = [
@@ -238,7 +252,18 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
     <section>
       {drill && <Drill books={books} config={config} {...drill} onClose={() => setDrill(null)} />}
       <Heading name={name} title={title} onExcel={excel} />
-      <p className="mt-1 text-xs text-gray-500 print:hidden">金額を押すと、その内訳（仕訳）が出ます。</p>
+      <div className="mt-1 flex flex-wrap items-center gap-3 print:hidden">
+        <p className="text-xs text-gray-500">金額を押すと、その内訳（仕訳）が出ます。</p>
+        <button
+          onClick={() => {
+            setWithDetails(true);
+            printThen(() => setWithDetails(false));
+          }}
+          className="rounded-lg border bg-white px-3 py-1 text-sm"
+        >
+          🖨 内訳もいっしょに印刷（{items.length}科目）
+        </button>
+      </div>
       <div className="mt-2 overflow-x-auto rounded-2xl bg-white shadow-sm">
         <table className="w-full text-sm tabular-nums">
           <thead className="bg-sky-50 text-xs text-gray-600">
@@ -302,6 +327,18 @@ function Statement({ which, books, config, months, title }: { which: "pl" | "mfg
           </tbody>
         </table>
       </div>
+      {withDetails && (
+        <div className="hidden print:block">
+          {items.map((l, k) => (
+            <section key={k} className={k === 0 ? "break-before-page" : "mt-6"}>
+              <h3 className="font-bold break-after-avoid">
+                {name}の内訳：{l.label}　{mo(months[0])}〜{mo(months[months.length - 1])}　{yen(lineValue(l, sumAll))}円
+              </h3>
+              <DrillTable rows={drillRows(books, config, l.terms, months[0], months[months.length - 1])} accounts={config.accounts} />
+            </section>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -547,10 +584,9 @@ type DrillTarget = { title: string; terms: StatementLine["terms"]; from: string;
  * 内訳：その金額のもとになった仕訳の一覧。行の金額は、表の金額と同じ向き（収益は貸方、費用は借方をプラス）。
  * 試算表を取り込んだ月は、会計ソフトの月の合計（借方・貸方）が1行ずつ出る
  */
-function Drill({ books, config, title, terms, from, to, onClose }: DrillTarget & { books: Books; config: LedgerConfig; onClose: () => void }) {
+function drillRows(books: Books, config: LedgerConfig, terms: StatementLine["terms"], from: string, to: string) {
   const accounts = config.accounts;
-  const name = (c: string) => fullName(accounts, accountOf(accounts, c));
-  const rows = postingsInRange(books, config, from, to).flatMap((p) =>
+  return postingsInRange(books, config, from, to).flatMap((p) =>
     terms
       .filter((t) => p.debit === t.code || p.credit === t.code)
       .map((t) => {
@@ -559,58 +595,99 @@ function Drill({ books, config, title, terms, from, to, onClose }: DrillTarget &
         return { p, code: t.code, other: isDebit ? p.credit : p.debit, value: t.sign * v };
       }),
   );
+}
+
+/** 内訳の表（画面の内訳と、印刷の内訳で同じもの） */
+function DrillTable({ rows, accounts }: { rows: ReturnType<typeof drillRows>; accounts: Account[] }) {
+  const name = (c: string) => fullName(accounts, accountOf(accounts, c));
   const total = rows.reduce((n, r) => n + r.value, 0);
   const many = new Set(rows.map((r) => r.code)).size > 1;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 print:hidden" onClick={onClose}>
-      <div className="mt-8 w-full max-w-4xl rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <table className="w-full text-sm tabular-nums">
+      <thead className="sticky top-0 bg-gray-50 text-xs text-gray-600 print:static">
+        <tr>
+          <th className="w-16 px-2 py-2 text-left">日付</th>
+          {many && <th className="px-2 py-2 text-left">科目</th>}
+          <th className="px-2 py-2 text-left">相手科目</th>
+          <th className="px-2 py-2 text-left">摘要</th>
+          <th className="w-28 px-2 py-2 text-right">金額</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className="border-t break-inside-avoid">
+            <td className="px-2 py-1.5">{md(r.p.date)}</td>
+            {many && <td className="px-2 text-xs">{name(r.code)}</td>}
+            <td className="px-2 text-xs">{name(r.other)}</td>
+            <td className="px-2">
+              {r.p.memo}
+              {r.p.memo2 && <span className="ml-1 text-xs text-gray-500">{r.p.memo2}</span>}
+              {r.p.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[r.p.source]}</span>}
+            </td>
+            <td className={`px-2 text-right ${r.value < 0 ? "text-red-600" : ""}`}>{yen(r.value)}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot className="border-t-2 bg-gray-50 font-bold">
+        <tr>
+          <td colSpan={many ? 4 : 3} className="px-2 py-2">
+            合計
+          </td>
+          <td className="px-2 text-right">{yen(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  );
+}
+
+/** 印刷する：印刷が終わったら、印刷用に出したものを片付ける */
+function printThen(done: () => void) {
+  const after = () => {
+    window.removeEventListener("afterprint", after);
+    done();
+  };
+  window.addEventListener("afterprint", after);
+  // 印刷用のものが画面に出てから
+  setTimeout(() => window.print(), 50);
+}
+
+function Drill({ books, config, title, terms, from, to, onClose }: DrillTarget & { books: Books; config: LedgerConfig; onClose: () => void }) {
+  const rows = drillRows(books, config, terms, from, to);
+  const total = rows.reduce((n, r) => n + r.value, 0);
+  // この内訳だけを印刷するときは、ページのほかのところを印刷に出さない
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    document.body.classList.toggle("print-drill", printing);
+    return () => document.body.classList.remove("print-drill");
+  }, [printing]);
+  // body の直下に出す（この内訳だけを印刷するとき、ほかを印刷から外せるように）
+  return createPortal(
+    <div className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 ${printing ? "drill-print" : "print:hidden"}`} onClick={onClose}>
+      <div className="mt-8 w-full max-w-4xl rounded-2xl bg-white p-4 shadow-xl print:mt-0 print:max-w-none print:rounded-none print:p-0 print:shadow-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3">
           <h3 className="text-lg font-bold">内訳：{title}</h3>
           <span className="flex-1" />
-          <button onClick={onClose} className="rounded-lg border px-3 py-1 text-sm">
+          <button
+            onClick={() => {
+              setPrinting(true);
+              printThen(() => setPrinting(false));
+            }}
+            className="rounded-lg border px-3 py-1 text-sm print:hidden"
+          >
+            🖨 この内訳を印刷
+          </button>
+          <button onClick={onClose} className="rounded-lg border px-3 py-1 text-sm print:hidden">
             閉じる
           </button>
         </div>
         <p className="mt-1 text-xs text-gray-500">
           {rows.length}行　合計 {yen(total)}円
         </p>
-        <div className="mt-2 max-h-[70vh] overflow-auto">
-          <table className="w-full text-sm tabular-nums">
-            <thead className="sticky top-0 bg-gray-50 text-xs text-gray-600">
-              <tr>
-                <th className="w-16 px-2 py-2 text-left">日付</th>
-                {many && <th className="px-2 py-2 text-left">科目</th>}
-                <th className="px-2 py-2 text-left">相手科目</th>
-                <th className="px-2 py-2 text-left">摘要</th>
-                <th className="w-28 px-2 py-2 text-right">金額</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-t">
-                  <td className="px-2 py-1.5">{md(r.p.date)}</td>
-                  {many && <td className="px-2 text-xs">{name(r.code)}</td>}
-                  <td className="px-2 text-xs">{name(r.other)}</td>
-                  <td className="px-2">
-                    {r.p.memo}
-                    {r.p.memo2 && <span className="ml-1 text-xs text-gray-500">{r.p.memo2}</span>}
-                    {r.p.source !== "manual" && <span className="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-500">{SOURCE_LABEL[r.p.source]}</span>}
-                  </td>
-                  <td className={`px-2 text-right ${r.value < 0 ? "text-red-600" : ""}`}>{yen(r.value)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="border-t-2 bg-gray-50 font-bold">
-              <tr>
-                <td colSpan={many ? 4 : 3} className="px-2 py-2">
-                  合計
-                </td>
-                <td className="px-2 text-right">{yen(total)}</td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="mt-2 max-h-[70vh] overflow-auto print:max-h-none print:overflow-visible">
+          <DrillTable rows={rows} accounts={config.accounts} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
