@@ -187,7 +187,14 @@ function Row({ d, edit }: { d: DayResult; edit?: SheetEdit }) {
   const note = d.edited ? editedParts(d) : [];
   return (
     <tr className={d.problem ? "bg-red-50" : d.edited ? "bg-amber-50" : ""}>
-      <td className="whitespace-nowrap">{day}</td>
+      <td className="whitespace-nowrap">
+        {day}
+        {d.raw?.s === "tab" && (
+          <span className="ml-0.5 text-xs print:hidden" title="打刻タブレット（NFCタグ）で押した打刻">
+            📶
+          </span>
+        )}
+      </td>
       <td className={tapCell(timeEdited && d.raw?.i !== d.i)} onClick={openAt("i")} title={edit ? "押すと出勤の打刻を直せます" : undefined}>
         {hm(d.i)}
       </td>

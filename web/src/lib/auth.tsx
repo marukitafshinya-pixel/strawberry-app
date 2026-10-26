@@ -4,8 +4,8 @@ import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getFirebase } from "./firebase";
 
-/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、accounting=経理（現金出納帳を見る・帳簿をつける）、null=権限なし */
-export type Role = "admin" | "staff" | "worker" | "accounting" | null;
+/** 権限：admin=管理者、staff=スタッフ、worker=従業員（勤務の表を見る・休みの希望を出すだけ）、accounting=経理（現金出納帳を見る・帳簿をつける）、timeclock=打刻タブレット（打刻だけ）、null=権限なし */
+export type Role = "admin" | "staff" | "worker" | "accounting" | "timeclock" | null;
 
 /** ログインIDだけでログインする従業員のメールアドレスの形（サーバー側と同じ） */
 export const WORKER_EMAIL_DOMAIN = "ichigo-staff.invalid";
@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // 権限はサーバー側でログイン情報に付けた印（カスタムクレーム）から読む
           const token = await u.getIdTokenResult();
           const r = token.claims.role;
-          setRole(r === "admin" || r === "staff" || r === "worker" || r === "accounting" ? r : null);
+          setRole(r === "admin" || r === "staff" || r === "worker" || r === "accounting" || r === "timeclock" ? r : null);
         } else {
           setRole(null);
         }

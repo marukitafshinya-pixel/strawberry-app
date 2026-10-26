@@ -20,6 +20,7 @@ export { refreshTempDiff } from "./tempDiff.js";
 export { viewPayroll } from "./payrollView.js";
 export { buildAutoJournal } from "./ledgerAuto.js";
 export { refreshHarvestSpeeds, harvestHelpHouse } from "./harvest.js";
+export { setTimeclockLogin, timeclockBreak, timeclockPunch, timeclockSetTag } from "./timeclock.js";
 
 async function countActiveAdmins(): Promise<number> {
   const snap = await db.collection("staff").where("role", "==", "admin").where("active", "==", true).count().get();

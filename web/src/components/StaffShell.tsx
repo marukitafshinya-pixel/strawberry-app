@@ -80,6 +80,8 @@ function useNewVersion(): boolean {
 const WORKER_PATH = "/staff/shift/me/";
 /** 収穫管理の入力（集荷係の従業員も使う） */
 const HARVEST_PATH = "/staff/harvest/";
+/** 打刻タブレット（入口に置いて、NFCタグをかざす）。打刻タブレットのログインは、この画面だけ */
+const TIMECLOCK_PATH = "/staff/timeclock/";
 
 /** スタッフ画面の共通部分。ログインしていなければログイン画面へ移動する */
 /** 勤務管理表の投影用の画面 */
@@ -104,6 +106,8 @@ function Guard({ children }: { children: ReactNode }) {
     !!pathname?.startsWith("/staff/harvest/watch") ||
     !!pathname?.startsWith("/staff/harvest/tap");
   const workerAway = role === "worker" && !isLoginPage && !workerPage;
+  const timeclockPage = !!pathname?.startsWith("/staff/timeclock");
+  const timeclockAway = role === "timeclock" && !isLoginPage && !timeclockPage;
   // スタッフ・経理は、その役割に見せている画面だけ（設定 →「役割ごとの見せる画面」）。管理者だけの画面は入れない
   const perms = usePerms();
   const feature = pathname ? featureOfPath(pathname) : null;
@@ -111,7 +115,8 @@ function Guard({ children }: { children: ReactNode }) {
   const blocked = member && !isLoginPage && feature != null && (feature === "admin" || (perms.ready && !perms.can(feature)));
   useEffect(() => {
     if (workerAway) router.replace(WORKER_PATH);
-  }, [workerAway, router]);
+    if (timeclockAway) router.replace(TIMECLOCK_PATH);
+  }, [workerAway, timeclockAway, router]);
 
   if (isLoginPage) return <>{children}</>;
   if (loading || !user) return <p className="p-6 text-gray-500">読み込み中…</p>;
@@ -119,9 +124,12 @@ function Guard({ children }: { children: ReactNode }) {
   if (!role) return <NoRole />;
   // 従業員は、勤務管理表（自分の画面）だけ
   if (role === "worker" && !workerPage) return <p className="p-6 text-gray-500">読み込み中…</p>;
+  if (role === "timeclock" && !timeclockPage) return <p className="p-6 text-gray-500">読み込み中…</p>;
   if (member && feature != null && feature !== "admin" && !perms.ready) return <p className="p-6 text-gray-500">読み込み中…</p>;
   // 投影用の画面（勤務管理表をプロジェクターに映す）は、上の帯も余白も付けず、画面いっぱいに出す
   if (pathname?.startsWith(DISPLAY_PATH)) return <>{children}</>;
+  // 打刻タブレットの画面も、画面いっぱいに出す
+  if (timeclockPage) return <>{children}</>;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">

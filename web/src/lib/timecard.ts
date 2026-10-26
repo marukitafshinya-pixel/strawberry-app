@@ -12,9 +12,9 @@ import { shiftMonth } from "./date";
 
 /**
  * 1日の打刻。時刻は0時からの分（USBのデータのまま。例 347 → 5:47、1041 → 17:21）。
- * x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）
+ * x＝出勤・退勤のほかの欄に入っていた打刻（そのまま残す）、s＝"tab"：打刻タブレット（NFCタグ）で押した打刻
  */
-export type TcPunch = { i: number | null; o: number | null; x?: string };
+export type TcPunch = { i: number | null; o: number | null; x?: string; s?: "tab" };
 /** 1日分。e＝画面で直した時刻（あれば、こちらを使う）、bk＝画面で直した休憩（分。あれば、自動の休憩の代わりに使う） */
 export type TcDay = TcPunch & { e?: { i: number | null; o: number | null }; bk?: number };
 /** timecards/{YYYY-MM}：カード番号 → 日（"01"〜"31"）→ 打刻 */
@@ -216,13 +216,15 @@ export function mergeFixed(
 
 /**
  * 取り込んだ打刻を、今の月のデータに重ねる。
- * 元の打刻は新しいもので置き換え、画面で直した時刻（e）は残す。CSVにない日はそのまま残す
+ * 元の打刻は新しいもので置き換え、画面で直した時刻（e）は残す。CSVにない日はそのまま残す。
+ * 打刻タブレットで押した日は、タブレットを優先して置き換えない
  */
 export function mergeTimecard(cur: TimecardMonth["cards"] | undefined, add: Record<string, Record<string, TcPunch>>): TimecardMonth["cards"] {
   const out: TimecardMonth["cards"] = structuredClone(cur ?? {});
   for (const [card, days] of Object.entries(add)) {
     const c = (out[card] ??= {});
     for (const [dd, p] of Object.entries(days)) {
+      if (c[dd]?.s === "tab") continue;
       const e = c[dd]?.e;
       const bk = c[dd]?.bk;
       c[dd] = { ...p, ...(e ? { e } : {}), ...(typeof bk === "number" ? { bk } : {}) };

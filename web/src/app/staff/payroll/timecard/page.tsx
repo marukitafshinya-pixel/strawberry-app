@@ -38,6 +38,7 @@ import {
   type TimecardConfig,
 } from "@/lib/timecard";
 import { TimecardSheet } from "./Sheet";
+import { TimeclockBox } from "./TimeclockBox";
 
 /** 弥生に渡す交通費の2列（非課税通勤費・課税通勤費）。交通費が日額でない人は両方空欄（弥生の金額のまま） */
 function commuteCols(e: Employee, workDays: number): [string, string] {
@@ -100,6 +101,7 @@ export default function TimecardPage() {
       </p>
 
       <ImportBox cfg={cfg} employees={employees ?? []} />
+      <TimeclockBox employees={employees ?? []} />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">

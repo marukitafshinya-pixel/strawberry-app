@@ -352,6 +352,10 @@ service cloud.firestore {
         && (!('fileName' in request.resource.data) || (request.resource.data.fileName is string && request.resource.data.fileName.size() <= 100));
       allow delete: if isAdmin();
     }
+    // 打刻タブレット：NFCタグ → 従業員、未登録のタグ、タブレットのログイン。管理者が読むだけ（書くのはサーバー）
+    match /timeclock/{docId} {
+      allow read: if isAdmin();
+    }
     match /config/timecard {
       allow read: if isAdmin();
       allow write: if isAdmin()

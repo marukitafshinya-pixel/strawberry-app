@@ -259,6 +259,22 @@ describe("タイムカード（管理者のみ）", () => {
     await assertFails(setDoc(doc(admin(), "config/timecard"), { inDir: "abc" }));
     await assertFails(setDoc(doc(admin(), "config/timecard"), { overtimeOver: 0 }));
   });
+  it("打刻タブレット：タグの登録は管理者が読むだけ。タブレットのログインは、タイムカードもタグも読めない", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "timeclock/tags"), { tags: { "04:a1": { employeeId: "e1", card: "001", name: "テスト", at: 1 } } });
+    });
+    await assertSucceeds(getDoc(doc(admin(), "timeclock/tags")));
+    await assertFails(setDoc(doc(admin(), "timeclock/tags"), { tags: {} }));
+    const tablet = env.authenticatedContext("k1", { role: "timeclock" }).firestore();
+    for (const db of [tablet, staff(), env.authenticatedContext("w1", { role: "worker" }).firestore()]) {
+      await assertFails(getDoc(doc(db, "timeclock/tags")));
+      await assertFails(setDoc(doc(db, "timeclock/tags"), { tags: {} }));
+      await assertFails(getDoc(doc(db, "timecards/2026-09")));
+      await assertFails(getDoc(doc(db, "config/timecard")));
+    }
+    await assertFails(getDoc(doc(tablet, "shiftMembers/m1")));
+    await assertFails(getDoc(doc(tablet, "employees/e1")));
+  });
 });
 
 describe("気象データ", () => {
