@@ -1,4 +1,4 @@
-// 帳簿（経理）：総勘定元帳のスキャン・写真と、レシート・請求書を、AI（Claude）で読み取る（帳簿を使える人）。
+// 帳簿（経理）：総勘定元帳のスキャン・写真と、レシート・請求書と、預金通帳を、AI（Claude）で読み取る（帳簿を使える人）。
 // 読み取った結果は画面に返すだけ（画面で確かめてから、仕訳帳に未仕分けで入れる）。画像は保存しない。
 // 総勘定元帳の読み方は、作業用フォルダの「経費の仕分け」（ledger.ts）と同じ
 import Anthropic from "@anthropic-ai/sdk";
@@ -61,6 +61,46 @@ const RECEIPT_PROMPT = `これはお店で受け取ったレシートか、届�
 年が2けた（例「26年」）のときは西暦の下2けた（2026年）。令和・平成で書いてあれば西暦に直してください。
 byRate の合計が total と合うか、lines の合計（税抜きなら税をたしたもの）が total とおおよそ合うかを確かめ、合わなければ読みなおしてください。1枚の画像に2枚以上のレシートが写っているときは、いちばん大きく写っている1枚だけを読み、notes にそう書いてください。`;
 
+const BANK_SCHEMA = {
+  type: "object",
+  properties: {
+    rows: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { date: STR, desc: STR, deposit: INT, withdrawal: INT, balance: { anyOf: [INT, { type: "null" }] } },
+        required: ["date", "desc", "deposit", "withdrawal", "balance"],
+        additionalProperties: false,
+      },
+    },
+    notes: STR,
+  },
+  required: ["rows", "notes"],
+  additionalProperties: false,
+};
+
+const BANK_PROMPT = `これは預金通帳（またはネットバンキングの入出金明細）の1ページの画像です。帳簿につけるために、入出金の行を上から順に全部読み取って、決められた形（JSON）で返してください。
+
+rows の各項目（1行の取引ごと）：
+- date：取引の日付 "YYYY-MM-DD"。通帳の日付は和暦（例「8-10-05」「08.10.05」＝令和8年＝2026年）か西暦の下2けた（例「26-10-05」＝2026年）で書かれていることが多いので、西暦に直す。今は2026年（令和8年）ごろなので、それに近い年になるはず
+- desc：摘要（取引の内容。例「振込 ホーブ」「カード」「電気料」）。カタカナは全角に直す。読めなければ ""
+- deposit：お預り金額（入金）。なければ 0
+- withdrawal：お支払金額（出金・引出）。なければ 0
+- balance：その行の差引残高。書いていなければ null
+
+入れない行：繰越（「繰越」「くりこし」だけで金額の出入りがない行）・合計の行・見出し・空の行。
+前の行の残高 ＋ 入金 − 出金 ＝ その行の残高 になるか確かめ、合わなければ読みなおしてください。
+notes：読めない・自信がないところがあれば書く（なければ ""）。推測で埋めないでください。`;
+
+/** エミュレーターの見本（通帳） */
+const BANK_SAMPLE = {
+  rows: [
+    { date: "2026-10-01", desc: "振込 ホーブ", deposit: 120000, withdrawal: 0, balance: 1120000 },
+    { date: "2026-10-05", desc: "電気料", deposit: 0, withdrawal: 15400, balance: 1104600 },
+  ],
+  notes: "",
+};
+
 /** エミュレーターの見本（レシート） */
 const RECEIPT_SAMPLE = {
   date: "2026-10-12",
@@ -78,11 +118,11 @@ const RECEIPT_SAMPLE = {
 
 const MAX_SIZE = 9_000_000;
 
-/** 1枚（1ページ）を読み取る。kind：ledger＝総勘定元帳、receipt＝レシート・請求書 */
+/** 1枚（1ページ）を読み取る。kind：ledger＝総勘定元帳、receipt＝レシート・請求書、bank＝預金通帳 */
 export const readBooksPage = onCall({ timeoutSeconds: 300, memory: "512MiB" }, async (req) => {
   await assertCan(req, ["ledger"]);
   const kind = (req.data as { kind?: unknown })?.kind;
-  if (kind !== "ledger" && kind !== "receipt") throw new HttpsError("invalid-argument", "読み取るものの種類が正しくありません");
+  if (kind !== "ledger" && kind !== "receipt" && kind !== "bank") throw new HttpsError("invalid-argument", "読み取るものの種類が正しくありません");
   const f = (req.data as { file?: { mediaType?: unknown; data?: unknown } })?.file;
   if (typeof f?.data !== "string" || !/^[A-Za-z0-9+/=]+$/.test(f.data)) throw new HttpsError("invalid-argument", "ファイルが読めません");
   if (f.data.length > MAX_SIZE) throw new HttpsError("invalid-argument", "ファイルが大きすぎます");
@@ -93,6 +133,7 @@ export const readBooksPage = onCall({ timeoutSeconds: 300, memory: "512MiB" }, a
   if (!apiKey) throw new HttpsError("failed-precondition", "AIの鍵が登録されていません。管理者に「AIの鍵」の登録を頼んでください");
   if (isEmulatorTest(apiKey)) {
     if (kind === "receipt") return { result: RECEIPT_SAMPLE, usage: { input: 0, output: 0 } };
+    if (kind === "bank") return { result: BANK_SAMPLE, usage: { input: 0, output: 0 } };
     throw new HttpsError("unavailable", "手元での確かめでは、元帳のスキャンは読めません");
   }
 
@@ -100,11 +141,11 @@ export const readBooksPage = onCall({ timeoutSeconds: 300, memory: "512MiB" }, a
   try {
     const stream = new Anthropic({ apiKey }).beta.messages.stream({
       model: MODEL,
-      max_tokens: kind === "ledger" ? 32000 : 16000,
+      max_tokens: kind === "receipt" ? 16000 : 32000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
-      output_config: { effort: "high", format: { type: "json_schema", schema: kind === "ledger" ? LEDGER_SCHEMA : RECEIPT_SCHEMA } },
-      messages: [{ role: "user", content: [block, { type: "text", text: kind === "ledger" ? LEDGER_PROMPT : RECEIPT_PROMPT }] }],
+      output_config: { effort: "high", format: { type: "json_schema", schema: { ledger: LEDGER_SCHEMA, receipt: RECEIPT_SCHEMA, bank: BANK_SCHEMA }[kind] } },
+      messages: [{ role: "user", content: [block, { type: "text", text: { ledger: LEDGER_PROMPT, receipt: RECEIPT_PROMPT, bank: BANK_PROMPT }[kind] }] }],
     });
     message = await stream.finalMessage();
   } catch (e) {

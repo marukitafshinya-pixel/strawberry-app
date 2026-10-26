@@ -1,10 +1,11 @@
 "use client";
 
-// 帳簿：総勘定元帳のスキャン・写真と、レシート・請求書を、AIで読み取る（サーバーの readBooksPage）。
+// 帳簿：総勘定元帳のスキャン・写真と、レシート・請求書と、預金通帳を、AIで読み取る（サーバーの readBooksPage）。
 // 元帳は「経費の仕分け」（lib/ledger.ts）と同じ読み方で、文字入りPDFと同じ LedgerFile にする。
-// レシート・請求書は、税率ごとに1行の仕訳（借方＝空＝未仕分け、貸方＝払った科目）にする
+// レシート・請求書は、明細の1行ずつの仕訳（借方＝空＝未仕分け、貸方＝払った科目）にする。
+// 預金通帳は、通帳の行（CSVの取り込みと同じ形）にする
 import { callFunction } from "./callFunction";
-import type { JournalEntry } from "./books";
+import type { BankRow, JournalEntry } from "./books";
 import { checkLedger, combineLedger, ledgerFilesToPages, ledgerPageUpload, type LedgerPageResult } from "./ledger";
 import { mergeTaxRows, type LedgerFile } from "./ledgerPdf";
 import { filesToPages, pageToUpload } from "./shikiri";
@@ -171,4 +172,46 @@ export function receiptToJournal(r: Receipt, payCode: string): JournalEntry[] {
       src: "レシート・請求書",
       ref: `rcpt:${r.date}:${r.partner}:${r.total}:${x.rate}`.slice(0, 60),
     }));
+}
+
+/** AIが通帳の1ページから読んだもの */
+type BankPageResult = { rows: { date: string; desc: string; deposit: number; withdrawal: number; balance: number | null }[]; notes: string };
+
+/**
+ * 預金通帳（写真・PDF。1ページずつ）を読み、通帳の行にする（どの預金かは account）。
+ * 残高のつながり（前の残高＋入金−出金＝残高）が合わない行と、日付が読めない行は problems に書く
+ */
+export async function scanBankFiles(files: File[], account: string, progress: Progress): Promise<{ rows: BankRow[]; problems: string[] }> {
+  const pages = await filesToPages(files);
+  const rows: BankRow[] = [];
+  const problems: string[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    progress(i, pages.length);
+    try {
+      const r = (await callFunction<{ kind: string; file: unknown }, { result: BankPageResult }>("readBooksPage", { kind: "bank", file: pageToUpload(pages[i]) }, 300_000)).result;
+      for (const x of r.rows) {
+        const deposit = Math.abs(Math.round(x.deposit || 0));
+        const withdrawal = Math.abs(Math.round(x.withdrawal || 0));
+        if (!deposit && !withdrawal) continue;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) {
+          problems.push(`${pages[i].name}：日付が読めない行があります（${x.desc} ${deposit || withdrawal}円）。入れません`);
+          continue;
+        }
+        rows.push({ date: x.date, desc: x.desc.trim().slice(0, 80), deposit, withdrawal, balance: typeof x.balance === "number" ? Math.round(x.balance) : null, account });
+      }
+      if (r.notes) problems.push(`${pages[i].name}：${r.notes}`);
+    } catch (e) {
+      problems.push(`${pages[i].name}：${e instanceof Error ? e.message : "読めませんでした"}`);
+    }
+  }
+  progress(pages.length, pages.length);
+  // 残高のつながり（ページの順のまま見る）
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1].balance;
+    const b = rows[i].balance;
+    if (a === null || b === null) continue;
+    const want = a + rows[i].deposit - rows[i].withdrawal;
+    if (want !== b) problems.push(`${rows[i].date} ${rows[i].desc}：前の残高から計算すると ${want.toLocaleString("ja-JP")} 円ですが、残高は ${b.toLocaleString("ja-JP")} 円と読みました。金額を確かめてください`);
+  }
+  return { rows: [...rows].sort((a, b) => a.date.localeCompare(b.date)), problems };
 }

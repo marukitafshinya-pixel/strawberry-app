@@ -1,6 +1,6 @@
 "use client";
 
-// 帳簿：預金通帳。ネットバンキングなどで書き出した入出金のCSVを取り込み、摘要の言葉ごとに決めた科目で仕訳にする（管理者と経理担当）
+// 帳簿：預金通帳。ネットバンキングなどで書き出した入出金のCSVか、通帳の写真・PDF（AIで読む）を取り込み、摘要の言葉ごとに決めた科目で仕訳にする（管理者と経理担当）
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -32,6 +32,7 @@ import {
   type Books,
   type LedgerConfig,
 } from "@/lib/books";
+import { scanBankFiles } from "@/lib/booksScan";
 import { reiwa } from "@/lib/payroll";
 import { canUseLedger, LedgerHeader, yen } from "../parts";
 
@@ -124,20 +125,43 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
   const [account, setAccount] = useState(banks[0]?.code ?? "110");
   const [table, setTable] = useState<{ name: string; rows: string[][] } | null>(null);
   const [col, setCol] = useState<BankColumns | null>(null);
+  // 写真・PDFをAIで読んだ行
+  const [scan, setScan] = useState<{ name: string; rows: BankRow[]; problems: string[] } | null>(null);
+  const [progress, setProgress] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  async function pick(file: File) {
+  async function pickFiles(files: File[]) {
     setErr("");
     setMsg("");
+    setTable(null);
+    setCol(null);
+    setScan(null);
+    const isCsv = (f: File) => /\.csv$/i.test(f.name) || f.type === "text/csv";
+    if (files.length === 1 && isCsv(files[0])) return pick(files[0]);
+    if (files.some(isCsv)) return setErr("CSVは1つずつ選んでください（写真・PDFといっしょには選べません）");
+    setBusy(true);
+    try {
+      const r = await scanBankFiles(files, account, (done, total) => setProgress(`AIで読んでいます（${done}／${total}ページ）`));
+      setScan({ name: files.map((f) => f.name).join("・"), ...r });
+      if (!r.rows.length) setErr("入出金の行が読めませんでした");
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setProgress("");
+      setBusy(false);
+    }
+  }
+
+  async function pick(file: File) {
     const rows = parseCsv(decodeCsv(await file.arrayBuffer()).text);
     const guess = guessBankColumns(rows);
     setTable({ name: file.name, rows });
     setCol(guess ?? { header: 0, date: 0, desc: 1, deposit: 2, withdrawal: 3, balance: 4 });
     if (!guess) setErr("見出し（日付・入金・出金など）が見つかりませんでした。下で列を選んでください。");
   }
-  const parsed = table && col ? readBankRows(table.rows, col, account) : [];
+  const parsed = scan ? scan.rows.map((r) => ({ ...r, account })) : table && col ? readBankRows(table.rows, col, account) : [];
   const header = table && col ? (table.rows[col.header] ?? []) : [];
 
   async function save() {
@@ -149,6 +173,7 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
       setMsg(`${parsed.length}行を取り込みました（${parsed[0].date}〜${parsed[parsed.length - 1].date}）`);
       setTable(null);
       setCol(null);
+      setScan(null);
       if (fileRef.current) fileRef.current.value = "";
       onDone(months[months.length - 1].month);
     } catch (e) {
@@ -174,9 +199,11 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
 
   return (
     <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
-      <h2 className="font-bold">通帳のCSVを取り込む</h2>
+      <h2 className="font-bold">通帳を取り込む（CSV・写真・PDF）</h2>
       <p className="mt-1 text-xs text-gray-500">
-        ネットバンキングで「入出金明細」をCSVで書き出して選んでください。同じ期間をもう一度取り込むと、その期間は新しいファイルで置き換わります（二重になりません）。
+        ネットバンキングで書き出した「入出金明細」のCSVか、通帳のページの写真・PDF（何ページでもまとめて選べます。ページの順に選んでください）を選んでください。
+        写真・PDFはAIで読みます（1ページ1分ほど。AIの鍵が要ります）。読んだ行は、残高のつながりで確かめて、合わないところを知らせます。
+        どちらも、同じ期間をもう一度取り込むと、その期間は新しいファイルで置き換わります（二重になりません）。
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="text-sm">
@@ -189,11 +216,28 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
             ))}
           </select>
         </label>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} className="text-sm" />
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept=".csv,text/csv,.pdf,application/pdf,image/*"
+          disabled={busy}
+          onChange={(e) => e.target.files?.length && pickFiles(Array.from(e.target.files))}
+          className="text-sm"
+        />
       </div>
-      {table && col && (
+      {busy && !table && !scan && <p className="mt-2 text-sm text-gray-500">{progress || "読んでいます…"}</p>}
+      {((table && col) || scan) && (
         <div className="mt-3 rounded-lg border p-3">
-          <p className="text-sm font-semibold">{table.name}</p>
+          <p className="text-sm font-semibold">{scan ? scan.name : table?.name}</p>
+          {scan && scan.problems.length > 0 && (
+            <ul className="mt-2 list-disc rounded-lg bg-amber-50 py-2 pr-2 pl-6 text-xs text-amber-900">
+              {scan.problems.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          )}
+          {table && col && (
           <div className="mt-2 flex flex-wrap gap-3">
             <label className="text-xs">
               見出しの行
@@ -212,6 +256,7 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
             {colSelect("withdrawal", "出金")}
             {colSelect("balance", "残高")}
           </div>
+          )}
           {parsed.length === 0 ? (
             <p className="mt-2 text-sm text-red-600">読める行がありません。列を確かめてください。</p>
           ) : (
@@ -220,10 +265,10 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
                 {parsed.length}行（{parsed[0].date}〜{parsed[parsed.length - 1].date}）　入金 {yen(parsed.reduce((n, r) => n + r.deposit, 0))}円　出金{" "}
                 {yen(parsed.reduce((n, r) => n + r.withdrawal, 0))}円
               </p>
-              <div className="mt-2 max-h-48 overflow-auto text-xs">
+              <div className={`mt-2 overflow-auto text-xs ${scan ? "max-h-96" : "max-h-48"}`}>
                 <table className="w-full tabular-nums">
                   <tbody>
-                    {parsed.slice(0, 8).map((r, i) => (
+                    {parsed.slice(0, scan ? 1000 : 8).map((r, i) => (
                       <tr key={i} className="border-t">
                         <td className="px-1">{r.date}</td>
                         <td className="px-1">{r.desc}</td>
@@ -234,7 +279,7 @@ function Import({ books, config, onDone }: { books: Books; config: LedgerConfig;
                     ))}
                   </tbody>
                 </table>
-                {parsed.length > 8 && <p className="text-gray-500">ほか {parsed.length - 8} 行</p>}
+                {!scan && parsed.length > 8 && <p className="text-gray-500">ほか {parsed.length - 8} 行</p>}
               </div>
               <button onClick={save} disabled={busy} className="mt-3 rounded-lg bg-berry px-6 py-2 font-bold text-white disabled:opacity-50">
                 {busy ? "取り込み中…" : `「${accountOf(config.accounts, account).name}」に取り込む`}
