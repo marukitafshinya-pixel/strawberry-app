@@ -2,7 +2,8 @@
 
 // 打刻タブレット：入口に置いたAndroidタブレット（Chrome）に、従業員が自分のNFCタグをかざして出勤・退勤する。
 // その日の最初にかざすと出勤、そのあとは退勤（最後にかざした時刻）。「休憩時間を修正」を押してからかざすと、その人のその日の休憩を変える。
-// 通信が切れているときは、かざした時刻をタブレットに預かって、つながったら送る
+// 通信が切れているときは、かざした時刻をタブレットに預かって、つながったら送る。
+// タグは、本体のNFC（AndroidのChrome）と、USBのNFCリーダー（キーボード入力のもの。番号を打ち込んでEnter）のどちらでも読む
 import { FirebaseError } from "firebase/app";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -238,6 +239,33 @@ function Kiosk({ admin }: { admin: boolean }) {
     return () => clearTimeout(t);
   }, [startNfc]);
 
+  // USBのNFCリーダー：タグの番号を、キーボードのようにすばやく打ち込んで Enter を送ってくる。
+  // 人の手で打つのとまちがえないよう、文字の間があいたら（0.3秒）はじめからにする
+  useEffect(() => {
+    let buf = "";
+    let lastAt = 0;
+    const onKey = (e: KeyboardEvent) => {
+      const now = Date.now();
+      if (now - lastAt > 300) buf = "";
+      lastAt = now;
+      if (e.key === "Enter") {
+        const sn = buf.toLowerCase();
+        buf = "";
+        if (/^[0-9a-f:]{4,64}$/.test(sn)) {
+          e.preventDefault();
+          void onTag(sn);
+        }
+        return;
+      }
+      if (e.key.length === 1 && /[0-9a-zA-Z:]/.test(e.key)) {
+        buf += e.key;
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onTag]);
+
   const d = new Date(clock + 9 * 3600e3);
   const time = `${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
   const date = `${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${"日月火水木金土"[d.getUTCDay()]}）`;
@@ -256,13 +284,7 @@ function Kiosk({ admin }: { admin: boolean }) {
       </div>
 
       <div className="mt-6 flex flex-1 flex-col items-center justify-center rounded-3xl bg-white p-6 text-center shadow">
-        {nfc === "unsupported" ? (
-          <p className="text-2xl text-red-700">この端末・ブラウザでは、NFCを読めません。AndroidのタブレットのChromeで開いてください。</p>
-        ) : nfc !== "on" ? (
-          <button onClick={() => void startNfc()} className="rounded-2xl bg-berry px-10 py-8 text-3xl font-bold text-white">
-            {nfc === "error" ? "NFCを読めませんでした。押してやり直す" : "押して、打刻を始める"}
-          </button>
-        ) : mode.kind === "pick" ? (
+        {mode.kind === "pick" ? (
           <div>
             <p className="text-3xl font-bold">今日の休憩を何分にしますか？</p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
@@ -303,7 +325,7 @@ function Kiosk({ admin }: { admin: boolean }) {
         )}
       </div>
 
-      {nfc === "on" && mode.kind === "punch" && (
+      {mode.kind === "punch" && (
         <button
           onClick={() => setMode({ kind: "pick" })}
           className="mt-4 rounded-2xl border-2 border-amber-500 bg-amber-50 py-5 text-2xl font-bold text-amber-900"
@@ -322,6 +344,14 @@ function Kiosk({ admin }: { admin: boolean }) {
 
       <div className="mt-3 flex items-center gap-3 text-sm text-gray-500">
         {queued > 0 && <span className="font-bold text-amber-800">通信を待っている打刻：{queued}件</span>}
+        {/* 本体のNFC：使えるときだけ。USBのリーダーは、つなぐだけで使える */}
+        {nfc === "on" ? (
+          <span>本体のNFC：使えます</span>
+        ) : nfc !== "unsupported" ? (
+          <button onClick={() => void startNfc()} className="underline">
+            本体のNFCも使う
+          </button>
+        ) : null}
         {admin && <span className="text-red-700">管理者のログインで開いています（かざすと本当に打刻されます）</span>}
         <button onClick={() => confirm("打刻タブレットからログアウトしますか？") && void logout()} className="ml-auto underline">
           ログアウト
