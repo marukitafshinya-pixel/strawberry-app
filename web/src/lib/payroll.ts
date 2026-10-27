@@ -25,6 +25,10 @@ export type Employee = {
   manager?: boolean;
   /** 時給（円）。タイムカードから「基本給（時給）」を計算して弥生に渡すときに使う */
   hourlyRate?: number;
+  /** 月給（円）。区分が社員の人 */
+  monthlyPay?: number;
+  /** 役員報酬（月額・円）。区分が役員の人 */
+  officerPay?: number;
   /** 交通費（1日いくら・円）。出勤日数をかけて「非課税通勤費」として弥生に渡す */
   commutePerDay?: number;
   /** 交通費に税金がかかる（家から2km未満など）。弥生には「課税通勤費」として渡す */

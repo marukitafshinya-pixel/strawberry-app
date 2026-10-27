@@ -98,7 +98,13 @@ export default function EmployeesPage() {
                       交通費 {e.commutePerDay.toLocaleString("ja-JP")}円/日{e.commuteTaxable ? "（課税）" : ""}
                     </span>
                   ) : null}
-                  {e.hourlyRate ? <span className="ml-1 text-xs text-gray-600 tabular-nums">時給 {e.hourlyRate.toLocaleString("ja-JP")}円</span> : null}
+                  {e.officerPay ? (
+                    <span className="ml-1 text-xs text-gray-600 tabular-nums">役員報酬 {e.officerPay.toLocaleString("ja-JP")}円</span>
+                  ) : e.monthlyPay ? (
+                    <span className="ml-1 text-xs text-gray-600 tabular-nums">月給 {e.monthlyPay.toLocaleString("ja-JP")}円</span>
+                  ) : e.hourlyRate ? (
+                    <span className="ml-1 text-xs text-gray-600 tabular-nums">時給 {e.hourlyRate.toLocaleString("ja-JP")}円</span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2">{e.payMethod === "cash" ? "現金" : "振込"}</td>
                 <td className="px-3 py-2">
@@ -148,10 +154,13 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
     try {
       const { db } = await getFirebase();
       const { id, ...data } = e;
-      const { hourlyRate, commutePerDay, commuteTaxable, ...rest } = data;
+      const { hourlyRate, monthlyPay, officerPay, commutePerDay, commuteTaxable, ...rest } = data;
+      // 給与の金額は、区分に合うものだけ残す（役員＝役員報酬、社員＝月給、アルバイト・未設定＝時給）
       await setDoc(doc(db, `employees/${id}`), {
         ...rest,
-        ...(hourlyRate ? { hourlyRate } : {}),
+        ...(e.kind === "officer" && officerPay ? { officerPay } : {}),
+        ...(e.kind === "regular" && monthlyPay ? { monthlyPay } : {}),
+        ...(e.kind !== "officer" && e.kind !== "regular" && hourlyRate ? { hourlyRate } : {}),
         ...(commutePerDay ? { commutePerDay } : {}),
         ...(commutePerDay && commuteTaxable ? { commuteTaxable: true } : {}),
         code: rest.code.trim(),
@@ -234,19 +243,30 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
         管理職（残業がつかない。タイムカードの集計で残業を数えません）
       </label>
       <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
-        <label className="block text-sm">
-          <span className="text-gray-600">時給（円）</span>
-          <input
-            value={e.hourlyRate ?? ""}
-            inputMode="numeric"
-            placeholder="時給の人だけ"
-            onChange={(x) => {
-              const v = x.target.value.replace(/[^0-9]/g, "");
-              set({ hourlyRate: v ? Math.min(Number(v), 99999) : undefined });
-            }}
-            className={input}
-          />
-        </label>
+        {/* 区分で切り替える：役員＝役員報酬、社員＝月給、アルバイト（決めていない人も）＝時給 */}
+        {(() => {
+          const f =
+            e.kind === "officer"
+              ? { key: "officerPay" as const, label: "役員報酬（月額・円）", max: 9999999 }
+              : e.kind === "regular"
+                ? { key: "monthlyPay" as const, label: "月給（円）", max: 9999999 }
+                : { key: "hourlyRate" as const, label: "時給（円）", max: 99999 };
+          return (
+            <label className="block text-sm">
+              <span className="text-gray-600">{f.label}</span>
+              <input
+                key={f.key}
+                value={e[f.key] ?? ""}
+                inputMode="numeric"
+                onChange={(x) => {
+                  const v = x.target.value.replace(/[^0-9]/g, "");
+                  set({ [f.key]: v ? Math.min(Number(v), f.max) : undefined });
+                }}
+                className={input}
+              />
+            </label>
+          );
+        })()}
         <label className="block text-sm">
           <span className="text-gray-600">交通費（1日・円）</span>
           <input
