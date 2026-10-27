@@ -208,10 +208,17 @@ export function TapScreen({
   }, [doneCount, tapKey, askFree, pressed]);
 
   /** そのハウスが終わるのに「終わった」が要る人：予定の収穫者（ログインのある人）と、入ったを押した人。応援で入ったハウスは、入った人だけ */
-  const crewOf = (h: string, all: DayTaps) => {
+  const crewOf = (h: string, all: DayTaps, left: string[] = []) => {
     const ins = Object.keys(all).filter((id) => all[id]?.[h]?.start != null);
     const planCrew = who(h).filter((id) => members.some((m) => m.id === id && m.uid));
-    return [...new Set([...(planCrew.includes(me.id) ? planCrew : []), ...ins, me.id])];
+    // 移った人は数えない：収穫管理で「移った」にした人と、このハウスの「入った」のあと「終わった」を押さずに、ほかのハウスで「入った」を押した人
+    const moved = (id: string) => {
+      if (id === me.id) return false;
+      if (left.includes(id)) return true;
+      const t = all[id]?.[h];
+      return t?.start != null && t.end == null && Object.entries(all[id] ?? {}).some(([x, v]) => x !== h && v?.start != null && v.start > t.start!);
+    };
+    return [...new Set([...(planCrew.includes(me.id) ? planCrew : []), ...ins, me.id])].filter((id) => !moved(id));
   };
 
   const run = async (f: () => Promise<void>) => {
@@ -246,9 +253,16 @@ export function TapScreen({
     // 同じハウスの人が全員押したら、ハウスの「終わった」（最後の人の時刻）
     const [all, info] = await Promise.all([fetchDayTaps(date), fetchHelpHouse().catch(() => null)]);
     if (info) setFreshStops([...(info.stops ?? []), ...Object.keys(info.stopFor ?? {}).filter((x) => info.stopFor![x].includes(me.id))]);
-    const ends = crewOf(h, all).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
-    // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）ときは、ハウスの「終わった」は入れない（ほかの人がまだ収穫している）
-    const othersBefore = !who(h).includes(me.id) && info?.started?.[h] != null && info.started[h].start < (mine[h]?.start ?? now);
+    const left = info?.started?.[h]?.left ?? [];
+    const ends = crewOf(h, all, left).map((id) => (id === me.id ? now : all[id]?.[h]?.end));
+    // 応援で入ったハウスで、自分より前からほかの人が入っていた（収穫管理に「入った」がある）とき、
+    // 予定の人に「入った」を押していない人（携帯を忘れた人など。終わったかがわからない）がいれば、ハウスの「終わった」は入れない。
+    // 予定の人がみな押していれば、上の「全員が終わった」で決める（応援の人が最後に終えたときも入る）
+    const othersBefore =
+      !who(h).includes(me.id) &&
+      info?.started?.[h] != null &&
+      info.started[h].start < (mine[h]?.start ?? now) &&
+      who(h).some((id) => all[id]?.[h]?.start == null && !left.includes(id));
     if (!othersBefore && ends.every((e) => e != null)) {
       await saveTapToHouse(date, h, { end: Math.max(now, ...(ends as number[])) });
       void refreshHarvestSpeeds();
