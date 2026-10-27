@@ -30,6 +30,7 @@ import {
   nowMinJST,
   saveTap,
   saveTapToHouse,
+  setStopFor,
   setTapHelper,
   useDayTaps,
   type DayTaps,
@@ -159,6 +160,8 @@ export function TapScreen({
   const cfg = useHarvestConfig();
   /** 「終わった」を押したときに聞き直した🏁ここで終了のハウス（聞き直すのを待たずに使う） */
   const [freshStops, setFreshStops] = useState<string[]>([]);
+  /** この携帯で「収穫をやめる」を押したハウス（まちがえたときに取り消せるように） */
+  const [quitAt, setQuitAt] = useState<string | null>(null);
   const { who, usageOf, mine, planned, helped, current, pos, inNow, inByTap, startAt, free, doneCount, stopped } = tapStateOf({
     plan,
     template,
@@ -416,7 +419,26 @@ export function TapScreen({
               ))}
             </select>
           )}
-          <button onClick={() => setOthers(null)} className="mt-2 text-sm text-gray-500 underline">
+          {/* 収穫をやめる：最後に終えたハウスで、その人だけ今日の収穫を終了にする（収穫管理の名前の横の🏁と同じ） */}
+          {lastOut && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                confirm(`今日の収穫をやめますか？\n（${lastOut}番で終了になります）`) &&
+                void run(async () => {
+                  await setStopFor(date, lastOut, me.id, true);
+                  setFreshStops((x) => [...x, lastOut]);
+                  setQuitAt(lastOut);
+                  setChosen(null);
+                  setOthers(null);
+                })
+              }
+              className="mt-4 w-full rounded-2xl border-2 border-green-700 bg-green-50 px-5 py-3 text-lg font-bold text-green-800"
+            >
+              🏁 収穫をやめる（今日はここまで）
+            </button>
+          )}
+          <button onClick={() => setOthers(null)} className="mt-2 block w-full text-sm text-gray-500 underline">
             やめる
           </button>
         </div>
@@ -457,9 +479,24 @@ export function TapScreen({
       ) : target == null ? (
         <>
           {stopped ? (
-            <p className="rounded-2xl bg-green-50 p-6 text-center text-2xl font-bold text-green-800">
-              🏁 {stopped}番で、今日の収穫はここまでです。おつかれさまでした
-            </p>
+            <div className="rounded-2xl bg-green-50 p-6 text-center">
+              <p className="text-2xl font-bold text-green-800">🏁 {stopped}番で、今日の収穫はここまでです。おつかれさまでした</p>
+              {!preview && quitAt === stopped && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await setStopFor(date, stopped, me.id, false);
+                      setFreshStops((x) => x.filter((h) => h !== stopped));
+                      setQuitAt(null);
+                    })
+                  }
+                  className="mt-3 text-sm text-gray-600 underline"
+                >
+                  まちがえて押したとき（収穫を続ける）
+                </button>
+              )}
+            </div>
           ) : free && (helpNow == null || helpNow.open) ? (
             // 終わっていないハウスがあるうちは、応援先が決まるまで待つ（1分ごとに聞き直す）
             <p className="rounded-2xl bg-white p-5 text-center text-lg text-gray-500">

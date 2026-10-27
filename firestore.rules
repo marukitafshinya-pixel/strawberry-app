@@ -97,10 +97,12 @@ service cloud.firestore {
     }
     function tapHouse(hb, ha, k) {
       return ha[k] is map
-        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end', 'helpers', 'startAuto'])
+        && ha[k].diff(hb.get(k, {})).affectedKeys().hasOnly(['start', 'end', 'helpers', 'startAuto', 'stopFor'])
         && (!('startAuto' in ha[k]) || ha[k].startAuto is bool)
         && minuteOrNull(ha[k], 'start') && minuteOrNull(ha[k], 'end')
-        && (!('helpers' in ha[k]) || onlyMeChanged(hb.get(k, {}).get('helpers', []), ha[k].helpers));
+        && (!('helpers' in ha[k]) || onlyMeChanged(hb.get(k, {}).get('helpers', []), ha[k].helpers))
+        // 携帯の「収穫をやめる」：自分の名前だけ、そのハウスの🏁（個人でここで終了）に付け外しできる
+        && (!('stopFor' in ha[k]) || onlyMeChanged(hb.get(k, {}).get('stopFor', []), ha[k].stopFor));
     }
     // 応援の人の名前：増えた・減ったのが自分（従業員の id）だけか
     function onlyMeChanged(before, after) {

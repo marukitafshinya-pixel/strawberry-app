@@ -288,9 +288,10 @@ export async function saveMessagePresets(items: string[]) {
 /** 🏁個人でここで終了を付ける・外す（その人がこのハウスを終えたら、その日の収穫をここまでにする） */
 export async function setStopFor(date: string, house: string, memberId: string, on: boolean) {
   const { db } = await getFirebase();
+  // tapHouse：本人の携帯（「収穫をやめる」）から入れるときに、どのハウスを変えたかをルールで確かめるため
   await setDoc(
     doc(db, "harvest", date),
-    { houses: { [house]: { stopFor: on ? arrayUnion(memberId) : arrayRemove(memberId) } }, updatedAt: serverTimestamp() },
+    { tapHouse: house, houses: { [house]: { stopFor: on ? arrayUnion(memberId) : arrayRemove(memberId) } }, updatedAt: serverTimestamp() },
     { merge: true },
   );
 }

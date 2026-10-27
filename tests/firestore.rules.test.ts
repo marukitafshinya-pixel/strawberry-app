@@ -732,6 +732,11 @@ describe("収穫管理：収穫者の「入った・終わった」", () => {
     await assertSucceeds(put({ tapHouse: "17", houses: { "17": { helpers: [] } } }));
     await assertFails(put({ tapHouse: "17", houses: { "17": { helpers: ["m8"] } } }));
     await assertFails(put({ tapHouse: "17", houses: { "17": { helpers: ["m7", "m8"] } } }));
+    // 収穫をやめる：自分の名前だけ、🏁（個人でここで終了）に付け外しできる
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { stopFor: ["m7"] } } }));
+    await assertSucceeds(put({ tapHouse: "17", houses: { "17": { stopFor: [] } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { stopFor: ["m8"] } } }));
+    await assertFails(put({ tapHouse: "17", houses: { "17": { stopHere: true } } }));
     // 今日でない日は書けない
     await assertFails(setDoc(doc(w("w7"), "harvest/2020-01-01"), { tapHouse: "17", houses: { "17": { start: 400 } } }, { merge: true }));
   });
