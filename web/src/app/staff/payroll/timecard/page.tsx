@@ -47,6 +47,14 @@ function commuteCols(e: Employee, workDays: number): [string, string] {
   return e.commuteTaxable ? ["0", amount] : [amount, "0"];
 }
 
+/** 集計表の基本給：社員は月給、そのほか（アルバイトなど）は時給 × 労働時間。決まらなければ null */
+function basePayOf(e: Employee | null, work: number, over: number): number | null {
+  if (!e) return null;
+  if (e.kind === "regular") return e.monthlyPay ?? null;
+  return e.hourlyRate ? hourlyBasePay(e.hourlyRate, work, over, paysOvertime(e)) : null;
+}
+const yen = (n: number | null) => (n == null ? "" : `${n.toLocaleString("ja-JP")}円`);
+
 const mdOf = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
 export default function TimecardPage() {
@@ -82,6 +90,14 @@ export default function TimecardPage() {
   const selected =
     card && cfg && data ? computePerson(card, month, data, cfg, { noOvertime: !!employees && employeeForCard(card, cfg, employees)?.manager }) : null;
   const cardList = people?.map((x) => x.p.card) ?? [];
+  /** 役員（集計表のいちばん上。タイムカードはなく、役員報酬だけ） */
+  const officers = (employees ?? []).filter((x) => x.active && x.kind === "officer").sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }));
+  /** 役員でない人の行（基本給：社員は月給、アルバイトは時給 × 労働時間。交通費：日額 × 出勤日数） */
+  const rows = (people ?? [])
+    .filter((x) => x.e?.kind !== "officer")
+    .map((x) => ({ ...x, base: basePayOf(x.e, x.p.work, x.p.over), commute: x.e?.commutePerDay ? x.e.commutePerDay * x.p.workDays : null }));
+  const totalBase = rows.reduce((a, x) => a + (x.base ?? 0), 0) + officers.reduce((a, o) => a + (o.officerPay ?? 0), 0);
+  const totalCommute = rows.reduce((a, x) => a + (x.commute ?? 0), 0);
   const at = card ? cardList.indexOf(card) : -1;
 
   return (
@@ -212,7 +228,7 @@ export default function TimecardPage() {
 
       {!people ? (
         <p className="mt-4 text-gray-500">読み込み中…</p>
-      ) : people.length === 0 ? (
+      ) : people.length === 0 && officers.length === 0 ? (
         <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">
           この月のタイムカードはまだありません。上の「ファイルを選ぶ」から、タイムレコーダーのUSBのデータを取り込んでください。
         </p>
@@ -226,13 +242,30 @@ export default function TimecardPage() {
                 <th className="px-3 py-2 text-right">出勤日数</th>
                 <th className="px-3 py-2 text-right">労働時間</th>
                 <th className="px-3 py-2 text-right">うち残業</th>
-                <th className="px-3 py-2 text-right">基本給（時給）</th>
+                <th className="px-3 py-2 text-right">基本給</th>
                 <th className="px-3 py-2 text-right">交通費</th>
+                <th className="px-3 py-2 text-right">総支給額</th>
                 <th className="px-3 py-2">確認</th>
               </tr>
             </thead>
             <tbody>
-              {people.map(({ p, e }) => (
+              {/* 役員：いちばん上に。タイムカードはなく、役員報酬を出す */}
+              {officers.map((o) => (
+                <tr key={`o-${o.id}`} className="border-t bg-purple-50/40">
+                  <td className="px-3 py-2 text-xs text-gray-500">役員</td>
+                  <td className="px-3 py-2">
+                    {o.code} {o.name}
+                  </td>
+                  <td className="px-3 py-2 text-center text-xs text-gray-500" colSpan={3}>
+                    タイムカード無
+                  </td>
+                  <td className="px-3 py-2 text-right">{yen(o.officerPay ?? null)}</td>
+                  <td className="px-3 py-2 text-right" />
+                  <td className="px-3 py-2 text-right font-bold">{yen(o.officerPay ?? null)}</td>
+                  <td className="px-3 py-2 text-xs">{o.officerPay ? "" : <span className="text-red-700">役員報酬が未登録</span>}</td>
+                </tr>
+              ))}
+              {rows.map(({ p, e, base, commute }) => (
                 <tr key={p.card} className="border-t">
                   <td className="px-3 py-2">{p.card}</td>
                   <td className="px-3 py-2">
@@ -255,10 +288,9 @@ export default function TimecardPage() {
                     <span className="ml-1 text-xs font-normal text-gray-500">（{hours2(p.work)}h）</span>
                   </td>
                   <td className="px-3 py-2 text-right">{e?.manager ? <span className="text-xs text-gray-500">管理職</span> : p.over ? hm(p.over) : ""}</td>
-                  <td className="px-3 py-2 text-right">
-                    {e?.hourlyRate ? `${hourlyBasePay(e.hourlyRate, p.work, p.over, paysOvertime(e)).toLocaleString("ja-JP")}円` : ""}
-                  </td>
-                  <td className="px-3 py-2 text-right">{e?.commutePerDay ? `${(e.commutePerDay * p.workDays).toLocaleString("ja-JP")}円` : ""}</td>
+                  <td className="px-3 py-2 text-right">{yen(base)}</td>
+                  <td className="px-3 py-2 text-right">{yen(commute)}</td>
+                  <td className="px-3 py-2 text-right font-bold">{base == null && commute == null ? "" : yen((base ?? 0) + (commute ?? 0))}</td>
                   <td className="px-3 py-2 text-xs">
                     {p.problems > 0 && <span className="mr-2 font-bold text-red-700">要確認 {p.problems}件</span>}
                     {p.edited > 0 && <span className="text-amber-800">直した {p.edited}件</span>}
@@ -269,15 +301,16 @@ export default function TimecardPage() {
             <tfoot className="border-t-2 bg-gray-50 font-bold">
               <tr>
                 <td className="px-3 py-2" colSpan={2}>
-                  合計 {people.length}人
+                  合計 {rows.length + officers.length}人
                 </td>
-                <td className="px-3 py-2 text-right">{people.reduce((a, x) => a + x.p.workDays, 0)}日</td>
-                <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.work, 0))}</td>
-                <td className="px-3 py-2 text-right">{hm(people.reduce((a, x) => a + x.p.over, 0))}</td>
-                <td />
-                <td />
+                <td className="px-3 py-2 text-right">{rows.reduce((a, x) => a + x.p.workDays, 0)}日</td>
+                <td className="px-3 py-2 text-right">{hm(rows.reduce((a, x) => a + x.p.work, 0))}</td>
+                <td className="px-3 py-2 text-right">{hm(rows.reduce((a, x) => a + x.p.over, 0))}</td>
+                <td className="px-3 py-2 text-right">{yen(totalBase)}</td>
+                <td className="px-3 py-2 text-right">{yen(totalCommute)}</td>
+                <td className="px-3 py-2 text-right">{yen(totalBase + totalCommute)}</td>
                 <td className="px-3 py-2 text-xs text-red-700">
-                  {people.some((x) => x.p.problems) ? `要確認 ${people.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
+                  {rows.some((x) => x.p.problems) ? `要確認 ${rows.reduce((a, x) => a + x.p.problems, 0)}件` : ""}
                 </td>
               </tr>
             </tfoot>
