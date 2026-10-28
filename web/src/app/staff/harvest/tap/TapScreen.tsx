@@ -67,8 +67,6 @@ export function tapStateOf(a: {
   const who = (h: string) => a.edited?.[h] ?? plan.members[h] ?? [];
   const usageOf = (h: string) => use[h] ?? "harvest";
   const mine = taps[meId] ?? {};
-  /** そのハウスで「入った」を押した人 */
-  const tappedIn = (h: string) => Object.keys(taps).filter((id) => taps[id]?.[h]?.start != null);
   // 自分の回るハウス：配置表の矢印の順。そのあとに、名前だけ入っているハウス（配置表の並び）。
   // 集荷係が収穫管理で名前を足したハウスも入れ、外したハウスは入れない
   const route = (plan.routes[meId] ?? []).filter((h) => who(h).includes(meId));
@@ -81,12 +79,10 @@ export function tapStateOf(a: {
   const seq = [...planned, ...helped];
   /** 自分にとって終わったハウス：自分で「終わった」を押したか、収穫管理で「終わった」が入っている */
   const isDone = (h: string) => mine[h]?.end != null || !!a.houseDone?.includes(h);
-  /** 応援の人が先に入ったハウス（自分がまだ入っていなければ、飛ばす。集荷係が収穫管理で自分の名前を入れたハウスは飛ばさない） */
-  const takenByHelper = (h: string) => mine[h]?.start == null && !a.edited?.[h]?.includes(meId) && tappedIn(h).some((id) => !who(h).includes(id));
   // 今のハウス：① 自分で「入った」を押してまだ終わっていないハウス
   // ② 集荷係が収穫管理に「入った」を手で入れたハウス（携帯を忘れた人など。移った人は除く）。
   //    ほかの人が携帯で押した時刻・画面が自動で入れた時刻では、収穫中にしない（本人が押したと思って押し忘れないように）
-  // ③ なければ、予定の順で次のハウス
+  // ③ なければ、予定の順で次のハウス（応援の人が先に入っていても、予定のハウスには行く。予定が優先）
   const byTap = seq.find((h) => mine[h]?.start != null && !isDone(h)) ?? null;
   // （予定の順でいちばん先のハウス。あとの予定のハウスにほかの人が先に入っても、今のハウスが終わるまでは動かさない）
   const byRec = seq.find((h) => !isDone(h) && a.houseStarted?.[h] && !a.houseStarted[h].auto && !a.houseStarted[h].left.includes(meId)) ?? null;
@@ -99,7 +95,7 @@ export function tapStateOf(a: {
       : ((a.stops ?? []).find(
           (h) => isDone(h) && (mine[h]?.start != null || who(h).includes(meId)) && !Object.keys(mine).some((x) => x !== h && later(h, x)),
         ) ?? null);
-  const current = stopped ? null : (byTap ?? byRec ?? seq.find((h) => !isDone(h) && !takenByHelper(h)) ?? null);
+  const current = stopped ? null : (byTap ?? byRec ?? seq.find((h) => !isDone(h)) ?? null);
   const pos = current ? seq.indexOf(current) : seq.length;
   /** 自分で「入った」を押して収穫中か（「入った」のボタンを押せなくする） */
   const inByTap = current != null && current === byTap;

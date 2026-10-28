@@ -192,7 +192,7 @@ export function pickHelp(i: HelpInput, me: string): string | null {
  * 閉じるのは次のとき：
  * ・だれかが「入った」を押していて、押した人がみな「終わった」を押した（「終わった」を押さずにほかのハウスへ移った人・移った人は数えない。1人は「終わった」があること）
  * ・予定の人（ログインのある人）で、まだそのハウスに入っていない人がいない
- *   （🏁で終了した人・移った人は除く。応援の人が先に入ったハウスは、予定の人は飛ばすので除く。ただし収穫管理で名前を入れ直したハウスは除かない）
+ *   （🏁で終了した人・移った人は除く。応援の人が先に入っていても、予定の人はそのハウスに来るので待つ）
  */
 export function autoEnds(i: HelpInput, logins: Set<string>): Record<string, number> {
   const out: Record<string, number> = {};
@@ -210,11 +210,7 @@ export function autoEnds(i: HelpInput, logins: Set<string>): Record<string, numb
     const ended = ins.filter((id) => i.taps[id][h].end != null);
     if (!ended.length || ins.some((id) => i.taps[id][h].end == null && !movedOn(id))) continue;
     const plan = r?.members ?? i.fh[h]?.members ?? i.planned?.[h] ?? [];
-    // 予定にない人（応援の人）が入っているか
-    const helperIn = ins.some((id) => !plan.includes(id));
-    const waiting = plan.filter(
-      (id) => logins.has(id) && i.taps[id]?.[h]?.start == null && !left.includes(id) && stoppedAt(i, id) == null && !(helperIn && !r?.membersEdited),
-    );
+    const waiting = plan.filter((id) => logins.has(id) && i.taps[id]?.[h]?.start == null && !left.includes(id) && stoppedAt(i, id) == null);
     if (waiting.length) continue;
     out[h] = Math.max(...ended.map((id) => i.taps[id][h].end!));
   }
