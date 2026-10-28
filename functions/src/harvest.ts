@@ -5,7 +5,7 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { assertCan, db } from "./common.js";
-import { finishOf, helpCandidates, helpRanking, isEmptyHouse, pickHelp, stoppedAt, type HelpForecast, type HelpInput } from "./helpAssign.js";
+import { autoEnds, helpCandidates, helpRanking, pickHelp, stoppedAt, type HelpForecast, type HelpInput } from "./helpAssign.js";
 import { yieldFrom, type YieldDay, type YieldPrior, type YieldWeather } from "./harvestYield.js";
 import type { PastModel } from "./pastYield.js";
 
@@ -175,9 +175,6 @@ export const refreshHarvestSpeeds = onCall(async (req) => {
 
 type Taps = Record<string, Record<string, { start?: number | null; end?: number | null }>>;
 
-/** 向かっている途中の応援先を切り替えるのは、ほかのハウスがこの分以上おそく終わりそうなとき（指示がころころ変わらないように） */
-const REASSIGN_MIN = 15;
-
 /** 作業配置表のはじめの収穫の枠（config/haichi がないとき。画面側の DEFAULT_HAICHI と同じ） */
 const DEFAULT_HARVEST_SLOTS = ["1", "6", "8", "4", "5", "9", "10", ...Array.from({ length: 11 }, (_, i) => String(17 + i))].map((n) => ({
   id: `h${n}`,
@@ -223,7 +220,7 @@ export const harvestHelpHouse = onCall(async (req) => {
   const date = ymd(new Date());
   const jst = new Date(Date.now() + 9 * 3600e3);
   const now = jst.getUTCHours() * 60 + jst.getUTCMinutes();
-  const [day, taps, use, cfg, speed, planned] = await Promise.all([
+  const [day, taps, use, cfg, speed, planned, people] = await Promise.all([
     db.doc(`harvest/${date}`).get(),
     db.collection(`harvest/${date}/taps`).get(),
     // ハウスの使い方は、その日の記録がなければ前の日（いちばん近い記録。60日前まで）を引きつぐ
@@ -235,6 +232,7 @@ export const harvestHelpHouse = onCall(async (req) => {
     db.doc("config/harvest").get(),
     db.doc("stats/harvestSpeed").get(),
     plannedMembers(date),
+    db.collection("shiftMembers").select("uid").get(),
   ]);
   const noHelp = (cfg.get("noHelp") as string[] | undefined) ?? [];
   const fh = (day.get("forecastHouses") as Record<string, HelpForecast> | undefined) ?? {};
@@ -253,6 +251,22 @@ export const harvestHelpHouse = onCall(async (req) => {
     assigns: {},
     planned,
   };
+  // 携帯の「終わった」がそろっているのに、ハウスの「終わった」が入っていないハウスは、ここで入れる
+  // （最後に押した人の携帯が入れられなかったとき：通信が切れた・古い画面のまま、など。入らないままだと、終わったハウスに応援を出してしまう）
+  const logins = new Set(people.docs.filter((d) => d.get("uid")).map((d) => d.id));
+  const closes = autoEnds(input, logins);
+  if (Object.keys(closes).length) {
+    await db.runTransaction(async (tx) => {
+      const cur = ((await tx.get(day.ref)).get("houses") as Record<string, House> | undefined) ?? {};
+      const patch = Object.fromEntries(
+        Object.entries(closes)
+          .filter(([h]) => cur[h]?.end == null)
+          .map(([h, end]) => [h, { end }]),
+      );
+      if (Object.keys(patch).length) tx.set(day.ref, { houses: patch, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+    for (const [h, end] of Object.entries(closes)) houses[h] = { ...(houses[h] ?? {}), end };
+  }
   const open = helpCandidates(input);
   /** まだ使える割り当て：そのハウスが終わっていなくて、その人がそこで「終わった」を押していなくて、ほかのハウスで収穫中でない */
   const valid = (id: string, h: string | undefined) =>
@@ -268,18 +282,10 @@ export const harvestHelpHouse = onCall(async (req) => {
     if (me && free) {
       // 手のあいた人に、応援先を割り当てる（ほかの人の割り当ても人数に数える）
       const others = { ...input, assigns: Object.fromEntries(Object.entries(cur).map(([id, a]) => [id, a.house])) };
-      const h = pickHelp(others, me);
+      // 一度決めた応援先は、そのハウスが終わるまで変えない（向かっている途中で行き先が変わると迷うため）
       const mine = cur[me]?.house;
-      // まだ向かっている途中（そのハウスで「入った」を押していない）なら見直す：
-      // 割り当てたハウスより、REASSIGN_MIN 分以上おそく終わりそうなハウスが出てきたら、そちらに切り替える
-      const switchTo =
-        mine &&
-        h &&
-        h !== mine &&
-        t[me]?.[mine]?.start == null &&
-        // だれも入っていないハウスが出てきたとき（向かっている先には人がいる）か、REASSIGN_MIN 分以上おそいハウスが出てきたとき
-        ((isEmptyHouse(others, h, me) && !isEmptyHouse(others, mine, me)) || finishOf(others, h, me) - finishOf(others, mine, me) >= REASSIGN_MIN);
-      if (h && (!mine || switchTo)) {
+      const h = mine ? null : pickHelp(others, me);
+      if (h) {
         cur[me] = { house: h, at: Date.now() };
         changed = true;
       }
