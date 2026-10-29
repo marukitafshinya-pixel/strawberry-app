@@ -54,7 +54,7 @@ import {
   useHarvestYield,
   type Forecast,
 } from "@/lib/harvestForecast";
-import { useShiftMembers, type ShiftMember } from "@/lib/shift";
+import { isWorking, useShiftConfig, useShiftDays, useShiftMembers, type ShiftMember } from "@/lib/shift";
 import { announce, SAY, unlockSound } from "@/lib/announce";
 import { callBreak, nowMinJST, setStartFor, setStopFor, useBreakCall, useDayTaps, type DayTaps } from "@/lib/harvestTap";
 import { TapList, TapPreview } from "./tap/TapScreen";
@@ -106,6 +106,12 @@ export default function HarvestPage() {
   const brk = day?.brk ?? DEFAULT_BREAK;
   const use = useHouseUse(date);
   const members = useShiftMembers();
+  // 勤務管理表でその日に出勤の人（休みでない記号が入っている人）。その日に何も入っていなければ null（収穫可の人を出す）
+  const shiftDays = useShiftDays(date, date);
+  const shiftCfg = useShiftConfig();
+  const shiftCells = shiftDays?.[date]?.cells;
+  const working =
+    shiftCfg && shiftCells && Object.keys(shiftCells).length ? new Set(Object.keys(shiftCells).filter((id) => isWorking(shiftCfg, shiftCells[id]))) : null;
   const cfg = useHarvestConfig();
   const speeds = useHarvestSpeeds();
   const narrow = useNarrow();
@@ -339,6 +345,7 @@ export default function HarvestPage() {
       endTime={day?.endTime ?? null}
       use={use}
       members={members}
+      working={working}
       isAdmin={isAdmin}
       phone={phone}
       noHelp={cfg.noHelp}
@@ -533,6 +540,7 @@ function Sheet({
   endTime,
   use,
   members,
+  working,
   isAdmin,
   phone,
   noHelp,
@@ -556,6 +564,8 @@ function Sheet({
   endTime: number | null;
   use: { houses: HouseUseMap; from: string | null };
   members: ShiftMember[];
+  /** 勤務管理表でその日に出勤の人（null＝その日の記号がない） */
+  working: Set<string> | null;
   isAdmin: boolean;
   /** 応援を入れないハウス（病気などで、決めた人しか入れない） */
   noHelp: string[];
@@ -814,6 +824,7 @@ function Sheet({
       finished={rec[h]?.end != null}
       names={names}
       members={members}
+      working={working}
       onChange={(next) =>
         run(
           (async () => {
@@ -1048,6 +1059,7 @@ function Members({
   finished,
   names,
   members,
+  working,
   onChange,
   onPick,
 }: {
@@ -1068,11 +1080,13 @@ function Members({
   finished: boolean;
   names: Map<string, string>;
   members: ShiftMember[];
+  /** 勤務管理表でその日に出勤の人（null＝その日の記号がない） */
+  working: Set<string> | null;
   onChange: (ids: string[]) => void;
   onPick: (id: string, e: React.PointerEvent) => void;
 }) {
-  // 足せるのは、勤務管理表で「収穫可」にしている人だけ
-  const candidates = members.filter((m) => m.active && m.harvest && !ids.includes(m.id)).sort((a, b) => a.order - b.order);
+  // 足せるのは、勤務管理表でその日に出勤の人（休みの人は出さない）。勤務管理表にその日の記号がなければ、「収穫可」にしている人
+  const candidates = members.filter((m) => m.active && !ids.includes(m.id) && (working ? working.has(m.id) : m.harvest)).sort((a, b) => a.order - b.order);
   return (
     <div className="flex flex-wrap items-center gap-1">
       {ids.map((id) => (
