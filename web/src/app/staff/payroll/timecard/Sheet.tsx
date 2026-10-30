@@ -22,15 +22,18 @@ export function TimecardSheet({
   title,
   edit,
   pay,
+  allDays,
 }: {
   person: PersonResult;
   name: string;
   title: string;
   edit?: SheetEdit;
+  /** 打刻のない日も出す（手で書きこむ記入用の用紙） */
+  allDays?: boolean;
   /** 時給・交通費から計算した金額（なければ出さない） */
   pay?: TimecardPay | null;
 }) {
-  const shown = person.days.filter((d) => d.raw || edit);
+  const shown = person.days.filter((d) => d.raw || edit || allDays);
   const tap = edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>;
   return (
     <section className="timecard-sheet">

@@ -234,6 +234,10 @@ export default function TimecardPage() {
         >
           🖨 全員の集計表を印刷
         </Link>
+        {/* タイムレコーダーを使わない日に、手で書きこむ用紙（先月の人・すべての日） */}
+        <Link href={`/staff/payroll/timecard/print/?month=${month}&blank=1`} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          🖨 記入用の用紙（先月の人）
+        </Link>
       </div>
 
       {cfg && <Rules cfg={cfg} />}
