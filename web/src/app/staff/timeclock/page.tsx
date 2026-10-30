@@ -248,7 +248,7 @@ function Kiosk({ admin }: { admin: boolean }) {
       const now = Date.now();
       if (now - lastAt > 300) buf = "";
       lastAt = now;
-      if (e.key === "Enter") {
+      if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
         const sn = buf.toLowerCase();
         buf = "";
         if (/^[0-9a-f:]{4,64}$/.test(sn)) {
@@ -257,8 +257,11 @@ function Kiosk({ admin }: { admin: boolean }) {
         }
         return;
       }
-      if (e.key.length === 1 && /[0-9a-zA-Z:]/.test(e.key)) {
-        buf += e.key;
+      // パソコンの入力が日本語（「あ」）のままだと、文字が「Process」になるので、押したキーの場所（code）から読む
+      const ch =
+        /^(?:Digit|Numpad)(\d)$/.exec(e.code)?.[1] ?? /^Key([A-Z])$/.exec(e.code)?.[1] ?? (e.key.length === 1 && /[0-9a-zA-Z:]/.test(e.key) ? e.key : null);
+      if (ch) {
+        buf += ch;
         e.preventDefault();
       }
     };
