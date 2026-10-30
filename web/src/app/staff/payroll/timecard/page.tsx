@@ -89,7 +89,19 @@ export default function TimecardPage() {
   const nameOf = (c: string) => (cfg && employees ? (employeeForCard(c, cfg, employees)?.name ?? `（カード${c}・従業員が未設定）`) : "");
   const selected =
     card && cfg && data ? computePerson(card, month, data, cfg, { noOvertime: !!employees && employeeForCard(card, cfg, employees)?.manager }) : null;
-  const cardList = people?.map((x) => x.p.card) ?? [];
+  /**
+   * 個人別タイムカード集計表で選べるカード：その月に打刻がある人と、打刻がまだない在籍中の人（カード番号かタグが決まっている人。役員は除く）。
+   * 打刻がない日（タイムレコーダーを使わなかった日など）も、選んで時刻を手で入れられるように
+   */
+  const punched = people?.map((x) => x.p.card) ?? [];
+  const noPunch =
+    cfg && employees
+      ? Object.entries(cfg.cards)
+          .filter(([c, id]) => !punched.includes(c) && employees.some((x) => x.id === id && x.active && x.kind !== "officer"))
+          .map(([c]) => c)
+          .sort((a, b) => a.localeCompare(b, "ja", { numeric: true }))
+      : [];
+  const cardList = [...punched, ...noPunch];
   /** 役員（集計表のいちばん上。タイムカードはなく、役員報酬だけ） */
   const officers = (employees ?? []).filter((x) => x.active && x.kind === "officer").sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }));
   /** 役員でない人の行（基本給：社員は月給、アルバイトは時給 × 労働時間。交通費：日額 × 出勤日数） */
@@ -211,7 +223,7 @@ export default function TimecardPage() {
             ⬇ 弥生に取り込むファイル
           </button>
         )}
-        {people && people.length > 0 && (
+        {cardList.length > 0 && (
           <button onClick={() => setCard(cardList[0])} className="rounded-lg bg-berry px-4 py-2 text-sm font-bold text-white">
             📝 個人別タイムカード集計表（見る・直す）
           </button>
@@ -231,6 +243,7 @@ export default function TimecardPage() {
       ) : people.length === 0 && officers.length === 0 ? (
         <p className="mt-4 rounded-lg border bg-white p-4 text-gray-600">
           この月のタイムカードはまだありません。上の「ファイルを選ぶ」から、タイムレコーダーのUSBのデータを取り込んでください。
+          打刻のない日の時刻を手で入れるときは、「📝 個人別タイムカード集計表」で名前を選んでください。
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto rounded-xl border bg-white">
@@ -331,6 +344,11 @@ export default function TimecardPage() {
                   <option key={p.card} value={p.card}>
                     {p.card}　{nameOf(p.card)}
                     {p.problems ? `（要確認${p.problems}）` : ""}
+                  </option>
+                ))}
+                {noPunch.map((c) => (
+                  <option key={c} value={c}>
+                    {c}　{nameOf(c)}（打刻なし）
                   </option>
                 ))}
               </select>
