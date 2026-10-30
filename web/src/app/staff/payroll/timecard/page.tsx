@@ -14,6 +14,7 @@ import {
   ROUND_CHOICES,
   cardsIn,
   computePerson,
+  deleteTimecardMonth,
   employeeForCard,
   hm,
   hours2,
@@ -506,7 +507,53 @@ function ImportBox({ cfg, employees }: { cfg: TimecardConfig | null; employees: 
         </div>
       )}
       {msg && <p className={`mt-2 text-sm ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
+      <ClearMonth />
     </div>
+  );
+}
+
+/** 暦の月の打刻をすべて消す（まちがえて入った月を、取り込み直す前に空にする） */
+function ClearMonth() {
+  const [ym, setYm] = useState(() => shiftMonth(todayJST().slice(0, 7), -1));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const months = Array.from({ length: 13 }, (_, i) => shiftMonth(todayJST().slice(0, 7), -i));
+  const label = (m: string) => `${Number(m.slice(0, 4))}年${Number(m.slice(5))}月`;
+  async function clear() {
+    if (!confirm(`${label(ym)}（1日〜月末）の打刻をすべて消しますか？\n取り込んだ打刻・タブレットの打刻・画面で直した時刻も消えます。`)) return;
+    if (!confirm(`本当に消しますか？（${label(ym)}・元に戻せません）`)) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await deleteTimecardMonth(ym);
+      setMsg({ ok: true, text: `${label(ym)}の打刻を消しました。USBのデータを取り込み直してください。` });
+    } catch (e) {
+      setMsg({ ok: false, text: `消せませんでした：${errorText(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <details className="mt-3 text-sm">
+      <summary className="cursor-pointer text-gray-600">🗑 月の打刻をすべて消す（まちがえて入った月を、取り込み直す前に空にする）</summary>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select value={ym} onChange={(e) => setYm(e.target.value)} className="rounded border px-2 py-1">
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {label(m)}
+            </option>
+          ))}
+        </select>
+        <button
+          disabled={busy}
+          onClick={() => void clear()}
+          className="rounded-lg border border-red-600 bg-white px-3 py-1.5 font-bold text-red-700 disabled:opacity-50"
+        >
+          {busy ? "消しています…" : `${label(ym)}の打刻をすべて消す`}
+        </button>
+      </div>
+      {msg && <p className={`mt-1 ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
+    </details>
   );
 }
 

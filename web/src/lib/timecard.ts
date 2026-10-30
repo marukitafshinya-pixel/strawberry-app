@@ -4,7 +4,7 @@
 // - 取り込んだ打刻は、暦の月ごとに timecards/{YYYY-MM} に入れる（カード番号 → 日 → 出勤・退勤）
 // - 画面で直した時刻は、元の打刻とは別に e に入れる（取り込み直しても消えない）
 // - 丸め・休憩・締め日・カード番号と従業員のひも付けは config/timecard
-import { deleteField, doc, FieldPath, onSnapshot, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
+import { deleteDoc, deleteField, doc, FieldPath, onSnapshot, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { parseCsv } from "./csv";
 import { getFirebase } from "./firebase";
@@ -434,6 +434,12 @@ export async function importFixed(parsed: ParsedTimecard): Promise<number> {
     await setDoc(ref, { cards: merged, ...(data?.fileName ? { fileName: data.fileName } : {}), updatedAt: serverTimestamp() });
   }
   return total;
+}
+
+/** 暦の月（YYYY-MM）の打刻をすべて消す（取り込み・タブレットの打刻・画面で直した時刻も）。取り込み直す前に使う */
+export async function deleteTimecardMonth(ym: string) {
+  const { db } = await getFirebase();
+  await deleteDoc(doc(db, `timecards/${ym}`));
 }
 
 export async function importTimecard(parsed: ParsedTimecard, fileName: string) {
