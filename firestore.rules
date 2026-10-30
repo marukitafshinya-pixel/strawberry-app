@@ -358,6 +358,15 @@ service cloud.firestore {
     match /timeclock/{docId} {
       allow read: if isAdmin();
     }
+    // タイムカードの確定（給与の月ごと）：確定したときの一人ひとりの時給・月給など。管理者だけ
+    match /timecardLocks/{month} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['at', 'people', 'updatedAt'])
+        && request.resource.data.at is int
+        && request.resource.data.people is map && request.resource.data.people.size() <= 300;
+    }
     match /config/timecard {
       allow read: if isAdmin();
       allow write: if isAdmin()

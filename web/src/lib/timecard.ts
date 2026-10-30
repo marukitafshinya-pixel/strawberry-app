@@ -485,3 +485,62 @@ async function saveDayField(date: string, card: string, key: "e" | "bk", value: 
   }
   await updateDoc(ref, new FieldPath("cards", card, dd, key), value ?? deleteField(), "updatedAt", serverTimestamp());
 }
+
+/** 確定した月に固定しておく、一人ひとりの給与の決まり（区分・管理職・時給・月給・役員報酬・交通費） */
+export const LOCK_FIELDS = ["kind", "manager", "hourlyRate", "monthlyPay", "officerPay", "commutePerDay", "commuteTaxable"] as const;
+type LockField = (typeof LOCK_FIELDS)[number];
+type LockPerson = Partial<Record<LockField, string | number | boolean>>;
+/** timecardLocks/{給与の月 YYYY-MM}：確定した月。at＝確定した時刻（ミリ秒）、people＝従業員の id → そのときの決まり */
+export type TimecardLock = { at: number; people: Record<string, LockPerson> };
+
+/** その月の確定（確定していなければ null、読み込み中は undefined） */
+export function useTimecardLock(month: string): TimecardLock | null | undefined {
+  const [state, setState] = useState<{ month: string; v: TimecardLock | null } | null>(null);
+  useEffect(() => {
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, `timecardLocks/${month}`),
+        (s) => setState({ month, v: s.exists() ? (s.data() as TimecardLock) : null }),
+        () => setState({ month, v: null }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [month]);
+  return state && state.month === month ? state.v : undefined;
+}
+
+/** 確定する：今の従業員の決まりを、その月の分として保存する */
+export async function lockTimecardMonth(month: string, employees: ({ id: string } & Partial<Record<LockField, unknown>>)[]) {
+  const { db } = await getFirebase();
+  const people: Record<string, LockPerson> = {};
+  for (const e of employees) {
+    const p: LockPerson = {};
+    for (const k of LOCK_FIELDS) if (e[k] !== undefined && e[k] !== null) p[k] = e[k] as string | number | boolean;
+    people[e.id] = p;
+  }
+  await setDoc(doc(db, `timecardLocks/${month}`), { at: Date.now(), people, updatedAt: serverTimestamp() });
+}
+
+/** 確定を外す */
+export async function unlockTimecardMonth(month: string) {
+  const { db } = await getFirebase();
+  await deleteDoc(doc(db, `timecardLocks/${month}`));
+}
+
+/** 確定した月は、従業員の決まりを確定したときのものにする（確定したあとに足した人は今のまま） */
+export function applyLock<E extends { id: string }>(employees: E[], lock: TimecardLock | null | undefined): E[] {
+  if (!lock) return employees;
+  return employees.map((e) => {
+    const p = lock.people[e.id];
+    if (!p) return e;
+    const out = { ...e } as Record<string, unknown>;
+    for (const k of LOCK_FIELDS) out[k] = p[k];
+    return out as E;
+  });
+}

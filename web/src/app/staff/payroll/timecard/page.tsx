@@ -13,8 +13,12 @@ import {
   CLOSE_DAY_CHOICES,
   ROUND_CHOICES,
   cardsIn,
+  applyLock,
   computePerson,
   deleteTimecardMonth,
+  lockTimecardMonth,
+  unlockTimecardMonth,
+  useTimecardLock,
   employeeForCard,
   hm,
   hours2,
@@ -68,7 +72,10 @@ export default function TimecardPage() {
     if (role !== "admin" || !cfg || cfg.rulesVersion === 2) return;
     void saveTimecardConfig({ inDir: "up", outDir: "down", rulesVersion: 2 });
   }, [role, cfg]);
-  const { value: employees } = useEmployees();
+  const { value: employeesNow } = useEmployees();
+  // 確定した月は、確定したときの時給・月給などで計算する（あとで時給を変えても、計算し直さない）
+  const lock = useTimecardLock(month);
+  const employees = employeesNow ? applyLock(employeesNow, lock) : null;
   const months = periodMonths(month, cfg?.closeDay ?? 31);
   const data = useTimecardMonths(months);
   /** 個人別タイムカード集計表の小窓で見ているカード（null＝閉じている） */
@@ -129,8 +136,8 @@ export default function TimecardPage() {
         テスト中：この画面の数字は、「給与の打ち込み」や給与集計表には反映されません（確定した給与はそのままです）。
       </p>
 
-      <ImportBox cfg={cfg} employees={employees ?? []} />
-      <TimeclockBox employees={employees ?? []} />
+      <ImportBox cfg={cfg} employees={employeesNow ?? []} />
+      <TimeclockBox employees={employeesNow ?? []} />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-lg border bg-white px-3 py-2">
@@ -143,6 +150,32 @@ export default function TimecardPage() {
         {days.length > 0 && (
           <span className="text-sm text-gray-600">
             {mdOf(days[0])}〜{mdOf(days[days.length - 1])}
+          </span>
+        )}
+        {lock === null && employeesNow && (
+          <button
+            onClick={() =>
+              confirm(`${title}を確定しますか？\n今の時給・月給・役員報酬・交通費で固定し、あとで時給を変えても計算し直しません。打刻も直せなくなります。`) &&
+              void lockTimecardMonth(month, employeesNow).catch((e) => alert(`確定できませんでした：${errorText(e)}`))
+            }
+            className="rounded-lg border border-emerald-700 bg-white px-3 py-2 text-sm font-bold text-emerald-800"
+          >
+            ✅ この月を確定する
+          </button>
+        )}
+        {lock && (
+          <span className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
+            🔒 確定済み（{new Date(lock.at + 9 * 3600e3).getUTCMonth() + 1}/{new Date(lock.at + 9 * 3600e3).getUTCDate()} 確定・その時の時給で計算）
+            <button
+              onClick={() =>
+                confirm(`${title}の確定を外しますか？\n今の時給・月給で計算し直します。打刻を直せるようになります。`) &&
+                confirm("本当に外しますか？") &&
+                void unlockTimecardMonth(month).catch((e) => alert(`外せませんでした：${errorText(e)}`))
+              }
+              className="font-normal text-gray-600 underline"
+            >
+              確定を外す
+            </button>
           </span>
         )}
         {people && people.length > 0 && (
@@ -374,6 +407,11 @@ export default function TimecardPage() {
                 ✕ 閉じる
               </button>
             </div>
+            {lock && (
+              <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                🔒 この月は確定済みなので直せません。直すときは「確定を外す」を押してください。
+              </p>
+            )}
             <p className="mb-2 text-sm text-gray-600">
               赤い行は打刻もれなどです。「出勤」「退勤」（打刻）のマスを押すと、テンキーで時刻を入れてエンターで直せます（1730＝17:30）。「休憩」のマスも同じように分で直せます（30＝30分）。直す前は確認欄に「退勤
               17:04→18:04」のように残ります。
@@ -386,7 +424,8 @@ export default function TimecardPage() {
                 const e = employees && cfg ? employeeForCard(card, cfg, employees) : null;
                 return e ? timecardPay(e, selected) : null;
               })()}
-              edit={{ time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }}
+              // 確定した月は直せない（確定を外すと直せる）
+              edit={lock ? undefined : { time: (date, e) => saveTimecardEdit(date, card, e), brk: (date, m) => saveTimecardBreak(date, card, m) }}
             />
           </div>
         </div>

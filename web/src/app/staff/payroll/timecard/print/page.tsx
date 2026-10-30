@@ -8,7 +8,7 @@ import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
 import { shiftMonth } from "@/lib/date";
 import { reiwa, timecardPay, useEmployees } from "@/lib/payroll";
-import { cardsIn, computePerson, employeeForCard, periodMonths, useTimecardConfig, useTimecardMonths } from "@/lib/timecard";
+import { applyLock, cardsIn, computePerson, employeeForCard, periodMonths, useTimecardConfig, useTimecardLock, useTimecardMonths } from "@/lib/timecard";
 import { TimecardSheet } from "../Sheet";
 
 export default function TimecardPrintPage() {
@@ -26,7 +26,10 @@ function PrintView() {
   const only = params.get("card");
   const blank = params.get("blank") === "1";
   const { value: cfg } = useTimecardConfig();
-  const { value: employees } = useEmployees();
+  const { value: employeesNow } = useEmployees();
+  // 確定した月は、確定したときの時給などで計算する
+  const lock = useTimecardLock(/^\d{4}-\d{2}$/.test(month) ? month : "2000-01");
+  const employees = employeesNow ? applyLock(employeesNow, lock) : null;
   const ok = /^\d{4}-\d{2}$/.test(month);
   // 記入用の用紙は、先月の人も出すので先月の分も読む
   const months = ok
