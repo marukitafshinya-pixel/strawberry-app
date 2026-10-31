@@ -188,8 +188,13 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       }
       const { entries, error } = pdf ?? yayoi ?? parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
       if (error) return setError(`取り込めませんでした：${error}`);
-      const byCode = new Map(employees.map((e) => [e.code, e]));
-      const added = entries.filter((x) => !byCode.has(x.code));
+      // 社員番号は、全角・半角、前後や間の空白、頭の0（「0323」と「323」）のちがいを同じとみなして探す
+      const codeKey = (c: string) => {
+        const t = c.normalize("NFKC").replace(/\s+/g, "");
+        return /^\d+$/.test(t) ? String(Number(t)) : t;
+      };
+      const byCode = new Map(employees.map((e) => [codeKey(e.code), e]));
+      const added = entries.filter((x) => !byCode.has(codeKey(x.code)));
       const label = (m: string) => `${m.replace("-", "年")}月度`;
       const text = [
         // PDFに書いてある月度と、いま開いている月度が違うときは知らせる
@@ -211,7 +216,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const batch = writeBatch(db);
       const rows = { ...data.rows };
       for (const x of entries) {
-        const found = byCode.get(x.code);
+        const found = byCode.get(codeKey(x.code));
         const id = found?.id ?? newId();
         const bank = x.bank ?? { payMethod: "transfer" as const, bankName: "", branchName: "", accountType: "普通" as const, accountNumber: "" };
         if (!found) {
