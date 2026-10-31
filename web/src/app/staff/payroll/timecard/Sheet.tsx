@@ -260,9 +260,10 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
     if (t === undefined) return setErr("時刻は 1730 や 17:30 のように入れてください");
     onClose();
     const e = { i: which === "i" ? t : d.i, o: which === "o" ? t : d.o };
-    // 元の打刻と同じに戻したときは、直していないのと同じ（直した印を消す）
+    // 元の打刻と同じに戻したときは、直していないのと同じ（直した印を消す）。
+    // ただし、ほかの欄にも打刻がある日は、同じ時刻のまま入れると「確かめた」として残す（要確認が消える）
     const same = e.i === (d.raw?.i ?? null) && e.o === (d.raw?.o ?? null);
-    edit.time(d.date, same ? null : e).catch(fail);
+    edit.time(d.date, same && !d.raw?.x ? null : e).catch(fail);
   }
   function reset() {
     onClose();
@@ -312,6 +313,9 @@ function EditPop({ d, which, x, y, edit, onClose }: { d: DayResult; which: Which
           </div>
         )}
         {err && <p className="mt-1 text-xs text-red-600">{err}</p>}
+        {!isBrk && d.raw?.x && !d.raw?.e && (
+          <p className="mt-1 text-xs text-amber-800">ほかの欄の打刻（{d.raw.x}）を確かめたら、今の時刻をそのまま入れてエンターで「確認済み」になります。</p>
+        )}
         <p className="mt-1 text-xs text-gray-500">
           {isBrk
             ? "ボタンを押すか、分を打ってエンターで確定（0＝休憩なし）。空のままエンターで自動の休憩に戻す。Escでやめる"
