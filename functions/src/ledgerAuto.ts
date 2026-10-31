@@ -129,7 +129,8 @@ export const buildAutoJournal = onCall(async (req) => {
       residentTax = 0;
     for (const r of Object.values((p.get("rows") as Record<string, Record<string, unknown>> | undefined) ?? {})) {
       const w = n(r.monthly) + n(r.hourly);
-      const cm = n(r.commute);
+      // 通勤費は、非課税・課税のどちらも通勤費の科目へ
+      const cm = n(r.commute) + n(r.taxableCommute);
       const o = n(r.officer);
       wages += w;
       commute += cm;

@@ -94,15 +94,15 @@ function PrintView() {
               <tr>
                 <Th>番号</Th>
                 <Th>氏名</Th>
-                {PAY_ITEMS.slice(0, 4).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "pay").map((i) => (
                   <Th key={i.key}>{i.label}</Th>
                 ))}
                 <Th>支給合計</Th>
-                {PAY_ITEMS.slice(4, 9).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "social").map((i) => (
                   <Th key={i.key}>{i.label}</Th>
                 ))}
                 <Th>社会保険料計</Th>
-                {PAY_ITEMS.slice(9).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "tax").map((i) => (
                   <Th key={i.key}>{i.label}</Th>
                 ))}
                 <Th>差引支給合計</Th>
@@ -115,15 +115,15 @@ function PrintView() {
                 <tr key={e.id}>
                   <Td left>{e.code}</Td>
                   <Td left>{e.name}</Td>
-                  {PAY_ITEMS.slice(0, 4).map((i) => (
+                  {PAY_ITEMS.filter((i) => i.group === "pay").map((i) => (
                     <Td key={i.key}>{r[i.key] ? n(r[i.key]!) : ""}</Td>
                   ))}
                   <Td strong>{n(s.pay)}</Td>
-                  {PAY_ITEMS.slice(4, 9).map((i) => (
+                  {PAY_ITEMS.filter((i) => i.group === "social").map((i) => (
                     <Td key={i.key}>{r[i.key] ? n(r[i.key]!) : ""}</Td>
                   ))}
                   <Td strong>{n(s.social)}</Td>
-                  {PAY_ITEMS.slice(9).map((i) => (
+                  {PAY_ITEMS.filter((i) => i.group === "tax").map((i) => (
                     <Td key={i.key}>{r[i.key] ? n(r[i.key]!) : ""}</Td>
                   ))}
                   <Td strong>{n(s.net)}</Td>
@@ -134,15 +134,15 @@ function PrintView() {
               <tr className="font-bold">
                 <Td left>合計</Td>
                 <Td left>{rows.length}名</Td>
-                {PAY_ITEMS.slice(0, 4).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "pay").map((i) => (
                   <Td key={i.key}>{n(total((x) => x.r[i.key] ?? 0))}</Td>
                 ))}
                 <Td>{n(total((x) => x.s.pay))}</Td>
-                {PAY_ITEMS.slice(4, 9).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "social").map((i) => (
                   <Td key={i.key}>{n(total((x) => x.r[i.key] ?? 0))}</Td>
                 ))}
                 <Td>{n(total((x) => x.s.social))}</Td>
-                {PAY_ITEMS.slice(9).map((i) => (
+                {PAY_ITEMS.filter((i) => i.group === "tax").map((i) => (
                   <Td key={i.key}>{n(total((x) => x.r[i.key] ?? 0))}</Td>
                 ))}
                 <Td>{n(total((x) => x.s.net))}</Td>

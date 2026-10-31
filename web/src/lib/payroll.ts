@@ -91,6 +91,7 @@ export const PAY_ITEMS = [
   { key: "hourly", label: "基本給（時給）", group: "pay" },
   { key: "officer", label: "役員報酬", group: "pay" },
   { key: "commute", label: "非課税通勤費", group: "pay" },
+  { key: "taxableCommute", label: "課税通勤費", group: "pay" },
   { key: "health", label: "健康保険料", group: "social" },
   { key: "care", label: "介護保険料", group: "social" },
   { key: "pension", label: "厚生年金保険料", group: "social" },
@@ -130,7 +131,7 @@ const v = (r: PayRow, k: PayKey) => r[k] ?? 0;
 
 /** 1人分の合計（支給合計・社会保険料計・差引支給額） */
 export function computeRow(r: PayRow) {
-  const pay = v(r, "monthly") + v(r, "hourly") + v(r, "officer") + v(r, "commute");
+  const pay = v(r, "monthly") + v(r, "hourly") + v(r, "officer") + v(r, "commute") + v(r, "taxableCommute");
   const social = v(r, "health") + v(r, "care") + v(r, "pension") + v(r, "employment") + v(r, "socialAdj");
   const net = pay - social - v(r, "incomeTax") - v(r, "residentTax") + v(r, "yearEnd");
   return { pay, social, net };
@@ -160,7 +161,7 @@ export function computeEmployer(rows: Record<string, PayRow>): Partial<Record<Em
     health += v(r, "health");
     care += v(r, "care");
     pension += v(r, "pension");
-    if (v(r, "employment") > 0) employment += (v(r, "monthly") + v(r, "hourly") + v(r, "commute")) * EMPLOYER_RATES.employment;
+    if (v(r, "employment") > 0) employment += (v(r, "monthly") + v(r, "hourly") + v(r, "commute") + v(r, "taxableCommute")) * EMPLOYER_RATES.employment;
     if (v(r, "pension") > 0) child += (v(r, "pension") / EMPLOYER_RATES.pensionEmployee) * EMPLOYER_RATES.childAllowance;
   }
   const out: Partial<Record<EmployerKey, number>> = {};
@@ -310,4 +311,63 @@ export function usePayrollsRange(fromMonth: string, toMonth: string, enabled: bo
     };
   }, [fromMonth, toMonth, enabled, key]);
   return state && state.key === key ? state.data : null;
+}
+
+/** 見出しの名前をそろえる（全角・半角のかっこや空白のちがいをなくす） */
+const normLabel = (s: string) => s.normalize("NFKC").replace(/\s+/g, "");
+/** 弥生の見出し → アプリの項目（名前がちがうものだけ） */
+const YAYOI_ALIASES: Record<string, PayKey> = { 厚生年金保険: "pension", 社保料調整: "socialAdj" };
+
+/**
+ * 弥生給与の「給与明細一覧表」を Excel に書き出した表を読む。
+ * 見出しの行（「項目名」と金額の見出しがある行）を探し、左はしの列を社員番号、「項目名」の列を氏名として読む。
+ * 課税通勤費の列がなければ、支給合計との差を課税通勤費にする。支給合計・差引支給合計が合わない人は mismatches に入れる。
+ * 金額がすべて0の人（その月に支給がない人）は読まない
+ */
+export function parseYayoiPayroll(rows: string[][]): { entries: PayrollCsvEntry[]; mismatches: string[]; title: string; error?: string } {
+  const hi = rows.findIndex((r) => r.some((c) => normLabel(c ?? "") === "支給合計") && r.some((c) => normLabel(c ?? "") === normLabel("基本給(月給)")));
+  if (hi < 0) return { entries: [], mismatches: [], title: "", error: "弥生の給与明細一覧表の見出し（基本給(月給)・支給合計）が見つかりません" };
+  const header = rows[hi].map((c) => normLabel(c ?? ""));
+  const title =
+    rows
+      .slice(0, hi)
+      .flat()
+      .find((c) => /\d{4}年\d{1,2}月度/.test(c ?? "")) ?? "";
+  const nameCol = header.findIndex((h) => h === "項目名" || h === "氏名" || h === "従業員名");
+  if (nameCol < 1) return { entries: [], mismatches: [], title, error: "氏名の列（項目名）が見つかりません" };
+  const codeCol = nameCol - 1;
+  const items = PAY_ITEMS.filter((it) => it.key !== "yearEnd")
+    .map((it) => ({ key: it.key as PayKey, i: header.findIndex((h) => h === normLabel(it.label) || YAYOI_ALIASES[h] === it.key) }))
+    .filter((x) => x.i >= 0);
+  const yeIn = header.indexOf("年末調整還付");
+  const yeOut = header.indexOf("年末調整徴収");
+  const payCol = header.indexOf("支給合計");
+  const netCol = header.indexOf("差引支給合計");
+  const hasTaxable = items.some((x) => x.key === "taxableCommute");
+  const num = (r: string[], i: number) => (i >= 0 ? (parseAmount(r[i] ?? "") ?? 0) : 0);
+
+  const entries: PayrollCsvEntry[] = [];
+  const mismatches: string[] = [];
+  for (const r of rows.slice(hi + 1)) {
+    const code = (r[codeCol] ?? "").trim();
+    const name = (r[nameCol] ?? "").trim().replace(/\s+/g, " ");
+    if (!code || !name || name === "合計") continue;
+    const row: PayRow = {};
+    for (const { key, i } of items) {
+      const v = num(r, i);
+      if (v !== 0) row[key] = v;
+    }
+    const ye = num(r, yeIn) - num(r, yeOut);
+    if (ye !== 0) row.yearEnd = ye;
+    if (!hasTaxable && payCol >= 0) {
+      const diff = num(r, payCol) - computeRow(row).pay;
+      if (diff > 0) row.taxableCommute = diff;
+    }
+    if (Object.keys(row).length === 0 && num(r, payCol) === 0) continue;
+    const t = computeRow(row);
+    if ((payCol >= 0 && t.pay !== num(r, payCol)) || (netCol >= 0 && t.net !== num(r, netCol))) mismatches.push(`${code} ${name}`);
+    entries.push({ code, name, row });
+  }
+  if (entries.length === 0) return { entries: [], mismatches, title, error: "取り込める行がありません" };
+  return { entries, mismatches, title };
 }

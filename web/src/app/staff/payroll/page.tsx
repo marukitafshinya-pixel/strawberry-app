@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { decodeCsv, parseCsv } from "@/lib/csv";
 import { readPayrollPdf } from "@/lib/payrollPdf";
+import { openWorkbook } from "@/lib/xlsx";
 import { shiftMonth, todayJST } from "@/lib/date";
 import { getFirebase } from "@/lib/firebase";
 import {
@@ -17,6 +18,7 @@ import {
   PAY_ITEMS,
   computeRow,
   parsePayrollCsv,
+  parseYayoiPayroll,
   reiwa,
   useEmployees,
   usePayroll,
@@ -177,7 +179,14 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     try {
       const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
       const pdf = isPdf ? await readPayrollPdf(file) : null;
-      const { entries, error } = pdf ?? parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
+      // 弥生給与の「給与明細一覧表」を Excel に書き出したもの：見出しが読めるシートを使う（課税通勤費の列があるシートを先に）
+      let yayoi: ReturnType<typeof parseYayoiPayroll> | null = null;
+      if (/\.xlsx?$/i.test(file.name)) {
+        const wb = await openWorkbook(await file.arrayBuffer());
+        const tries = await Promise.all(wb.sheetNames.map(async (n) => parseYayoiPayroll(await wb.readSheet(n))));
+        yayoi = tries.find((t) => !t.error && t.entries.some((x) => x.row.taxableCommute !== undefined)) ?? tries.find((t) => !t.error) ?? tries[0];
+      }
+      const { entries, error } = pdf ?? yayoi ?? parsePayrollCsv(parseCsv(decodeCsv(await file.arrayBuffer()).text));
       if (error) return setError(`取り込めませんでした：${error}`);
       const byCode = new Map(employees.map((e) => [e.code, e]));
       const added = entries.filter((x) => !byCode.has(x.code));
@@ -187,6 +196,10 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         pdf?.month && pdf.month !== month ? `⚠ このPDFは ${label(pdf.month)} の給与集計表です（いま開いているのは ${label(month)}）。\n` : "",
         pdf?.mismatches.length
           ? `⚠ 読み取った金額の合計が、PDFの合計と合わない人がいます。読み込んだあと、表を確かめてください。\n${pdf.mismatches.join("\n")}\n`
+          : "",
+        yayoi?.title ? `弥生の「${yayoi.title}」を読みます。\n` : "",
+        yayoi?.mismatches.length
+          ? `⚠ 支給合計・差引支給合計が、弥生の数字と合わない人がいます。読み込んだあと、表を確かめてください。\n${yayoi.mismatches.join("\n")}\n`
           : "",
         `${entries.length}人分の金額を ${label(month)} の表に入れます。`,
         "表に入っている同じ人の金額は上書きされます。",
@@ -298,12 +311,12 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           CSVで書き出す
         </button>
         <button onClick={() => fileRef.current?.click()} className="rounded-lg border bg-white px-3 py-2 text-sm">
-          CSV・PDFから取り込む
+          CSV・PDF・弥生のExcelから取り込む
         </button>
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,text/csv,.pdf,application/pdf"
+          accept=".csv,text/csv,.pdf,application/pdf,.xlsx,.xls"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -459,7 +472,7 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
           {message && <span className="text-sm text-green-700">{message}</span>}
           {dirty && !message && <span className="text-sm text-gray-500">まだ保存していない変更があります</span>}
           {error && <span className="text-sm text-red-600">{error}</span>}
-          {/* 総支給＝月給・時給・役員報酬・交通費（非課税通勤費）の合計 */}
+          {/* 総支給＝月給・時給・役員報酬・交通費（非課税・課税通勤費）の合計 */}
           <span className="ml-auto text-sm">
             総支給 <b className="text-lg">{yen(totalPay)}</b>
           </span>
