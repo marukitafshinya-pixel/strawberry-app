@@ -238,9 +238,10 @@ export default function TimecardPage() {
                       e!.code,
                       e!.name,
                       p.workDays.toFixed(2),
-                      hm(p.work),
+                      // 時間は10進法（186.50＝186時間30分）。弥生のインポート形式で「10進法」を選ぶ
+                      hours2(p.work),
                       // 残業代を払うのはアルバイト（区分を決めていない人も含む）だけ。社員・役員・管理職は空欄
-                      paysOvertime(e!) && p.over ? hm(p.over) : "",
+                      paysOvertime(e!) && p.over ? hours2(p.over) : "",
                       // 時給の人だけ。弥生は残業の25％増しを計算しないので、増し分を入れた金額をアプリで出す
                       e!.hourlyRate ? String(hourlyBasePay(e!.hourlyRate, p.work, p.over, paysOvertime(e!))) : "",
                       // 交通費が日額の人だけ：日額 × 出勤日数を、非課税か課税のどちらかに入れ、もう一方は 0
