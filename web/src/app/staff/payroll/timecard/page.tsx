@@ -248,6 +248,12 @@ export default function TimecardPage() {
                       // （弥生が従業員の設定から自動で入れた交通費を 0 で上書きして、二重にならないように）
                       ...commuteCols(e!, p.workDays),
                     ]),
+                  // その月に打刻がない、在籍中の人（役員は除く）：出勤日数・時間を0、時給の人は基本給（時給）も0、日額の交通費も0で上書きする
+                  // （弥生は前の月の金額を引き継ぐので、休んだ月に前の月の金額が残らないように。社員の月給は空欄のまま）
+                  ...(employees ?? [])
+                    .filter((x) => x.active && x.kind !== "officer" && x.code.trim() && !people.some((y) => y.e?.id === x.id))
+                    .sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }))
+                    .map((x) => [x.code, x.name, "0.00", "0.00", "", x.kind === "regular" ? "" : "0", ...commuteCols(x, 0)]),
                 ],
                 { shiftJis: true },
               );
