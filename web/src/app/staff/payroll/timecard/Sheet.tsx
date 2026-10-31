@@ -37,47 +37,50 @@ export function TimecardSheet({
   const tap = edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>;
   return (
     <section className="timecard-sheet">
-      <h2 className="flex flex-wrap items-baseline gap-x-6 text-lg font-bold">
+      <h2 className="flex flex-wrap items-baseline gap-x-6 text-lg font-bold print:text-base">
         <span>個人別タイムカード集計表</span>
         <span>{title}</span>
         <span>
           カード {person.card}　{name}
         </span>
       </h2>
-      <table className="mt-2 w-full border-collapse text-sm tabular-nums [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1">
-        <thead>
-          <tr>
-            <th>日付</th>
-            <th>出勤{tap}</th>
-            <th>退勤{tap}</th>
-            <th>休憩{tap}</th>
-            <th>出勤（計算）</th>
-            <th>退勤（計算）</th>
-            <th>労働時間</th>
-            <th>うち残業</th>
-            <th>確認</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((d) => (
-            <Row key={d.date} d={d} edit={edit} />
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="font-bold">
-            <td colSpan={2}>出勤日数　{person.workDays}日</td>
-            <td colSpan={4} className="text-right">
-              合計
-            </td>
-            <td className="text-right">{hm(person.work)}</td>
-            <td className="text-right">{person.over ? hm(person.over) : ""}</td>
-            <td className="text-xs font-normal">
-              {hours2(person.work)}時間（うち残業 {hours2(person.over)}時間・残業でない分 {hours2(person.work - person.over)}時間）
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-      {pay && <PayBox pay={pay} person={person} />}
+      {/* 印刷はA4横1枚：行をつめて、金額の表は右に並べる */}
+      <div className="print:flex print:items-start print:gap-4">
+        <table className="mt-2 w-full border-collapse text-sm tabular-nums print:mt-1 print:flex-1 print:text-[12px] print:leading-tight [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 print:[&_td]:py-px print:[&_td]:whitespace-nowrap print:[&_th]:whitespace-nowrap [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1 print:[&_th]:py-0.5">
+          <thead>
+            <tr>
+              <th>日付</th>
+              <th>出勤{tap}</th>
+              <th>退勤{tap}</th>
+              <th>休憩{tap}</th>
+              <th>出勤（計算）</th>
+              <th>退勤（計算）</th>
+              <th>労働時間</th>
+              <th>うち残業</th>
+              <th>確認</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((d) => (
+              <Row key={d.date} d={d} edit={edit} />
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-bold">
+              <td colSpan={2}>出勤日数　{person.workDays}日</td>
+              <td colSpan={4} className="text-right">
+                合計
+              </td>
+              <td className="text-right">{hm(person.work)}</td>
+              <td className="text-right">{person.over ? hm(person.over) : ""}</td>
+              <td className="text-xs font-normal print:!whitespace-normal print:text-[9.5px]">
+                {hours2(person.work)}時間（うち残業 {hours2(person.over)}時間・残業でない分 {hours2(person.work - person.over)}時間）
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+        {pay && <PayBox pay={pay} person={person} />}
+      </div>
     </section>
   );
 }
@@ -88,7 +91,7 @@ const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 function PayBox({ pay, person }: { pay: TimecardPay; person: PersonResult }) {
   const over = pay.overtime ? person.over : 0;
   return (
-    <table className="mt-3 ml-auto border-collapse text-sm tabular-nums [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
+    <table className="mt-3 ml-auto border-collapse text-sm tabular-nums print:mt-1 print:ml-0 print:shrink-0 print:text-[12px] [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
       <tbody>
         {pay.rate > 0 && (
           <>
@@ -211,7 +214,7 @@ function Row({ d, edit }: { d: DayResult; edit?: SheetEdit }) {
       <td className="text-right">{d.ro !== null && d.ro >= 1440 ? `翌${hm(d.ro - 1440)}` : hm(d.ro)}</td>
       <td className="text-right font-bold">{d.work ? hm(d.work) : ""}</td>
       <td className="text-right">{d.over ? hm(d.over) : ""}</td>
-      <td className="text-xs">
+      <td className="text-xs print:!whitespace-normal print:text-[9.5px]">
         {d.problem && <span className="font-bold text-red-700">{d.problem}</span>}
         {note.length > 0 && <span className="text-amber-800">{`${d.problem ? "・" : ""}直した：${note.join("、")}`}</span>}
         {pop && edit && <EditPop d={d} which={pop.which} x={pop.x} y={pop.y} edit={edit} onClose={() => setPop(null)} />}

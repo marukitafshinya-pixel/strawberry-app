@@ -1,6 +1,6 @@
 "use client";
 
-// 個人別タイムカード集計表の印刷（1人1枚・A4縦）。card を付けるとその人だけ。
+// 個人別タイムカード集計表の印刷（1人1枚・A4横）。card を付けるとその人だけ。
 // blank=1 は記入用の用紙：打刻のない日もすべての日を出し、先月の人（と今月の人）を印刷する（タイムレコーダーを使わない日に、手で書きこむため）
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -55,7 +55,7 @@ function PrintView() {
       : cardsIn(month, data, cfg);
   return (
     <>
-      <style>{`@media print { @page { size: A4 portrait; margin: 10mm; } .timecard-sheet { break-after: page; } .timecard-sheet:last-child { break-after: auto; } }`}</style>
+      <style>{`@media print { @page { size: A4 landscape; margin: 8mm; } .timecard-sheet { break-after: page; } .timecard-sheet:last-child { break-after: auto; } }`}</style>
       <div className="mb-3 flex items-center gap-2 print:hidden">
         <Link href="/staff/payroll/timecard/" className="text-gray-500 underline">
           ← タイムカード
