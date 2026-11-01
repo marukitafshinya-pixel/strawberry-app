@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { errorText } from "@/lib/callFunction";
 import { shiftMonth, todayJST } from "@/lib/date";
 import { fetchMyTimecard, type MyTimecard } from "@/lib/myPay";
-import { reiwa } from "@/lib/payroll";
+import { reiwa, timecardPay, type Employee } from "@/lib/payroll";
 import { DEFAULT_TIMECARD_CONFIG, computePerson, type TimecardConfig } from "@/lib/timecard";
 import { TimecardSheet } from "@/app/staff/payroll/timecard/Sheet";
 
@@ -70,7 +70,13 @@ export default function MyTimecardPage() {
             {cur.v!.locked ? "🔒 この月は確定しています。" : "まだ確定していません。打刻もれなどは、あとで管理者が直すことがあります。"}
           </p>
           <div className="overflow-x-auto rounded-xl bg-white p-2 print:overflow-visible print:p-0">
-            <TimecardSheet person={person} name={cur.v!.name} title={title} />
+            <TimecardSheet
+              person={person}
+              name={cur.v!.name}
+              title={title}
+              // 時給・時間内・時間外・基本給・交通費・合計（時給か日額の交通費がある人だけ）
+              pay={timecardPay({ ...(cur.v!.pay ?? {}) } as Employee, person)}
+            />
           </div>
         </>
       )}
