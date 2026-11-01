@@ -1,9 +1,11 @@
 "use client";
 
-// 個人別の給与明細の印刷（パソコン・管理者）：名前を選ぶとその人だけ、「全員」なら1人1枚（A4縦）。
+// 個人別の給与明細の印刷（パソコン・管理者）：印刷する人にチェックを入れて、いっぺんに1人1枚（A4縦）。
+// チェックした人はアプリに覚えておき（config/payslipPrint）、次の月度もその人たちにチェックが入った状態で開く。
 // 明細の形は、従業員が携帯で見るものと同じ（components/PayslipSheet）。勤怠はタイムカードから計算する。
-// 「タイムカード集計表もいっしょに」なら、明細の下にその人の個人別タイムカード集計表を入れて1枚にする
-import { doc, getDoc } from "firebase/firestore";
+// 「タイムカード集計表もいっしょに」なら、明細の下にその人の個人別タイムカード集計表を入れて1枚にする。
+// とじ穴をあけるので、用紙の余白は広め（左を一番広く）
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -14,6 +16,9 @@ import { reiwa, timecardPay, useEmployees, usePayroll } from "@/lib/payroll";
 import { useSettings } from "@/lib/reservations";
 import { applyLock, cardsIn, computePerson, employeeForCard, periodMonths, useTimecardConfig, useTimecardLock, useTimecardMonths } from "@/lib/timecard";
 import { TimecardSheet } from "../timecard/Sheet";
+
+/** 印刷する人のチェック（従業員の id のリスト）を覚えておく場所。管理者だけ */
+const PICK_DOC = "config/payslipPrint";
 
 export default function PayslipPrintPage() {
   return (
@@ -28,7 +33,8 @@ function PrintView() {
   const params = useSearchParams();
   const month = params.get("month") ?? "";
   const ok = /^\d{4}-\d{2}$/.test(month);
-  const [who, setWho] = useState(params.get("id") ?? "");
+  /** チェックした人（従業員の id）。null＝まだ読みこんでいない。覚えたものがなければ全員 */
+  const [picked, setPicked] = useState<string[] | "all" | null>(null);
   const [withTc, setWithTc] = useState(true);
   const { value: payroll } = usePayroll(month);
   const { value: employeesNow } = useEmployees();
@@ -45,15 +51,33 @@ function PrintView() {
       .then(({ db }) => getDoc(doc(db, "config/invoice")))
       .then((s) => setIssuer(String(s.get("issuerName") ?? "")))
       .catch(() => setIssuer(""));
+    getFirebase()
+      .then(({ db }) => getDoc(doc(db, PICK_DOC)))
+      .then((s) => setPicked(Array.isArray(s.get("ids")) ? (s.get("ids") as string[]) : "all"))
+      .catch(() => setPicked("all"));
   }, [role]);
+  const [saveError, setSaveError] = useState("");
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
   if (!ok) return <p className="text-red-600">月が指定されていません</p>;
-  if (!payroll || !employeesNow || !settings) return <p className="text-gray-500">読み込み中…</p>;
+  if (!payroll || !employeesNow || !settings || !picked) return <p className="text-gray-500">読み込み中…</p>;
 
   const employees = applyLock(employeesNow, lock);
   const people = employees.filter((e) => payroll.rows[e.id] && Object.keys(payroll.rows[e.id]).length > 0);
-  const shown = who ? people.filter((e) => e.id === who) : people;
+  const isPicked = (id: string) => picked === "all" || picked.includes(id);
+  const shown = people.filter((e) => isPicked(e.id));
+  /** チェックを変えて、アプリに覚えておく（この月にいない人のチェックもそのまま残す） */
+  const pick = (ids: string[]) => {
+    const others =
+      picked === "all" ? employees.map((e) => e.id).filter((id) => !people.some((p) => p.id === id)) : picked.filter((id) => !people.some((p) => p.id === id));
+    const next = [...new Set([...others, ...ids])];
+    setPicked(next);
+    setSaveError("");
+    getFirebase()
+      .then(({ db }) => setDoc(doc(db, PICK_DOC), { ids: next.slice(0, 300), updatedAt: serverTimestamp() }))
+      .catch(() => setSaveError("チェックした人を覚えておけませんでした（印刷はできます）"));
+  };
+  const toggle = (id: string) => pick(shown.map((e) => e.id).includes(id) ? shown.map((e) => e.id).filter((x) => x !== id) : [...shown.map((e) => e.id), id]);
   const company = issuer || settings.storeName;
   // 従業員ごとのタイムカードのカード番号
   const cards = cfg && data ? cardsIn(month, data, cfg) : [];
@@ -66,21 +90,13 @@ function PrintView() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <style>{`@media print { @page { size: A4 portrait; margin: 8mm; } body { background: #fff !important; } .payslip-page { break-after: page; } .payslip-page:last-child { break-after: auto; } }`}</style>
+      {/* 余白：上下・右 12mm、左（とじ穴の側）20mm。集計表といっしょのときは、その分だけ縮めて1枚に収める */}
+      <style>{`@media print { @page { size: A4 portrait; margin: 12mm 12mm 12mm 20mm; } body { background: #fff !important; } .payslip-page { break-after: page; } .payslip-page:last-child { break-after: auto; } .payslip-page.with-tc { zoom: 0.9; } }`}</style>
       <div className="mb-4 flex flex-wrap items-center gap-3 print:hidden">
         <Link href={`/staff/payroll/?month=${month}`} className="text-sm text-gray-500 underline">
           ← 給与の打ち込み
         </Link>
         <span className="font-bold">{slipMonthLabel(month)}</span>
-        <select value={who} onChange={(e) => setWho(e.target.value)} className="rounded-lg border bg-white px-3 py-2">
-          <option value="">全員（{people.length}人・1人1枚）</option>
-          {people.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.code ? `${e.code} ` : ""}
-              {e.name}
-            </option>
-          ))}
-        </select>
         <label className="flex items-center gap-1 text-sm">
           <input type="checkbox" checked={withTc} onChange={(e) => setWithTc(e.target.checked)} />
           タイムカード集計表もいっしょに（1枚にまとめる）
@@ -93,6 +109,30 @@ function PrintView() {
           🖨 印刷する（{shown.length}人）
         </button>
       </div>
+      {people.length > 0 && (
+        <div className="mb-4 rounded-xl bg-white p-3 shadow-sm print:hidden">
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-bold">印刷する人</span>
+            <span className="text-gray-500">（チェックした人は覚えておき、次の月度もチェックが入ります）</span>
+            <button onClick={() => pick(people.map((e) => e.id))} className="ml-auto rounded border px-2 py-1">
+              全員
+            </button>
+            <button onClick={() => pick([])} className="rounded border px-2 py-1">
+              全部はずす
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+            {people.map((e) => (
+              <label key={e.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={isPicked(e.id)} onChange={() => toggle(e.id)} />
+                <span className="text-gray-500">{e.code}</span>
+                {e.name}
+              </label>
+            ))}
+          </div>
+          {saveError && <p className="mt-2 text-sm text-red-600">{saveError}</p>}
+        </div>
+      )}
       {people.length === 0 ? (
         <p className="rounded-xl bg-white p-4 text-gray-600">この月の給与はまだ打ち込まれていません。</p>
       ) : (
@@ -100,7 +140,7 @@ function PrintView() {
           {shown.map((e) => {
             const p = personOf(e);
             return (
-              <div key={e.id} className="payslip-page">
+              <div key={e.id} className={`payslip-page ${withTc && p ? "with-tc" : ""}`}>
                 <PayslipSheet
                   month={month}
                   paymentDate={payroll.paymentDate}

@@ -280,6 +280,16 @@ describe("タイムカード（管理者のみ）", () => {
     }
     await assertSucceeds(deleteDoc(doc(admin(), "timecardLocks/2026-09")));
   });
+  it("給与明細の印刷でチェックした人：管理者だけが読み書きできる", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "config/payslipPrint"), { ids: ["e1", "e2"] }));
+    await assertSucceeds(getDoc(doc(admin(), "config/payslipPrint")));
+    await assertFails(setDoc(doc(admin(), "config/payslipPrint"), { ids: "e1" }));
+    await assertFails(setDoc(doc(admin(), "config/payslipPrint"), { ids: [], secret: 1 }));
+    for (const db of [staff(), guest(), env.authenticatedContext("w1", { role: "worker" }).firestore()]) {
+      await assertFails(getDoc(doc(db, "config/payslipPrint")));
+      await assertFails(setDoc(doc(db, "config/payslipPrint"), { ids: [] }));
+    }
+  });
   it("打刻タブレット：タグの登録は管理者が読むだけ。タブレットのログインは、タイムカードもタグも読めない", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), "timeclock/tags"), { tags: { "04:a1": { employeeId: "e1", card: "001", name: "テスト", at: 1 } } });

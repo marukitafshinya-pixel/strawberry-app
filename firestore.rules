@@ -367,6 +367,13 @@ service cloud.firestore {
         && request.resource.data.at is int
         && request.resource.data.people is map && request.resource.data.people.size() <= 300;
     }
+    // 個人別の給与明細の印刷で、チェックした人（従業員の id）。次の月度も同じ人にチェックを入れるため。管理者だけ
+    match /config/payslipPrint {
+      allow read: if isAdmin();
+      allow write: if isAdmin()
+        && request.resource.data.keys().hasOnly(['ids', 'updatedAt'])
+        && request.resource.data.ids is list && request.resource.data.ids.size() <= 300;
+    }
     match /config/timecard {
       allow read: if isAdmin();
       allow write: if isAdmin()
