@@ -102,6 +102,31 @@ export async function saveCashMonth(month: string, entries: CashEntry[], opening
   await setDoc(doc(db, `cashbook/${month}`), data);
 }
 
+/** 日付の順（日付のない行は最後。同じ日付は今の並びのまま） */
+export const byCashDate = (a: CashEntry, b: CashEntry) => (a.date || "9999").localeCompare(b.date || "9999");
+
+/**
+ * 日付順に並べる：ほかの月の日付の行は、その月に移して（その月の行といっしょに日付順）、この月は残りを日付順にする。
+ * この月と移し先の月を、いっしょに保存する（途中で失敗して、行が消えたり二重になったりしないように）
+ */
+export async function moveCashEntries(month: string, keep: CashEntry[], moves: Record<string, CashEntry[]>, all: CashMonth[], opening?: number) {
+  const { db } = await getFirebase();
+  const batch = writeBatch(db);
+  const cur: Record<string, unknown> = { entries: keep.map(clean).filter((e) => !isBlank(e)), updatedAt: serverTimestamp() };
+  if (opening !== undefined) cur.opening = Math.round(opening);
+  batch.set(doc(db, `cashbook/${month}`), cur);
+  for (const [m, add] of Object.entries(moves)) {
+    const there = all.find((x) => x.month === m)?.entries ?? [];
+    const entries = [...there, ...add]
+      .sort(byCashDate)
+      .map(clean)
+      .filter((e) => !isBlank(e));
+    // 移し先の最初の繰越金（opening）はそのまま残す
+    batch.set(doc(db, `cashbook/${m}`), { entries, updatedAt: serverTimestamp() }, { merge: true });
+  }
+  await batch.commit();
+}
+
 // ---------- 「項目」の候補（プルダウン） ----------
 
 /** 保存してある候補（まだ一度も保存していなければ null） */

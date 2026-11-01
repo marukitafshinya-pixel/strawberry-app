@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { usePerms } from "@/lib/perms";
 import { errorText } from "@/lib/callFunction";
 import {
+  byCashDate,
   carryInto,
   certLineAmount,
   certTotal,
@@ -15,6 +16,7 @@ import {
   isBlankCertLine,
   itemsFromHistory,
   monthSums,
+  moveCashEntries,
   readCashbookExcel,
   saveCashImport,
   saveCashItems,
@@ -182,6 +184,46 @@ function Editor({ month, all, storeName, readOnly }: { month: string; all: CashM
     setCertRow(undefined);
     await save(withBlankRow(next));
     if (print) setPrintCert({ date, cert });
+  }
+
+  /** 日付順に並べる。ほかの月の日付の行は、その月に移す（確かめてから、この月と移し先をいっしょに保存する） */
+  async function sortByDate() {
+    const body = entries.filter((e) => !isBlank(e));
+    const out = body.filter((e) => e.date && !e.date.startsWith(month));
+    const keep = body.filter((e) => !out.includes(e)).sort(byCashDate);
+    if (out.length === 0) return change(keep);
+    // いちばん古い月より前には移さない（繰越金の計算が変わってしまうため）
+    const first = all.map((x) => x.month).sort()[0] ?? month;
+    const tooOld = out.filter((e) => e.date.slice(0, 7) < (first < month ? first : month));
+    if (tooOld.length > 0) {
+      setErr(`${tooOld.map((e) => e.date).join("・")} の行は、出納帳のいちばん古い月より前の日付です。日付を確かめてください（移していません）`);
+      return;
+    }
+    const moves: Record<string, CashEntry[]> = {};
+    for (const e of out) (moves[e.date.slice(0, 7)] ??= []).push(e);
+    const yen = (n: number | null) => (n === null ? "" : `${n.toLocaleString("ja-JP")}円`);
+    const lines = out.map(
+      (e) =>
+        `・${e.date.slice(5).replace("-", "/")} ${e.item || "（項目なし）"} ${e.income !== null ? `収入 ${yen(e.income)}` : ""}${e.expense !== null ? `支出 ${yen(e.expense)}` : ""} → ${Number(e.date.slice(5, 7))}月`,
+    );
+    if (
+      !window.confirm(
+        `ほかの月の日付の行が ${out.length}行 あります。日付の月に移して、日付順に並べます。\n（この月と移し先の月を、すぐに保存します）\n\n${lines.join("\n")}`,
+      )
+    )
+      return;
+    setErr("");
+    setSaving(true);
+    try {
+      await moveCashEntries(month, keep, moves, all, isFirst ? (opening ?? 0) : undefined);
+      setEntries(withBlankRow(keep));
+      setDirty(false);
+      setMsg(`${out.length}行を日付の月に移して、保存しました`);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function save(list: CashEntry[] = entries) {
@@ -437,10 +479,7 @@ function Editor({ month, all, storeName, readOnly }: { month: string; all: CashM
             <button onClick={() => change([...entries, emptyEntry(defaultDate)])} className="rounded-lg border bg-white px-4 py-2 text-sm">
               ＋ 行を追加
             </button>
-            <button
-              onClick={() => change([...entries].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")))}
-              className="rounded-lg border bg-white px-4 py-2 text-sm"
-            >
+            <button onClick={() => void sortByDate()} disabled={saving} className="rounded-lg border bg-white px-4 py-2 text-sm">
               日付順に並べる
             </button>
             <button onClick={() => setEditingItems(true)} className="rounded-lg border bg-white px-4 py-2 text-sm">
