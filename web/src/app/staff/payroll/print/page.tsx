@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "@/lib/auth";
-import { EMPLOYER_ITEMS, PAY_ITEMS, computeRow, reiwa, useEmployees, usePayroll, type Employee, type EmployerKey, type PayRow } from "@/lib/payroll";
+import {
+  EMPLOYER_ITEMS,
+  PAY_ITEMS,
+  computeRow,
+  reiwa,
+  useEmployees,
+  usePayroll,
+  usePrevPayerInfo,
+  withPrevPayerInfo,
+  type Employee,
+  type EmployerKey,
+  type PayRow,
+} from "@/lib/payroll";
 import { useSettings } from "@/lib/reservations";
 
 const n = (v: number) => v.toLocaleString("ja-JP");
@@ -20,7 +32,10 @@ export default function PayrollPrintPage() {
 function PrintView() {
   const { role } = useAuth();
   const month = useSearchParams().get("month") ?? "";
-  const { value: payroll } = usePayroll(month);
+  const { value: saved } = usePayroll(month);
+  // 支払口座番号・作成者がまだ保存されていなければ、前の月度のもの（打ち込みの画面と同じ）
+  const prevInfo = usePrevPayerInfo(/^\d{4}-\d{2}$/.test(month) ? month : "2000-01");
+  const payroll = saved && prevInfo ? withPrevPayerInfo(saved, prevInfo) : null;
   const { value: employees } = useEmployees();
   const { value: settings } = useSettings();
   /**
@@ -44,7 +59,7 @@ function PrintView() {
       window.removeEventListener("beforeprint", fit);
       window.removeEventListener("resize", fit);
     };
-  }, [payroll, employees, settings]);
+  }, [saved, prevInfo, employees, settings]);
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
   if (!/^\d{4}-\d{2}$/.test(month)) return <p className="text-red-600">月が指定されていません</p>;
   if (!payroll || !employees || !settings) return <p className="text-gray-500">読み込み中…</p>;

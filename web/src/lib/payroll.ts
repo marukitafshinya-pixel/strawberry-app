@@ -1,9 +1,10 @@
 "use client";
 
 // 給与（管理者だけが使う）
-import { collection, doc, documentId, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { parseAmount } from "./csv";
+import { shiftMonth } from "./date";
 import { getFirebase } from "./firebase";
 
 export type Employee = {
@@ -238,6 +239,37 @@ export function usePayroll(month: string) {
   }, [month]);
   return { value: state && state.month === month ? state.payroll : null, error };
 }
+
+/**
+ * 前の月度までに入れた「支払口座番号」と「作成者」（それぞれ、入っている一番新しい月のもの）。
+ * その月にまだ入れていなければ、これを使う（一度入れれば、次の月度からは入れなくてよい）。読み込み中は null
+ */
+export function usePrevPayerInfo(month: string): { payerAccount: string; author: string } | null {
+  const [state, setState] = useState<{ month: string; v: { payerAccount: string; author: string } } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getFirebase()
+      // 2年前から前の月度まで（月の古い順に来るので、新しい順にして探す）
+      .then(({ db }) => getDocs(query(collection(db, "payrolls"), where(documentId(), ">=", shiftMonth(month, -24)), where(documentId(), "<", month))))
+      .then((snap) => {
+        const docs = [...snap.docs].reverse();
+        const pick = (k: "payerAccount" | "author") => String(docs.map((d) => d.get(k)).find((v) => typeof v === "string" && v.trim()) ?? "");
+        if (!cancelled) setState({ month, v: { payerAccount: pick("payerAccount"), author: pick("author") } });
+      })
+      .catch(() => !cancelled && setState({ month, v: { payerAccount: "", author: "" } }));
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
+  return state && state.month === month ? state.v : null;
+}
+
+/** 入っていない「支払口座番号」「作成者」を、前の月度のもので埋める */
+export const withPrevPayerInfo = (p: Payroll, prev: { payerAccount: string; author: string }): Payroll => ({
+  ...p,
+  payerAccount: p.payerAccount || prev.payerAccount,
+  author: p.author || prev.author,
+});
 
 /** CSVから読み取った1人分 */
 export type PayrollCsvEntry = {

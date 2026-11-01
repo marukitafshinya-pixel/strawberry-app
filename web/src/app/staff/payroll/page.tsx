@@ -22,6 +22,8 @@ import {
   reiwa,
   useEmployees,
   usePayroll,
+  usePrevPayerInfo,
+  withPrevPayerInfo,
   type Employee,
   type EmployerKey,
   type PayKey,
@@ -50,6 +52,8 @@ function PayrollView() {
   const setMonth = (m: string) => router.replace(`/staff/payroll/?month=${m}`);
   const { value: employees } = useEmployees();
   const { value: saved, error } = usePayroll(month);
+  // 支払口座番号・作成者がまだなければ、前の月度に入れたものを使う
+  const prevInfo = usePrevPayerInfo(month);
 
   if (role !== "admin") return <p>この画面は管理者だけが使えます。</p>;
 
@@ -82,11 +86,11 @@ function PayrollView() {
         </button>
       </div>
       {error ? <p className="mt-3 text-red-600">{errorText(error)}</p> : null}
-      {!saved || !employees ? (
+      {!saved || !employees || !prevInfo ? (
         <p className="mt-3 text-gray-500">読み込み中…</p>
       ) : (
         // 月を切り替えたときに入力中の内容が混ざらないよう、月ごとに作り直す
-        <Editor key={month} month={month} saved={saved} employees={employees} />
+        <Editor key={month} month={month} saved={withPrevPayerInfo(saved, prevInfo)} employees={employees} />
       )}
     </>
   );
