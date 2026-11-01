@@ -210,6 +210,15 @@ describe("給与（管理者のみ）", () => {
     await assertFails(setDoc(doc(admin(), "payrolls/2026-7"), { paymentDate: "", rows: {}, employer: {} }));
     await assertFails(setDoc(doc(admin(), "payrolls/2026-07"), { rows: {}, employer: {}, secret: 1 }));
   });
+  it("従業員に公開：公開の印は管理者だけが付けられる。公開しても、従業員は給与のデータを直接は読めない（サーバーが本人の分だけ返す）", async () => {
+    await assertSucceeds(setDoc(doc(admin(), "payrolls/2026-09"), { paymentDate: "", rows: {}, employer: {}, published: true, publishedAt: 1 }));
+    await assertFails(setDoc(doc(admin(), "payrolls/2026-09"), { paymentDate: "", rows: {}, employer: {}, published: "yes" }));
+    const worker = env.authenticatedContext("w1", { role: "worker" }).firestore();
+    await assertFails(getDoc(doc(worker, "payrolls/2026-09")));
+    await assertFails(getDoc(doc(worker, "employees/e1")));
+    await assertFails(getDoc(doc(worker, "timecards/2026-09")));
+    await assertFails(setDoc(doc(worker, "payrolls/2026-09"), { paymentDate: "", rows: {}, employer: {}, published: false }));
+  });
 });
 
 describe("目標と実績（管理者のみ）", () => {

@@ -143,7 +143,16 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
       const { db } = await getFirebase();
       // 空の行は保存しない
       const rows = Object.fromEntries(Object.entries(data.rows).filter(([, r]) => Object.keys(r).length > 0));
-      await setDoc(doc(db, `payrolls/${month}`), { ...data, rows, updatedAt: serverTimestamp() });
+      // 公開したかは「従業員に公開する」で別に決めるので、今の値（saved）のまま残す
+      const { published: _p, publishedAt: _pa, ...rest } = data;
+      void _p;
+      void _pa;
+      await setDoc(doc(db, `payrolls/${month}`), {
+        ...rest,
+        rows,
+        ...(saved.published ? { published: true, publishedAt: saved.publishedAt ?? Date.now() } : {}),
+        updatedAt: serverTimestamp(),
+      });
       setDirty(false);
       setMessage("保存しました");
     } catch (e) {
@@ -237,6 +246,30 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     }
   }
 
+  /** 従業員に公開する・やめる（本人が携帯で給与明細を見られるか） */
+  async function publish(on: boolean) {
+    if (
+      on &&
+      !window.confirm(
+        `${month.replace("-", "年")}月度分の給与明細を、従業員に公開しますか？\n結びつけてある人は、携帯で自分の給与明細を見られるようになります。`,
+      )
+    )
+      return;
+    if (!on && !window.confirm("公開をやめますか？（従業員の携帯で、この月の給与明細が見えなくなります）")) return;
+    setError("");
+    try {
+      const { db } = await getFirebase();
+      await setDoc(
+        doc(db, `payrolls/${month}`),
+        on ? { published: true, publishedAt: Date.now(), updatedAt: serverTimestamp() } : { published: false, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
+      setMessage(on ? "従業員に公開しました" : "公開をやめました");
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   function exportCsv() {
     const header = [
       "社員番号",
@@ -309,6 +342,24 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         <button onClick={copyPrev} className="rounded-lg border bg-white px-3 py-2 text-sm">
           前の月の金額を写す
         </button>
+        {/* 従業員に公開：公開した月だけ、本人が携帯で自分の給与明細を見られる */}
+        {saved.published ? (
+          <span className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
+            📣 従業員に公開中
+            <button onClick={() => void publish(false)} className="font-normal text-gray-600 underline">
+              公開をやめる
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => void publish(true)}
+            disabled={dirty || Object.keys(saved.rows).length === 0}
+            title={dirty ? "先に「保存する」を押してください" : undefined}
+            className="rounded-lg border border-emerald-700 bg-white px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-40"
+          >
+            📣 従業員に公開する
+          </button>
+        )}
         <Link href={`/staff/payroll/print/?month=${month}`} className="rounded-lg border bg-white px-3 py-2 text-sm">
           集計表・振込一覧を印刷
         </Link>

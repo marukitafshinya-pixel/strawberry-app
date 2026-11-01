@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { getFirebase } from "@/lib/firebase";
 import { EMPLOYEE_KINDS, useEmployees, type Employee } from "@/lib/payroll";
+import { useShiftMembers } from "@/lib/shift";
 import { newId } from "@/lib/settings";
 import { RateFromPayroll } from "./RateFromPayroll";
 
@@ -154,7 +155,7 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
     try {
       const { db } = await getFirebase();
       const { id, ...data } = e;
-      const { hourlyRate, monthlyPay, officerPay, commutePerDay, commuteTaxable, ...rest } = data;
+      const { hourlyRate, monthlyPay, officerPay, commutePerDay, commuteTaxable, memberId, ...rest } = data;
       // 給与の金額は、区分に合うものだけ残す（役員＝役員報酬、社員＝月給、アルバイト・未設定＝時給）
       await setDoc(doc(db, `employees/${id}`), {
         ...rest,
@@ -163,6 +164,7 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
         ...(e.kind !== "officer" && e.kind !== "regular" && hourlyRate ? { hourlyRate } : {}),
         ...(commutePerDay ? { commutePerDay } : {}),
         ...(commutePerDay && commuteTaxable ? { commuteTaxable: true } : {}),
+        ...(memberId ? { memberId } : {}),
         code: rest.code.trim(),
         name: rest.name.trim(),
         bankName: rest.bankName.trim(),
@@ -330,6 +332,7 @@ function EmployeeForm({ employee, onClose, nav }: { employee: Employee; onClose:
           </label>
         </div>
       )}
+      <MemberLink e={e} onChange={(memberId) => set({ memberId })} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={e.active} onChange={(x) => set({ active: x.target.checked })} />
         在籍中（外すと給与の表に出なくなります）
@@ -355,4 +358,34 @@ function KindBadge({ kind }: { kind?: Employee["kind"] }) {
   const k = EMPLOYEE_KINDS.find((x) => x.key === kind);
   if (!k) return <span className="text-xs text-gray-400">未設定</span>;
   return <span className={`rounded px-2 py-0.5 text-xs font-bold ${k.badge}`}>{k.label}</span>;
+}
+
+/** 勤務の画面のログイン（勤務管理表の従業員）と結びつける。結びつけると、本人が携帯で自分のタイムカード・給与明細を見られる */
+function MemberLink({ e, onChange }: { e: Employee; onChange: (memberId: string | undefined) => void }) {
+  const members = useShiftMembers();
+  const same = (a: string, b: string) => a.normalize("NFKC").replace(/\s+/g, "") === b.normalize("NFKC").replace(/\s+/g, "");
+  const guess = !e.memberId ? members?.find((m) => m.active && same(m.name, e.name)) : undefined;
+  const cur = members?.find((m) => m.id === e.memberId);
+  return (
+    <div className="text-sm">
+      <span className="text-gray-600">勤務の画面のログイン（本人が携帯で、タイムカードと給与明細を見られます）</span>
+      <select value={e.memberId ?? ""} onChange={(x) => onChange(x.target.value || undefined)} className="mt-1 w-full rounded-lg border px-3 py-2 text-base">
+        <option value="">（結びつけない）</option>
+        {(members ?? [])
+          .filter((m) => m.active || m.id === e.memberId)
+          .map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+              {m.uid ? "" : "（ログインなし）"}
+            </option>
+          ))}
+      </select>
+      {guess && (
+        <button type="button" onClick={() => onChange(guess.id)} className="mt-1 text-xs text-sky-700 underline">
+          勤務管理表の「{guess.name}」さんと結びつける
+        </button>
+      )}
+      {cur && !cur.uid && <p className="mt-1 text-xs text-amber-700">この人は勤務の画面のログインがまだありません（勤務管理表で作れます）。</p>}
+    </div>
+  );
 }

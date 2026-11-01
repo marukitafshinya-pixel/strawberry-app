@@ -114,6 +114,17 @@ export function WorkerScreen({
         </Link>
       )}
       <h1 className="text-xl font-bold">{me.name} さんの勤務</h1>
+      {/* 自分のタイムカード集計表と給与明細（管理者が給与の従業員と結びつけた人だけ見られる） */}
+      {!preview && (
+        <div className="grid grid-cols-2 gap-2">
+          <Link href="/staff/shift/me/timecard/" className="rounded-2xl border-2 border-gray-300 bg-white p-3 text-center font-bold text-gray-800">
+            🕒 タイムカード
+          </Link>
+          <Link href="/staff/shift/me/payslip/" className="rounded-2xl border-2 border-gray-300 bg-white p-3 text-center font-bold text-gray-800">
+            💴 給与明細
+          </Link>
+        </div>
+      )}
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <h2 className="font-bold">これから2週間</h2>

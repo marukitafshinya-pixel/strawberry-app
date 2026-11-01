@@ -33,6 +33,8 @@ export type Employee = {
   commutePerDay?: number;
   /** 交通費に税金がかかる（家から2km未満など）。弥生には「課税通勤費」として渡す */
   commuteTaxable?: boolean;
+  /** 勤務の画面のログイン（勤務管理表の従業員 shiftMembers の id）。本人が携帯で自分のタイムカード・給与明細を見るため */
+  memberId?: string;
 };
 
 /** 残業代（25％増し）を払う人：アルバイト（区分を決めていない人も含む）で、管理職でない人 */
@@ -125,6 +127,9 @@ export type Payroll = {
   payerAccount: string;
   /** 振込一覧の「作成」の名前 */
   author: string;
+  /** 従業員に公開したか（公開した月だけ、本人が携帯で給与明細を見られる）と、公開した時刻（ミリ秒） */
+  published?: boolean;
+  publishedAt?: number;
 };
 
 const v = (r: PayRow, k: PayKey) => r[k] ?? 0;
