@@ -86,17 +86,22 @@ export function PayslipSheet({
   row,
   me,
   work,
+  compact,
 }: {
   month: string;
   paymentDate: string;
   row: PayRow;
   me: SlipPerson;
   work?: SlipWork | null;
+  /** 小さくつめる（A4縦1枚にタイムカード集計表といっしょに印刷するとき）。支給・社会保険・税金を横に3つ並べる */
+  compact?: boolean;
 }) {
   const t = computeRow(row);
   const deduct = t.social + (row.incomeTax ?? 0) + (row.residentTax ?? 0) - (row.yearEnd ?? 0);
   return (
-    <section className="rounded-xl bg-white p-4 shadow-sm print:p-0 print:shadow-none">
+    <section
+      className={`rounded-xl bg-white p-4 shadow-sm print:p-0 print:shadow-none ${compact ? "[&_h2]:!text-lg [&_table]:!text-xs [&_td]:!py-0.5 [&_th]:!py-0.5 [&>div:first-child]:!mb-2" : ""}`}
+    >
       <SlipHead title="給与明細書" sub={`${slipMonthLabel(month)}　支給日 ${slipDateLabel(paymentDate) || "－"}`} me={me} />
       {work && (
         <table className={slipBox}>
@@ -112,20 +117,28 @@ export function PayslipSheet({
           </tbody>
         </table>
       )}
-      <div className="sm:grid sm:grid-cols-2 sm:gap-3 print:grid print:grid-cols-2 print:gap-3">
-        <SlipLines title="支給" items={PAY_LINES} row={row} totalLabel="支給合計" total={t.pay} />
-        <div>
+      {compact ? (
+        <div className="grid grid-cols-3 items-start gap-2">
+          <SlipLines title="支給" items={PAY_LINES} row={row} totalLabel="支給合計" total={t.pay} />
           <SlipLines title="控除（社会保険）" items={SOCIAL_LINES} row={row} totalLabel="社会保険料計" total={t.social} />
           <SlipLines title="控除（税金など）" items={TAX_LINES} row={row} />
         </div>
-      </div>
-      <table className={`${slipBox} mt-3`}>
+      ) : (
+        <div className="sm:grid sm:grid-cols-2 sm:gap-3 print:grid print:grid-cols-2 print:gap-3">
+          <SlipLines title="支給" items={PAY_LINES} row={row} totalLabel="支給合計" total={t.pay} />
+          <div>
+            <SlipLines title="控除（社会保険）" items={SOCIAL_LINES} row={row} totalLabel="社会保険料計" total={t.social} />
+            <SlipLines title="控除（税金など）" items={TAX_LINES} row={row} />
+          </div>
+        </div>
+      )}
+      <table className={`${slipBox} ${compact ? "mt-2" : "mt-3"}`}>
         <tbody>
           <tr>
             <th>控除合計</th>
             <td className="text-right">{yen(deduct)}</td>
           </tr>
-          <tr className="text-lg font-bold">
+          <tr className={`font-bold ${compact ? "[&_td]:!text-base [&_th]:!text-base" : "text-lg"}`}>
             <th className="!font-bold">差引支給額</th>
             <td className="text-right">{yen(t.net)}</td>
           </tr>

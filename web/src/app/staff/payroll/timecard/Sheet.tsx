@@ -23,6 +23,7 @@ export function TimecardSheet({
   edit,
   pay,
   allDays,
+  stacked,
 }: {
   person: PersonResult;
   name: string;
@@ -32,6 +33,8 @@ export function TimecardSheet({
   allDays?: boolean;
   /** 時給・交通費から計算した金額（なければ出さない） */
   pay?: TimecardPay | null;
+  /** 印刷でも金額の表を下に置く（A4縦で給与明細といっしょに印刷するとき） */
+  stacked?: boolean;
 }) {
   const shown = person.days.filter((d) => d.raw || edit || allDays);
   const tap = edit && <span className="block text-[10px] font-normal text-gray-500 print:hidden">押して直す</span>;
@@ -45,7 +48,7 @@ export function TimecardSheet({
         </span>
       </h2>
       {/* 印刷はA4横1枚：行をつめて、金額の表は右に並べる */}
-      <div className="print:flex print:items-start print:gap-4">
+      <div className={stacked ? "" : "print:flex print:items-start print:gap-4"}>
         <table className="mt-2 w-full border-collapse text-sm tabular-nums print:mt-1 print:flex-1 print:text-[12px] print:leading-tight [&_td]:border [&_td]:border-gray-400 [&_td]:px-2 [&_td]:py-0.5 print:[&_td]:py-px print:[&_td]:whitespace-nowrap print:[&_th]:whitespace-nowrap [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-2 [&_th]:py-1 print:[&_th]:py-0.5">
           <thead>
             <tr>
@@ -79,7 +82,7 @@ export function TimecardSheet({
             </tr>
           </tfoot>
         </table>
-        {pay && <PayBox pay={pay} person={person} />}
+        {pay && (stacked ? <PayStrip pay={pay} person={person} /> : <PayBox pay={pay} person={person} />)}
       </div>
     </section>
   );
@@ -136,6 +139,43 @@ function PayBox({ pay, person }: { pay: TimecardPay; person: PersonResult }) {
             <td className="text-right">{yen(pay.hourly + pay.commute)}</td>
           </tr>
         )}
+      </tbody>
+    </table>
+  );
+}
+
+/** 金額を横1列に並べたもの（A4縦で給与明細といっしょに印刷するとき、表の下に置く） */
+function PayStrip({ pay, person }: { pay: TimecardPay; person: PersonResult }) {
+  const over = pay.overtime ? person.over : 0;
+  const cols: [string, string][] = [
+    ...(pay.rate > 0
+      ? ([
+          ["時給", yen(pay.rate)],
+          [`時間内 ${hm(person.work - over)}`, yen(pay.base)],
+          ...(pay.overtime ? ([[`時間外（× 1.25） ${over ? hm(over) : "0:00"}`, yen(pay.overPay)]] as [string, string][]) : []),
+          ["基本給（時給）", yen(pay.hourly)],
+        ] as [string, string][])
+      : []),
+    ...(pay.commutePerDay > 0
+      ? ([[`交通費（${pay.commuteTaxable ? "課税" : "非課税"}）${yen(pay.commutePerDay)} × ${person.workDays}日`, yen(pay.commute)]] as [string, string][])
+      : []),
+    ...(pay.rate > 0 && pay.commutePerDay > 0 ? ([["合計", yen(pay.hourly + pay.commute)]] as [string, string][]) : []),
+  ];
+  return (
+    <table className="mt-1 w-full border-collapse text-xs tabular-nums [&_td]:border [&_td]:border-gray-400 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:border [&_th]:border-gray-400 [&_th]:bg-gray-100 [&_th]:px-1.5 [&_th]:py-0.5 [&_th]:font-normal">
+      <tbody>
+        <tr>
+          {cols.map(([k]) => (
+            <th key={k}>{k}</th>
+          ))}
+        </tr>
+        <tr>
+          {cols.map(([k, v], i) => (
+            <td key={k} className={`text-right ${i === cols.length - 1 || k === "基本給（時給）" ? "font-bold" : ""}`}>
+              {v}
+            </td>
+          ))}
+        </tr>
       </tbody>
     </table>
   );

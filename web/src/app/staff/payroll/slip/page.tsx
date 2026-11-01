@@ -1,7 +1,8 @@
 "use client";
 
 // 個人別の給与明細の印刷（パソコン・管理者）：名前を選ぶとその人だけ、「全員」なら1人1枚（A4縦）。
-// 明細の形は、従業員が携帯で見るものと同じ（components/PayslipSheet）。勤怠はタイムカードから計算する
+// 明細の形は、従業員が携帯で見るものと同じ（components/PayslipSheet）。勤怠はタイムカードから計算する。
+// 「タイムカード集計表もいっしょに」なら、明細の下にその人の個人別タイムカード集計表を入れて1枚にする
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -9,9 +10,10 @@ import { Suspense, useEffect, useState } from "react";
 import { PayslipSheet, slipMonthLabel } from "@/components/PayslipSheet";
 import { useAuth } from "@/lib/auth";
 import { getFirebase } from "@/lib/firebase";
-import { useEmployees, usePayroll } from "@/lib/payroll";
+import { reiwa, timecardPay, useEmployees, usePayroll } from "@/lib/payroll";
 import { useSettings } from "@/lib/reservations";
 import { applyLock, cardsIn, computePerson, employeeForCard, periodMonths, useTimecardConfig, useTimecardLock, useTimecardMonths } from "@/lib/timecard";
+import { TimecardSheet } from "../timecard/Sheet";
 
 export default function PayslipPrintPage() {
   return (
@@ -27,6 +29,7 @@ function PrintView() {
   const month = params.get("month") ?? "";
   const ok = /^\d{4}-\d{2}$/.test(month);
   const [who, setWho] = useState(params.get("id") ?? "");
+  const [withTc, setWithTc] = useState(true);
   const { value: payroll } = usePayroll(month);
   const { value: employeesNow } = useEmployees();
   const { value: settings } = useSettings();
@@ -54,18 +57,16 @@ function PrintView() {
   const company = issuer || settings.storeName;
   // 従業員ごとのタイムカードのカード番号
   const cards = cfg && data ? cardsIn(month, data, cfg) : [];
-  const workOf = (id: string) => {
+  const personOf = (e: (typeof employees)[number]) => {
     if (!cfg || !data) return null;
-    const card = cards.find((c) => employeeForCard(c, cfg, employees)?.id === id);
-    if (!card) return null;
-    const e = employees.find((x) => x.id === id);
-    const p = computePerson(card, month, data, cfg, { noOvertime: e?.manager });
-    return { days: p.workDays, work: p.work, over: p.over };
+    const card = cards.find((c) => employeeForCard(c, cfg, employees)?.id === e.id);
+    return card ? computePerson(card, month, data, cfg, { noOvertime: e.manager }) : null;
   };
+  const [y, m] = month.split("-").map(Number);
 
   return (
     <div className="mx-auto max-w-2xl">
-      <style>{`@media print { @page { size: A4 portrait; margin: 12mm; } body { background: #fff !important; } .payslip-page { break-after: page; } .payslip-page:last-child { break-after: auto; } }`}</style>
+      <style>{`@media print { @page { size: A4 portrait; margin: 8mm; } body { background: #fff !important; } .payslip-page { break-after: page; } .payslip-page:last-child { break-after: auto; } }`}</style>
       <div className="mb-4 flex flex-wrap items-center gap-3 print:hidden">
         <Link href={`/staff/payroll/?month=${month}`} className="text-sm text-gray-500 underline">
           ← 給与の打ち込み
@@ -80,6 +81,10 @@ function PrintView() {
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-1 text-sm">
+          <input type="checkbox" checked={withTc} onChange={(e) => setWithTc(e.target.checked)} />
+          タイムカード集計表もいっしょに（1枚にまとめる）
+        </label>
         <button
           onClick={() => window.print()}
           disabled={shown.length === 0}
@@ -92,17 +97,26 @@ function PrintView() {
         <p className="rounded-xl bg-white p-4 text-gray-600">この月の給与はまだ打ち込まれていません。</p>
       ) : (
         <div className="space-y-6 print:space-y-0">
-          {shown.map((e) => (
-            <div key={e.id} className="payslip-page">
-              <PayslipSheet
-                month={month}
-                paymentDate={payroll.paymentDate}
-                row={payroll.rows[e.id]}
-                me={{ name: e.name, code: e.code, company }}
-                work={workOf(e.id)}
-              />
-            </div>
-          ))}
+          {shown.map((e) => {
+            const p = personOf(e);
+            return (
+              <div key={e.id} className="payslip-page">
+                <PayslipSheet
+                  month={month}
+                  paymentDate={payroll.paymentDate}
+                  row={payroll.rows[e.id]}
+                  me={{ name: e.name, code: e.code, company }}
+                  work={p && { days: p.workDays, work: p.work, over: p.over }}
+                  compact={withTc && !!p}
+                />
+                {withTc && p && (
+                  <div className="mt-4 rounded-xl bg-white p-4 shadow-sm print:mt-3 print:rounded-none print:border-t print:border-dashed print:border-gray-400 print:p-0 print:pt-2 print:shadow-none">
+                    <TimecardSheet person={p} name={e.name} title={`${reiwa(y)} ${m}月度分`} pay={timecardPay(e, p)} stacked />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
