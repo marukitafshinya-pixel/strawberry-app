@@ -363,6 +363,9 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
         <Link href={`/staff/payroll/print/?month=${month}`} className="rounded-lg border bg-white px-3 py-2 text-sm">
           集計表・振込一覧を印刷
         </Link>
+        <Link href={`/staff/payroll/slip/?month=${month}`} className="rounded-lg border bg-white px-3 py-2 text-sm">
+          個人別の給与明細を印刷
+        </Link>
         <button onClick={exportCsv} className="rounded-lg border bg-white px-3 py-2 text-sm">
           CSVで書き出す
         </button>
