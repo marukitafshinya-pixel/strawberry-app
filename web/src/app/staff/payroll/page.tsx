@@ -1,6 +1,6 @@
 "use client";
 
-import { doc, getDoc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -166,25 +166,6 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
     }
   }
 
-  async function copyPrev() {
-    const prev = shiftMonth(month, -1);
-    if (!window.confirm(`${prev.replace("-", "年")}月の金額を写します。今入っている金額は上書きされます。`)) return;
-    try {
-      const { db } = await getFirebase();
-      const snap = await getDoc(doc(db, `payrolls/${prev}`));
-      if (!snap.exists()) return setError("前の月の給与がまだ保存されていません");
-      const p = snap.data() as Payroll;
-      update({
-        rows: p.rows ?? {},
-        employer: computeEmployer(p.rows ?? {}),
-        payerAccount: data.payerAccount || p.payerAccount || "",
-        author: data.author || p.author || "",
-      });
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-
   /** CSV・給与集計表のPDFの金額を表に入れる。社員番号で従業員を探し、いない人は新しく登録する */
   async function importCsv(file: File) {
     setError("");
@@ -343,9 +324,6 @@ function Editor({ month, saved, employees }: { month: string; saved: Payroll; em
             className="mt-1 block w-32 rounded-lg border px-3 py-2 text-base"
           />
         </label>
-        <button onClick={copyPrev} className="rounded-lg border bg-white px-3 py-2 text-sm">
-          前の月の金額を写す
-        </button>
         {/* 従業員に公開：公開した月だけ、本人が携帯で自分の給与明細を見られる */}
         {saved.published ? (
           <span className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
