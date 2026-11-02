@@ -769,7 +769,15 @@ function Sheet({
       // 動かさずに離した：確かめてから外す（まちがえて押して消えないように）
       if (!s.moved) {
         if (!confirm(`${names.get(s.id) ?? ""}さんを No.${s.from} から外しますか？`)) return;
-        return void run(save(s.from, { members: who(s.from).filter((x) => x !== s.id), membersEdited: true }));
+        // 携帯で応援として入った人（helpers）も外す（収穫者の並びだけ外すと、応援の名前が残って消えない）
+        const helpers = rec[s.from]?.helpers ?? [];
+        return void run(
+          save(s.from, {
+            members: who(s.from).filter((x) => x !== s.id),
+            membersEdited: true,
+            ...(helpers.includes(s.id) ? { helpers: helpers.filter((x) => x !== s.id) } : {}),
+          }),
+        );
       }
       const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop]");
       if (target?.dataset.drop) dropTo(s.id, s.from, target.dataset.drop);
