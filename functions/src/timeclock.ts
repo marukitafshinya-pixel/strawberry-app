@@ -150,6 +150,11 @@ export const timeclockBreak = onCall(async (req) => {
 export const timeclockSetTag = onCall(async (req) => {
   await assertAdmin(req);
   const serial = requireSerial(req.data?.serial);
+  // まちがえてかざした未登録のタグを、一覧から消す（登録はしない）
+  if (req.data?.forget === true) {
+    await db.doc(UNKNOWN).set({ items: { [serial]: FieldValue.delete() } }, { merge: true });
+    return { ok: true };
+  }
   const employeeId = req.data?.employeeId;
   if (employeeId === null) {
     await db.doc(TAGS).set({ tags: { [serial]: FieldValue.delete() }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });

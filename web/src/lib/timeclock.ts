@@ -45,6 +45,8 @@ export const useTimeclockLogin = () => useTimeclockDoc("login", (d) => (d ?? {})
 
 /** タグに従業員を割り当てる（null＝外す） */
 export const setTimeclockTag = (serial: string, employeeId: string | null) => callFunction("timeclockSetTag", { serial, employeeId });
+/** まちがえてかざした未登録のタグを、一覧から消す */
+export const forgetUnknownTag = (serial: string) => callFunction("timeclockSetTag", { serial, forget: true });
 /** タブレットのログインを作る・パスワードを変える（loginId は、はじめて作るときだけ） */
 export const saveTimeclockLogin = (password: string, loginId?: string) =>
   callFunction<unknown, { loginId: string }>("setTimeclockLogin", { password, loginId });

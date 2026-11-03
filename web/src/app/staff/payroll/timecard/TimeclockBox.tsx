@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { errorText } from "@/lib/callFunction";
 import {
+  forgetUnknownTag,
   saveTimeclockLogin,
   setTimeclockTag,
   shortSerial,
@@ -118,7 +119,7 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
 
       <h3 className="mt-4 font-bold">② 未登録のタグ</h3>
       <p className="text-sm text-gray-600">
-        新しいタグをタブレットにかざすと、ここに出ます。従業員を選んで「登録」を押してください（1枚ずつ、かざしてから登録すると間違えません）。
+        新しいタグをタブレットにかざすと、ここに出ます。従業員を選んで「登録」を押してください（1枚ずつ、かざしてから登録すると間違えません）。まちがえてかざしたタグは「消す」で一覧から消せます。
       </p>
       {unknownList.length === 0 ? (
         <p className="mt-1 text-sm text-gray-500">ありません。</p>
@@ -142,6 +143,16 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
                 className="rounded-lg bg-berry px-3 py-1 font-bold text-white disabled:opacity-40"
               >
                 登録
+              </button>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  confirm(`${shortSerial(serial)} のタグを一覧から消しますか？（登録はしません。もう一度かざすと、また出ます）`) &&
+                  run(() => forgetUnknownTag(serial), "未登録のタグを消しました")
+                }
+                className="rounded-lg border px-3 py-1 text-gray-600 disabled:opacity-40"
+              >
+                消す
               </button>
             </li>
           ))}
