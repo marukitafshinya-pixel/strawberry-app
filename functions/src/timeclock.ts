@@ -7,6 +7,7 @@ import { FieldPath, FieldValue, type DocumentReference, type Transaction } from 
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { assertAdmin, db, requirePassword, requireString } from "./common.js";
 import { WORKER_EMAIL_DOMAIN } from "./shift.js";
+import { nextPunch } from "./timeclockDay.js";
 
 /** タグ → 従業員（給与の従業員）とタイムカードのカード番号 */
 type Tag = { employeeId: string; card: string; name: string; at: number };
@@ -14,8 +15,6 @@ const TAGS = "timeclock/tags";
 /** まだ登録していないタグ（かざした時刻）。管理者が従業員を割り当てる */
 const UNKNOWN = "timeclock/unknown";
 const LOGIN = "timeclock/login";
-/** 続けてかざした分は数えない（分） */
-const DUP_MIN = 2;
 /** 休憩の修正で選べる長さ（分） */
 const BREAK_CHOICES = [0, 15, 30, 45, 60];
 
@@ -73,7 +72,7 @@ async function rememberUnknown(serial: string, at: number) {
   });
 }
 
-type Day = { i: number | null; o: number | null; s?: string; e?: unknown; bk?: number; x?: string };
+type Day = { i: number | null; o: number | null; s?: string; e?: { i: number | null; o: number | null }; bk?: number; x?: string };
 
 /** その日の分だけを書き直す（消した欄も消えるように、日ごと置き換える） */
 function writeDay(tx: Transaction, ref: DocumentReference, exists: boolean, card: string, dd: string, day: Day) {
@@ -100,20 +99,11 @@ export const timeclockPunch = onCall(async (req) => {
   const kind = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const day = (snap.get("cards") as Record<string, Record<string, Day>> | undefined)?.[tag.card]?.[dd];
-    let next: Day;
-    let k: "in" | "out" | "dup";
-    if (!day || day.s !== "tab" || day.i == null) {
-      next = { ...(day ?? {}), i: min, o: null, s: "tab" };
-      delete next.x;
-      k = "in";
-    } else {
-      const last = day.o ?? day.i;
-      if (Math.abs(min - last) < DUP_MIN || min < day.i) return "dup" as const;
-      next = { ...day, o: min };
-      k = "out";
-    }
-    writeDay(tx, ref, snap.exists, tag.card, dd, next);
-    return k;
+    // 手で直した日（e）にかざしても集計表に出るように、直した時刻にもタブレットの時刻を入れる（timeclockDay.ts）
+    const r = nextPunch(day as Parameters<typeof nextPunch>[0], min);
+    if (r.kind === "dup" || !r.next) return "dup" as const;
+    writeDay(tx, ref, snap.exists, tag.card, dd, r.next as Day);
+    return r.kind;
   });
   return { name: tag.name, kind, min, date };
 });
