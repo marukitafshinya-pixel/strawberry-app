@@ -60,13 +60,20 @@ function basePayOf(e: Employee | null, work: number, over: number): number | nul
 }
 const yen = (n: number | null) => (n == null ? "" : `${n.toLocaleString("ja-JP")}円`);
 
+/** 今日が入っている給与の月（締め日が月末より前で、締め日をすぎていたら次の月） */
+function currentPeriod(closeDay: number): string {
+  const today = todayJST();
+  return closeDay < 28 && Number(today.slice(8, 10)) > closeDay ? shiftMonth(today.slice(0, 7), 1) : today.slice(0, 7);
+}
+
 const mdOf = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
 export default function TimecardPage() {
   const { role } = useAuth();
-  // 給与の月（ふつうは先月分を計算する）
-  const [month, setMonth] = useState(() => shiftMonth(todayJST().slice(0, 7), -1));
+  // 開いたときは、今日が入っている月（締め日が月末より前なら、締め日をすぎたら次の月）。前月・次月を押したら、その月
+  const [picked, setMonth] = useState<string | null>(null);
   const { value: cfg, error: cfgError } = useTimecardConfig();
+  const month = picked ?? currentPeriod(cfg?.closeDay ?? 31);
   // 一度だけ：はじめの版で保存した丸めの向き（出勤は切り捨て・退勤は切り上げ）が逆だったので直す
   useEffect(() => {
     if (role !== "admin" || !cfg || cfg.rulesVersion === 2) return;
