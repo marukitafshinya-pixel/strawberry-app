@@ -146,8 +146,8 @@ function Kiosk({ admin }: { admin: boolean }) {
     (r: Result) => {
       setResult(r);
       beep(r.tone);
-      // 出勤・退勤は声でもあいさつする（音のすぐあと）。USBのリーダーの入力も「画面を操作した」あつかいなので、声を出せる
-      const greet = r.tone === "in" ? "おはようございます" : r.tone === "out" ? "おつかれさまでした" : null;
+      // 出勤・退勤は声でもあいさつする（音のすぐあと。「〇〇さん、おはようございます」）。USBのリーダーの入力も「画面を操作した」あつかいなので、声を出せる
+      const greet = r.tone === "in" ? `${r.title}、おはようございます` : r.tone === "out" ? `${r.title}、おつかれさまでした` : null;
       if (greet) setTimeout(() => speak(greet), 350);
       if (clearTimer.current) clearTimeout(clearTimer.current);
       clearTimer.current = setTimeout(() => setResult(null), 5000);
