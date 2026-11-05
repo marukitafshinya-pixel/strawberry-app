@@ -26,7 +26,8 @@ declare global {
 }
 
 type Tone = "in" | "out" | "info" | "error";
-type Result = { tone: Tone; title: string; sub?: string };
+/** say＝声で言うこと（出勤・退勤のあいさつ） */
+type Result = { tone: Tone; title: string; sub?: string; say?: string };
 /** ふつう＝打刻、pick＝休憩の長さを選んでいる、break＝選んだ長さで、タグを待っている */
 type Mode = { kind: "punch" } | { kind: "pick" } | { kind: "break"; minutes: number | null; until: number };
 /** 預かった打刻（tries＝送ろうとした回数） */
@@ -146,9 +147,9 @@ function Kiosk({ admin }: { admin: boolean }) {
     (r: Result) => {
       setResult(r);
       beep(r.tone);
-      // 出勤・退勤は声でもあいさつする（音のすぐあと。「〇〇さん、おはようございます」）。USBのリーダーの入力も「画面を操作した」あつかいなので、声を出せる
-      const greet = r.tone === "in" ? `${r.title}、おはようございます` : r.tone === "out" ? `${r.title}、おつかれさまでした` : null;
-      if (greet) setTimeout(() => speak(greet), 350);
+      // 出勤・退勤は声でもあいさつする（音のすぐあと）。USBのリーダーの入力も「画面を操作した」あつかいなので、声を出せる
+      const say = r.say;
+      if (say) setTimeout(() => speak(say), 350);
       if (clearTimer.current) clearTimeout(clearTimer.current);
       clearTimer.current = setTimeout(() => setResult(null), 5000);
       if (r.tone === "in" || r.tone === "out") setRecent((list) => [{ key: Date.now(), text: `${r.title}　${r.sub ?? ""}` }, ...list].slice(0, 6));
@@ -217,9 +218,12 @@ function Kiosk({ admin }: { admin: boolean }) {
         const r = await punch(serial);
         if (r.unknown) return show({ tone: "error", title: "登録されていないタグです", sub: "管理者に登録してもらってください" });
         if (r.kind === "dup") return show({ tone: "info", title: `${r.name}さん`, sub: "もう打刻しました" });
+        const greet = r.kind === "in" ? "おはようございます" : "おつかれさまでした";
         show({
           tone: r.kind === "in" ? "in" : "out",
           title: `${r.name}さん`,
+          // 読み方が登録してあれば読み方で（漢字の読みまちがいを防ぐ）
+          say: `${r.yomi || r.name}さん、${greet}`,
           sub: r.kind === "in" ? `出勤 ${hm(r.min)}　おはようございます` : `退勤 ${hm(r.min)}　おつかれさまでした`,
         });
       } catch (e) {

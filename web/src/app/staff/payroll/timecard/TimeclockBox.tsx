@@ -2,12 +2,15 @@
 
 // 打刻タブレットの設定（管理者）：タブレットのログインと、NFCタグ → 従業員の登録。
 // 未登録のタグは、タブレットにかざすと「未登録のタグ」に出るので、ここで従業員を選んで登録する
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { speak } from "@/lib/announce";
 import { errorText } from "@/lib/callFunction";
 import {
   forgetUnknownTag,
+  guessTimeclockYomi,
   saveTimeclockLogin,
   setTimeclockTag,
+  setTimeclockYomi,
   shortSerial,
   stopTimeclockLogin,
   useTimeclockLogin,
@@ -16,6 +19,51 @@ import {
 } from "@/lib/timeclock";
 
 type Emp = { id: string; code: string; name: string; active?: boolean };
+type Tag = NonNullable<ReturnType<typeof useTimeclockTags>>[string];
+
+/** 名前の読み方（打刻のあいさつの声で読む）。AIの予測のままなら「予測」と出す。直して「保存」、🔊で聞ける */
+function YomiCell({ serial, t, busy, run }: { serial: string; t: Tag; busy: boolean; run: (f: () => Promise<unknown>, done: string) => Promise<void> }) {
+  const [v, setV] = useState(t.yomi ?? "");
+  const [base, setBase] = useState(t.yomi ?? "");
+  // 予測が入った・ほかの画面で直されたときは、入力欄も合わせる（打ちかけのときはそのまま）
+  if ((t.yomi ?? "") !== base) {
+    if (v === base) setV(t.yomi ?? "");
+    setBase(t.yomi ?? "");
+  }
+  const changed = v.trim() !== (t.yomi ?? "");
+  // 保存したら、入力欄はそろえた読み方（カタカナ→ひらがな）にする
+  const save = () =>
+    run(async () => {
+      const r = await setTimeclockYomi(serial, v.trim() === "" ? null : v.trim());
+      setV(r.yomi ?? "");
+    }, `${t.name}さんの読み方を保存しました`);
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && changed && void save()}
+        placeholder="ひらがなで"
+        aria-label={`${t.name}さんの読み方`}
+        className="w-36 rounded border px-2 py-0.5"
+      />
+      {t.yomiGuess && !changed && <span className="rounded bg-amber-100 px-1 text-xs text-amber-800">予測</span>}
+      {changed && (
+        <button disabled={busy} onClick={() => void save()} className="rounded bg-berry px-2 py-0.5 text-xs font-bold text-white disabled:opacity-40">
+          保存
+        </button>
+      )}
+      <button
+        onClick={() => speak(`${v.trim() || t.name}さん、おはようございます`)}
+        title="タブレットでの読み上げを聞く"
+        aria-label={`${t.name}さんの読み上げを聞く`}
+        className="rounded border px-1.5 py-0.5 text-xs"
+      >
+        🔊
+      </button>
+    </span>
+  );
+}
 
 const timeOf = (ms: number) => {
   const d = new Date(ms + 9 * 3600e3);
@@ -52,6 +100,16 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
   const noTag = active.filter((e) => !tagged.has(e.id));
   const unknownList = Object.entries(unknown ?? {}).sort((a, b) => b[1] - a[1]);
   const tagList = Object.entries(tags ?? {}).sort((a, b) => a[1].name.localeCompare(b[1].name, "ja"));
+  // 読み方がまだない人がいれば、AIで予測して入れる（この画面を開いたときに1回だけ）
+  const guessed = useRef(false);
+  const missing = tagList.filter(([, t]) => !t.yomi).length;
+  useEffect(() => {
+    if (guessed.current || missing === 0) return;
+    guessed.current = true;
+    guessTimeclockYomi()
+      .then((r) => r.count > 0 && setMsg(`${r.count}人の読み方を予測して入れました（「予測」の印）。違っていたら直して「保存」を押してください`))
+      .catch((e) => setErr(errorText(e)));
+  }, [missing]);
 
   return (
     <details className="mt-4 rounded-xl border bg-white p-4">
@@ -160,6 +218,9 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
       )}
 
       <h3 className="mt-4 font-bold">③ 登録したタグ</h3>
+      <p className="text-sm text-gray-600">
+        タブレットでかざすと「〇〇さん、おはようございます」と読み上げます。読み方はAIの予測で入るので、違っていたら直して「保存」を押してください（🔊で聞けます）。
+      </p>
       {tags === undefined ? (
         <p className="text-sm text-gray-500">読み込み中…</p>
       ) : tagList.length === 0 ? (
@@ -169,6 +230,7 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
           <thead className="text-left text-xs text-gray-500">
             <tr>
               <th className="px-2 py-1">氏名</th>
+              <th className="px-2 py-1">読み方（あいさつの声）</th>
               <th className="px-2 py-1">カード</th>
               <th className="px-2 py-1">タグ</th>
               <th />
@@ -178,6 +240,9 @@ export function TimeclockBox({ employees }: { employees: Emp[] }) {
             {tagList.map(([serial, t]) => (
               <tr key={serial} className="border-t">
                 <td className="px-2 py-1">{t.name}</td>
+                <td className="px-2 py-1">
+                  <YomiCell serial={serial} t={t} busy={busy} run={run} />
+                </td>
                 <td className="px-2 py-1">{t.card}</td>
                 <td className="px-2 py-1 font-mono">{shortSerial(serial)}</td>
                 <td className="px-2 py-1">

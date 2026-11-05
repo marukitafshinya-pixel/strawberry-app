@@ -20,7 +20,7 @@ export { refreshTempDiff } from "./tempDiff.js";
 export { viewPayroll } from "./payrollView.js";
 export { buildAutoJournal } from "./ledgerAuto.js";
 export { refreshHarvestSpeeds, harvestHelpHouse } from "./harvest.js";
-export { setTimeclockLogin, timeclockBreak, timeclockPunch, timeclockSetTag } from "./timeclock.js";
+export { setTimeclockLogin, timeclockBreak, timeclockGuessYomi, timeclockPunch, timeclockSetTag, timeclockSetYomi } from "./timeclock.js";
 export { myPayslips, myTimecard } from "./myPay.js";
 
 async function countActiveAdmins(): Promise<number> {

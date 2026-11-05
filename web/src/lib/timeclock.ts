@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import { callFunction } from "./callFunction";
 import { getFirebase } from "./firebase";
 
-export type TimeclockTag = { employeeId: string; card: string; name: string; at: number };
+/** yomi＝名前の読み方（ひらがな。打刻のあいさつの声に使う）、yomiGuess＝AIの予測のまま */
+export type TimeclockTag = { employeeId: string; card: string; name: string; at: number; yomi?: string; yomiGuess?: boolean };
 export type TimeclockLogin = { loginId?: string; active?: boolean };
 
 /** 休憩時間を修正で選べる長さ（分）。サーバーの BREAK_CHOICES と同じ */
@@ -45,6 +46,10 @@ export const useTimeclockLogin = () => useTimeclockDoc("login", (d) => (d ?? {})
 
 /** タグに従業員を割り当てる（null＝外す） */
 export const setTimeclockTag = (serial: string, employeeId: string | null) => callFunction("timeclockSetTag", { serial, employeeId });
+/** 名前の読み方を直す（null＝消す。漢字のまま読み上げる） */
+export const setTimeclockYomi = (serial: string, yomi: string | null) => callFunction<unknown, { yomi: string | null }>("timeclockSetYomi", { serial, yomi });
+/** 読み方がまだない人の読み方を、AIで予測して入れる（入れた数） */
+export const guessTimeclockYomi = () => callFunction<unknown, { count: number }>("timeclockGuessYomi", {}, 60_000);
 /** まちがえてかざした未登録のタグを、一覧から消す */
 export const forgetUnknownTag = (serial: string) => callFunction("timeclockSetTag", { serial, forget: true });
 /** タブレットのログインを作る・パスワードを変える（loginId は、はじめて作るときだけ） */
@@ -53,7 +58,7 @@ export const saveTimeclockLogin = (password: string, loginId?: string) =>
 /** タブレットのログインを止める */
 export const stopTimeclockLogin = () => callFunction("setTimeclockLogin", { stop: true });
 
-export type PunchResult = { unknown?: boolean; name?: string; kind?: "in" | "out" | "dup"; min?: number };
+export type PunchResult = { unknown?: boolean; name?: string; yomi?: string | null; kind?: "in" | "out" | "dup"; min?: number };
 /** かざした（at＝通信が切れていてあとから送るときの、かざした時刻） */
 export const punch = (serial: string, at?: number) => callFunction<unknown, PunchResult>("timeclockPunch", { serial, ...(at ? { at } : {}) }, 20_000);
 /** 休憩時間を修正（null＝いつもどおりに戻す） */

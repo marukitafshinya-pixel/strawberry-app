@@ -4,13 +4,15 @@
 // タグ → 従業員の登録・タブレットのログインは管理者が行う。
 import { getAuth } from "firebase-admin/auth";
 import { FieldPath, FieldValue, type DocumentReference, type Transaction } from "firebase-admin/firestore";
+import Anthropic from "@anthropic-ai/sdk";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { assertAdmin, db, requirePassword, requireString } from "./common.js";
+import { isEmulatorTest, loadKey, MODEL } from "./shikiri.js";
 import { WORKER_EMAIL_DOMAIN } from "./shift.js";
 import { nextPunch } from "./timeclockDay.js";
 
-/** タグ → 従業員（給与の従業員）とタイムカードのカード番号 */
-type Tag = { employeeId: string; card: string; name: string; at: number };
+/** タグ → 従業員（給与の従業員）とタイムカードのカード番号。yomi＝名前の読み方（ひらがな。打刻のあいさつの声に使う）、yomiGuess＝AIの予測のまま */
+type Tag = { employeeId: string; card: string; name: string; at: number; yomi?: string; yomiGuess?: boolean };
 const TAGS = "timeclock/tags";
 /** まだ登録していないタグ（かざした時刻）。管理者が従業員を割り当てる */
 const UNKNOWN = "timeclock/unknown";
@@ -105,7 +107,7 @@ export const timeclockPunch = onCall(async (req) => {
     writeDay(tx, ref, snap.exists, tag.card, dd, r.next as Day);
     return r.kind;
   });
-  return { name: tag.name, kind, min, date };
+  return { name: tag.name, yomi: tag.yomi ?? null, kind, min, date };
 });
 
 /** 休憩時間を修正：その人のその日の休憩（分）。null＝いつもどおり（自動）に戻す */
@@ -163,7 +165,13 @@ export const timeclockSetTag = onCall(async (req) => {
     await cfgRef.set({ cards: { [card]: id }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   }
   const tag: Tag = { employeeId: id, card, name: String(emp.get("name") ?? "").slice(0, 30), at: Date.now() };
-  await db.doc(TAGS).set({ tags: { [serial]: tag }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  // 前にほかの人で使っていたタグなら、その人の読み方は消す（あとで予測し直す）
+  await db
+    .doc(TAGS)
+    .set(
+      { tags: { [serial]: { ...tag, yomi: FieldValue.delete(), yomiGuess: FieldValue.delete() } }, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
   await db.doc(UNKNOWN).set({ items: { [serial]: FieldValue.delete() } }, { merge: true });
   return { card };
 });
@@ -201,4 +209,95 @@ export const setTimeclockLogin = onCall(async (req) => {
   await getAuth().setCustomUserClaims(newUid, { role: "timeclock" });
   await ref.set({ uid: newUid, loginId, active: true, updatedAt: FieldValue.serverTimestamp() });
   return { loginId };
+});
+
+// ---------- 名前の読み方（打刻のあいさつの声で「〇〇さん」と読む） ----------
+
+/** 読み方をそろえる：カタカナはひらがなに、空白は1つに。ひらがな・長音・空白だけ（30文字まで）。だめなら null */
+export function normYomi(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const h = v
+    .normalize("NFKC")
+    .replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/[\s\u3000・]+/g, " ")
+    .trim();
+  return /^[\u3041-\u3096\u30fc ]{1,30}$/.test(h) ? h : null;
+}
+
+/** 読み方を直す（管理者）。null＝消す（漢字のまま読み上げる） */
+export const timeclockSetYomi = onCall(async (req) => {
+  await assertAdmin(req);
+  const serial = requireSerial(req.data?.serial);
+  const raw = req.data?.yomi;
+  const yomi = raw === null || raw === "" ? null : normYomi(raw);
+  if (raw !== null && raw !== "" && !yomi) throw new HttpsError("invalid-argument", "読み方は、ひらがな（またはカタカナ）で入れてください");
+  const tags = ((await db.doc(TAGS).get()).get("tags") ?? {}) as Record<string, Tag>;
+  if (!tags[serial]) throw new HttpsError("not-found", "このタグは登録されていません");
+  await db
+    .doc(TAGS)
+    .set(
+      { tags: { [serial]: { yomi: yomi ?? FieldValue.delete(), yomiGuess: FieldValue.delete() } }, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+  return { yomi };
+});
+
+const YOMI_SCHEMA = {
+  type: "object",
+  properties: {
+    readings: {
+      type: "array",
+      items: { type: "object", properties: { id: { type: "string" }, yomi: { type: "string" } }, required: ["id", "yomi"], additionalProperties: false },
+    },
+  },
+  required: ["readings"],
+  additionalProperties: false,
+};
+
+/** 読み方がまだないタグの名前の読み方を、AIで予測して入れる（管理者）。入れた数を返す */
+export const timeclockGuessYomi = onCall(async (req) => {
+  await assertAdmin(req);
+  const tags = ((await db.doc(TAGS).get()).get("tags") ?? {}) as Record<string, Tag>;
+  const todo = Object.entries(tags).filter(([, t]) => !t.yomi && t.name);
+  if (todo.length === 0) return { count: 0 };
+  const apiKey = await loadKey();
+  if (!apiKey) throw new HttpsError("failed-precondition", "AIの鍵が登録されていないので、読み方を予測できません（手で入れてください）");
+  let readings: { id: string; yomi: string }[];
+  if (isEmulatorTest(apiKey)) readings = todo.map(([serial]) => ({ id: serial, yomi: "てすと" }));
+  else {
+    const list = todo.map(([serial, t]) => `${serial}\t${t.name}`).join("\n");
+    try {
+      const stream = new Anthropic({ apiKey }).beta.messages.stream({
+        model: MODEL,
+        max_tokens: 4000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        output_config: { effort: "low", format: { type: "json_schema", schema: YOMI_SCHEMA } },
+        messages: [
+          {
+            role: "user",
+            content:
+              "次の日本人の氏名の、いちばんありそうな読み方を、ひらがなで答えてください。姓と名の間は空白1つ。名前がカタカナや英字なら、その読みをひらがなで。" +
+              "id はそのまま返してください。\n（id と氏名をタブ区切りで1行に1人）\n" +
+              list,
+          },
+        ],
+      });
+      const m = await stream.finalMessage();
+      const text = m.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+      readings = (JSON.parse(text) as { readings: { id: string; yomi: string }[] }).readings ?? [];
+    } catch (e) {
+      console.error("timeclockGuessYomi", e);
+      throw new HttpsError("unavailable", "読み方の予測ができませんでした。時間をおいてもう一度お試しください（手で入れることもできます）");
+    }
+  }
+  const upd: Record<string, { yomi: string; yomiGuess: true }> = {};
+  for (const r of readings) {
+    const y = normYomi(r.yomi);
+    if (!y || !tags[r.id] || tags[r.id].yomi) continue;
+    upd[r.id] = { yomi: y, yomiGuess: true };
+  }
+  const count = Object.keys(upd).length;
+  if (count > 0) await db.doc(TAGS).set({ tags: upd, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { count };
 });
