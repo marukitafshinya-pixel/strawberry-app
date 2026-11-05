@@ -72,6 +72,8 @@ export default function TimecardPage() {
   const { role } = useAuth();
   // 開いたときは、今日が入っている月（締め日が月末より前なら、締め日をすぎたら次の月）。前月・次月を押したら、その月
   const [picked, setMonth] = useState<string | null>(null);
+  /** 名前のひも付けの鍵を外しているカード（「変える」を押したとき） */
+  const [unlocked, setUnlocked] = useState<string | null>(null);
   const { value: cfg, error: cfgError } = useTimecardConfig();
   const month = picked ?? currentPeriod(cfg?.closeDay ?? 31);
   // 一度だけ：はじめの版で保存した丸めの向き（出勤は切り捨て・退勤は切り上げ）が逆だったので直す
@@ -329,18 +331,45 @@ export default function TimecardPage() {
                 <tr key={p.card} className="border-t">
                   <td className="px-3 py-2">{p.card}</td>
                   <td className="px-3 py-2">
-                    <select
-                      value={cfg?.cards[p.card] ?? e?.id ?? ""}
-                      onChange={(ev) => void saveTimecardConfig({ cards: { ...(cfg?.cards ?? {}), [p.card]: ev.target.value } })}
-                      className={`rounded border px-2 py-1 ${e ? "" : "border-red-400 text-red-700"}`}
-                    >
-                      <option value="">（従業員を選ぶ）</option>
-                      {employees?.map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.code} {x.name}
-                        </option>
-                      ))}
-                    </select>
+                    {/* 名前のひも付けは、決まっていれば鍵をかけて文字だけ出す（まちがえて変えないように）。「変える」を押したときだけ選べる */}
+                    {e && unlocked !== p.card ? (
+                      <span className="flex items-center gap-2">
+                        <span>
+                          {e.code} {e.name}
+                        </span>
+                        <span title="まちがえて変えないように鍵をかけています" className="text-xs text-gray-400">
+                          🔒
+                        </span>
+                        <button onClick={() => setUnlocked(p.card)} className="rounded border px-1.5 py-0.5 text-xs text-gray-600">
+                          変える
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <select
+                          value={cfg?.cards[p.card] ?? e?.id ?? ""}
+                          onChange={(ev) => {
+                            const to = employees?.find((x) => x.id === ev.target.value);
+                            if (e && !confirm(`カード ${p.card} の名前を「${e.name}」から「${to?.name ?? "（なし）"}」に変えますか？`)) return;
+                            void saveTimecardConfig({ cards: { ...(cfg?.cards ?? {}), [p.card]: ev.target.value } });
+                            setUnlocked(null);
+                          }}
+                          className={`rounded border px-2 py-1 ${e ? "" : "border-red-400 text-red-700"}`}
+                        >
+                          <option value="">（従業員を選ぶ）</option>
+                          {employees?.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              {x.code} {x.name}
+                            </option>
+                          ))}
+                        </select>
+                        {unlocked === p.card && (
+                          <button onClick={() => setUnlocked(null)} className="rounded border px-1.5 py-0.5 text-xs text-gray-600">
+                            やめる
+                          </button>
+                        )}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">{p.workDays}日</td>
                   <td className="px-3 py-2 text-right font-bold">
