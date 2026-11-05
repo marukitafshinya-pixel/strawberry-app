@@ -6,7 +6,7 @@
 // タグは、本体のNFC（AndroidのChrome）と、USBのNFCリーダー（キーボード入力のもの。番号を打ち込んでEnter）のどちらでも読む
 import { FirebaseError } from "firebase/app";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DimScreen, useIdleDim } from "@/lib/announce";
+import { DimScreen, speak, useIdleDim } from "@/lib/announce";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { hm } from "@/lib/timecard";
@@ -146,6 +146,9 @@ function Kiosk({ admin }: { admin: boolean }) {
     (r: Result) => {
       setResult(r);
       beep(r.tone);
+      // 出勤・退勤は声でもあいさつする（音のすぐあと）。USBのリーダーの入力も「画面を操作した」あつかいなので、声を出せる
+      const greet = r.tone === "in" ? "おはようございます" : r.tone === "out" ? "おつかれさまでした" : null;
+      if (greet) setTimeout(() => speak(greet), 350);
       if (clearTimer.current) clearTimeout(clearTimer.current);
       clearTimer.current = setTimeout(() => setResult(null), 5000);
       if (r.tone === "in" || r.tone === "out") setRecent((list) => [{ key: Date.now(), text: `${r.title}　${r.sub ?? ""}` }, ...list].slice(0, 6));
