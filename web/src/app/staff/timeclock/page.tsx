@@ -6,6 +6,7 @@
 // タグは、本体のNFC（AndroidのChrome）と、USBのNFCリーダー（キーボード入力のもの。番号を打ち込んでEnter）のどちらでも読む
 import { FirebaseError } from "firebase/app";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DimScreen, useIdleDim } from "@/lib/announce";
 import { useAuth } from "@/lib/auth";
 import { errorText } from "@/lib/callFunction";
 import { hm } from "@/lib/timecard";
@@ -34,6 +35,8 @@ type Queued = { serial: string; at: number; tries?: number };
 const QUEUE_KEY = "timeclockQueue";
 /** 同じタグを続けて読んだ分は、この間（ミリ秒）は数えない（かざしている間、何度も読むため） */
 const SAME_TAG_MS = 5000;
+/** だれもかざさず・触らないと、この時間（ミリ秒）で画面を黒くする（電池の節約。かざすか触るともどる） */
+const DIM_MS = 60_000;
 
 const loadQueue = (): Queued[] => {
   try {
@@ -82,6 +85,12 @@ function Kiosk({ admin }: { admin: boolean }) {
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+  // しばらく使わないときは画面を黒くする（打刻の受け付けはそのまま。かざすと黒い画面を消して結果を出す）
+  const { dim, wake } = useIdleDim(mode.kind === "punch" && !result, DIM_MS);
+  const wakeRef = useRef(wake);
+  useEffect(() => {
+    wakeRef.current = wake;
+  });
 
   // 時計（1秒ごと）。休憩の修正でタグを待つのは30秒まで
   useEffect(() => {
@@ -180,6 +189,7 @@ function Kiosk({ admin }: { admin: boolean }) {
   /** タグを読んだ */
   const onTag = useCallback(
     async (serial: string) => {
+      wakeRef.current();
       const now = Date.now();
       if (last.current && last.current.serial === serial && now - last.current.at < SAME_TAG_MS) return;
       last.current = { serial, at: now };
@@ -360,6 +370,8 @@ function Kiosk({ admin }: { admin: boolean }) {
           ログアウト
         </button>
       </div>
+
+      {dim && <DimScreen text={`${time}　タグをかざすと打刻できます`} onWake={wake} />}
 
       {result && (
         <div className={`fixed inset-0 z-20 flex flex-col items-center justify-center p-6 text-center ${toneCls[result.tone]}`} onClick={() => setResult(null)}>
