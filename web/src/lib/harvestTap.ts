@@ -121,6 +121,9 @@ export async function callBreak(date: string) {
   await setDoc(doc(db, "harvest", date, "calls", "break"), { at: serverTimestamp(), by: auth.currentUser?.uid ?? "" });
 }
 
+/** 押されてからこれより時間がたった休憩の合図では鳴らさない（ミリ秒） */
+const BREAK_CALL_FRESH_MS = 5 * 60_000;
+
 /** 休憩の合図が来たら onCall を呼ぶ（開いたときにもう出ていた合図では鳴らさない） */
 export function useBreakCall(date: string, enabled: boolean, onCall: () => void) {
   useEffect(() => {
@@ -134,13 +137,17 @@ export function useBreakCall(date: string, enabled: boolean, onCall: () => void)
         // サーバーの時刻が入るまで（押した人の画面では一瞬 null）は待つ
         const at = (s.get("at") as { toMillis?: () => number } | null)?.toMillis?.() ?? null;
         if (s.metadata.hasPendingWrites) return;
+        // 電波がないときに開くと、まず「合図なし」の手元の写しが来て、つながってから前の合図が届く。
+        // 手元の写しでは「もう出ていた合図」を決めない（決めると、つながったときに前の合図で鳴ってしまう）
         if (seen === undefined) {
+          if (s.metadata.fromCache) return;
           seen = at;
           return;
         }
         if (at != null && at !== seen) {
           seen = at;
-          onCall();
+          // 念のため、押されてから時間がたった合図では鳴らさない（電波が長く切れていたときなど）
+          if (Date.now() - at < BREAK_CALL_FRESH_MS) onCall();
         }
       });
     });
