@@ -83,6 +83,16 @@ function writeDay(tx: Transaction, ref: DocumentReference, exists: boolean, card
 }
 
 /**
+ * 勤務管理表に出す「出勤した・退勤した」（shiftAttendance/{日付}.members[勤務管理表の従業員id] = "in" | "out"）。
+ * 時刻は入れない（色を付けるだけ）。給与の従業員の memberId（勤務の画面のログイン）で、勤務管理表の従業員とつなぐ
+ */
+async function markAttendance(employeeId: string, date: string, kind: "in" | "out") {
+  const memberId = (await db.doc(`employees/${employeeId}`).get()).get("memberId");
+  if (typeof memberId !== "string" || !memberId) return;
+  await db.doc(`shiftAttendance/${date}`).set({ members: { [memberId]: kind }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+/**
  * かざした：その日の最初が出勤、そのあとは退勤（最後にかざした時刻）。
  * MAXの打刻がある日も、タブレットでかざしたら、タブレットの打刻に置き換える（直した時刻・休憩はそのまま）
  */
@@ -107,6 +117,8 @@ export const timeclockPunch = onCall(async (req) => {
     writeDay(tx, ref, snap.exists, tag.card, dd, r.next as Day);
     return r.kind;
   });
+  // 勤務管理表のその日のマスに色を付ける（出勤・退勤）。勤務管理表とつながっていない人は付けない。失敗しても打刻はそのまま
+  if (kind !== "dup") await markAttendance(tag.employeeId, date, kind).catch((e) => console.error("markAttendance", e));
   return { name: tag.name, yomi: tag.yomi ?? null, kind, min, date };
 });
 

@@ -221,6 +221,20 @@ describe("給与（管理者のみ）", () => {
   });
 });
 
+describe("勤務管理表の出勤・退勤の色（shiftAttendance）", () => {
+  it("勤務管理表を使える人（管理者・スタッフ）だけが読め、だれも書けない（サーバーだけが入れる）", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "shiftAttendance/2026-11-07"), { members: { m1: "in", m2: "out" } });
+    });
+    await assertSucceeds(getDoc(doc(admin(), "shiftAttendance/2026-11-07")));
+    await assertSucceeds(getDoc(doc(staff(), "shiftAttendance/2026-11-07")));
+    for (const db of [guest(), noRole(), disabled(), env.authenticatedContext("w1", { role: "worker" }).firestore()])
+      await assertFails(getDoc(doc(db, "shiftAttendance/2026-11-07")));
+    for (const db of [admin(), staff(), env.authenticatedContext("w1", { role: "worker" }).firestore()])
+      await assertFails(setDoc(doc(db, "shiftAttendance/2026-11-07"), { members: { m1: "in" } }));
+  });
+});
+
 describe("目標と実績（管理者のみ）", () => {
   it("管理者だけが読み書きでき、形が違うものは保存できない", async () => {
     await assertSucceeds(setDoc(doc(admin(), "goals/2026"), { targets: { "10": { store: 1000000, labor: 500000 } }, hobe: { "10": 30000 } }));

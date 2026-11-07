@@ -17,6 +17,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { todayJST } from "./date";
 import { getFirebase } from "./firebase";
 
 /** 勤務の記号。off＝休み（出勤人数に数えない）、req＝従業員が希望として出せる */
@@ -334,3 +335,33 @@ export const isWorking = (cfg: ShiftConfig, code: string | undefined) => {
   return !!c && !c.off;
 };
 export const codeColor = (cfg: ShiftConfig, code: string | undefined) => CODE_COLORS[cfg.codes.find((c) => c.code === code)?.color ?? "none"] ?? "";
+
+/** 今日の出勤・退勤（打刻タブレットでかざした人）：勤務管理表の従業員 id → "in"（出勤）・"out"（退勤）。時刻は持たない。読めない人は空 */
+export type Attendance = Record<string, "in" | "out">;
+export function useShiftAttendance(enabled = true): { date: string; members: Attendance } {
+  const [date, setDate] = useState(() => todayJST());
+  const [state, setState] = useState<{ date: string; members: Attendance }>({ date: "", members: {} });
+  // 日付が変わったら（置きっぱなしの投影画面など）、その日のものに読みかえる
+  useEffect(() => {
+    const t = setInterval(() => setDate(todayJST()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    let unsub = () => {};
+    let cancelled = false;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      unsub = onSnapshot(
+        doc(db, "shiftAttendance", date),
+        (s) => setState({ date, members: (s.get("members") ?? {}) as Attendance }),
+        () => setState({ date, members: {} }),
+      );
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [date, enabled]);
+  return { date, members: state.date === date ? state.members : {} };
+}

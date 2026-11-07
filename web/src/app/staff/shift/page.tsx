@@ -22,6 +22,7 @@ import {
   setShiftNote,
   useReservedPeople,
   useShiftConfig,
+  useShiftAttendance,
   useShiftDays,
   useGrowingSpan,
   useShiftMembers,
@@ -49,6 +50,8 @@ type Tab = "table" | "haichi" | "phone" | "codes" | "requests" | "members" | "se
 function ShiftView() {
   const { role, user } = useAuth();
   const isAdmin = role === "admin";
+  /** 今日の出勤・退勤（打刻タブレット）。勤務管理表のマスに色を付ける */
+  const attendance = useShiftAttendance();
   const params = useSearchParams();
   const router = useRouter();
   const q = params.get("from");
@@ -424,6 +427,7 @@ function ShiftView() {
                 onRequest={isAdmin ? setDeciding : undefined}
                 onCopyDay={isAdmin ? copyDay : undefined}
                 onClearDay={isAdmin ? clearDay : undefined}
+                attendance={attendance}
               />
             )}
           </div>

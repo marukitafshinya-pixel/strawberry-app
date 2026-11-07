@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { addDays, formatJa, isValidYmd, todayJST } from "@/lib/date";
 import { useHaichiDay, useHaichiTemplate } from "@/lib/haichi";
-import { useReservedPeople, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
+import { useReservedPeople, useShiftAttendance, useShiftConfig, useShiftDays, useShiftMembers } from "@/lib/shift";
 import { FitPane } from "../FitPane";
 import { ColorChartOverlay } from "../ColorChart";
 import { ForecastStrip } from "../ForecastStrip";
@@ -86,6 +86,8 @@ function Display() {
   const cfg = useShiftConfig();
   const members = useShiftMembers();
   const days = useShiftDays(from, to);
+  /** 今日の出勤・退勤（打刻タブレット）。今日のマスに色を付ける */
+  const attendance = useShiftAttendance();
   const reserved = useReservedPeople(from, to);
   const active = (members ?? []).filter((m) => m.active);
   const names = Object.fromEntries((members ?? []).map((m) => [m.id, m.name]));
@@ -161,7 +163,7 @@ function Display() {
   );
   const tablePane = (
     <FitPane fitMode={mode} stretchTable deps={[span, from, mode, days, layout]}>
-      <ShiftTable fixed bare from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} />
+      <ShiftTable fixed bare from={from} span={span} cfg={cfg!} members={active} days={days!} reserved={reserved} attendance={attendance} />
     </FitPane>
   );
 

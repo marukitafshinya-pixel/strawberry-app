@@ -453,6 +453,10 @@ service cloud.firestore {
       allow delete: if isAdmin() && resource.data.get('uid', null) == null;
     }
     // 日ごとの勤務（shiftDays/{YYYY-MM-DD}）：人ごとの記号と、その日の予定
+    // 勤務管理表の出勤・退勤の色（打刻タブレットでかざすとサーバーが入れる。時刻は入れない）。勤務管理表を使える人（管理者・スタッフ）だけ見られる
+    match /shiftAttendance/{date} {
+      allow read: if can(['shift']);
+    }
     match /shiftDays/{date} {
       allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();
       allow write: if isAdmin()

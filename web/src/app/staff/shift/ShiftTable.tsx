@@ -46,6 +46,7 @@ export function ShiftTable({
   fixed,
   bare,
   compact,
+  attendance,
 }: {
   from: string;
   span: number;
@@ -76,6 +77,8 @@ export function ShiftTable({
   bare?: boolean;
   /** 従業員の携帯の画面：マスも文字も小さくして、全体を見渡しやすくする */
   compact?: boolean;
+  /** 今日の出勤・退勤（打刻タブレット）。出勤した人は緑、退勤した人は灰色で、今日のマスに色を付ける */
+  attendance?: { date: string; members: Record<string, "in" | "out"> };
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：マスの幅（枠）はそのままで、文字ができるだけ大きくなるようにする。
@@ -119,6 +122,11 @@ export function ShiftTable({
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
   const headBase = `sticky left-0 z-10 whitespace-nowrap border-r text-left ${compact ? "px-1" : "px-2"}`;
   const head = `${headBase} bg-white`;
+  /** 打刻タブレットでかざした人の今日のマス：出勤＝緑、退勤＝濃い灰色（行の縞の色と見分けられるように） */
+  const attTone = (d: string, id: string) => {
+    const a = attendance && attendance.date === d ? attendance.members[id] : undefined;
+    return a === "in" ? "bg-emerald-400! text-emerald-950" : a === "out" ? "bg-gray-400! text-white" : "";
+  };
   /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
   const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-800!" : "");
 
@@ -132,12 +140,19 @@ export function ShiftTable({
       }}
     >
       {/* マス目の線は濃いめ（プロジェクターで映しても見えるように） */}
-      <table className="border-collapse tabular-nums leading-tight [&_td]:border-gray-500 [&_th]:border-gray-500 [&_tr]:border-gray-500" style={{ fontSize: fontPx }}>
+      <table
+        className="border-collapse tabular-nums leading-tight [&_td]:border-gray-500 [&_th]:border-gray-500 [&_tr]:border-gray-500"
+        style={{ fontSize: fontPx }}
+      >
         <thead>
           <tr className="border-b">
             <th className={`${head} py-1 text-gray-500`}>月</th>
             {dates.map((d, i) => (
-              <th key={d} style={{ width: colPx, minWidth: colPx, maxWidth: colPx }} className={`overflow-visible whitespace-nowrap px-0.5 py-1 text-left font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}>
+              <th
+                key={d}
+                style={{ width: colPx, minWidth: colPx, maxWidth: colPx }}
+                className={`overflow-visible whitespace-nowrap px-0.5 py-1 text-left font-normal text-gray-500 ${colTone(d)} ${wk(d)}`}
+              >
                 {i === 0 || d.endsWith("-01") ? `${Number(d.slice(5, 7))}月` : ""}
               </th>
             ))}
@@ -220,7 +235,10 @@ export function ShiftTable({
               {sorted
                 .filter((m) => m.group === g)
                 .map((m) => (
-                  <tr key={m.id} className={`border-b ${stripe(m)} ${bare && g !== groups[0] && m === sorted.find((x) => x.group === g) ? "border-t-[3px] border-t-gray-800!" : ""}`}>
+                  <tr
+                    key={m.id}
+                    className={`border-b ${stripe(m)} ${bare && g !== groups[0] && m === sorted.find((x) => x.group === g) ? "border-t-[3px] border-t-gray-800!" : ""}`}
+                  >
                     <th className={`${headBase} py-1 font-normal ${stripe(m)} ${m.id === myMemberId ? "font-bold" : ""}`}>
                       {m.name}
                       {m.floor && <span className="ml-1 rounded bg-emerald-100 px-1 text-[0.6em] text-emerald-800">売</span>}
@@ -239,7 +257,11 @@ export function ShiftTable({
                             ""
                           )}
                           {r && (
-                            <span className="mx-auto block w-fit whitespace-nowrap rounded-md border-2 border-dashed border-purple-600 bg-purple-50 px-1 font-bold leading-tight text-purple-800" style={{ fontSize: codeFont(r.code) }} title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}>
+                            <span
+                              className="mx-auto block w-fit whitespace-nowrap rounded-md border-2 border-dashed border-purple-600 bg-purple-50 px-1 font-bold leading-tight text-purple-800"
+                              style={{ fontSize: codeFont(r.code) }}
+                              title={`休みの希望：${r.code}${r.memo ? `（${r.memo}）` : ""}`}
+                            >
                               {r.code}
                             </span>
                           )}
@@ -247,7 +269,7 @@ export function ShiftTable({
                       );
                       return (
                         // 記号ごとの色は付けない（行の色だけ）
-                        <td key={d} className={`whitespace-nowrap border-l px-0 py-0 text-center ${wk(d)}`}>
+                        <td key={d} className={`whitespace-nowrap border-l px-0 py-0 text-center ${wk(d)} ${attTone(d, m.id)}`}>
                           {r && onRequest ? (
                             <button
                               onClick={() => onRequest(r)}
@@ -257,7 +279,11 @@ export function ShiftTable({
                               {body}
                             </button>
                           ) : onCell ? (
-                            <button onClick={(e) => onCell(d, m.id, e.currentTarget.getBoundingClientRect())} aria-label={`${m.name}さんの${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`} className={`flex ${cellBox} w-full flex-col items-center justify-center px-0.5 hover:outline hover:outline-2 hover:outline-sky-400`}>
+                            <button
+                              onClick={(e) => onCell(d, m.id, e.currentTarget.getBoundingClientRect())}
+                              aria-label={`${m.name}さんの${Number(d.slice(5, 7))}月${Number(d.slice(8))}日`}
+                              className={`flex ${cellBox} w-full flex-col items-center justify-center px-0.5 hover:outline hover:outline-2 hover:outline-sky-400`}
+                            >
                               {body}
                             </button>
                           ) : (
