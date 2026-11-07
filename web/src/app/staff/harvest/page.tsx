@@ -1069,46 +1069,49 @@ function Sheet({
         <table className="w-full min-w-[900px] text-sm tabular-nums">
           <thead className="bg-gray-50 text-left text-xs text-gray-600">
             <tr>
-              <th className="px-2 py-2">ハウス</th>
-              <th className="px-2 py-2">使い方</th>
-              <th className="px-2 py-2">収穫者</th>
-              <th className="px-2 py-2">入った</th>
-              <th className="px-2 py-2">終わった</th>
-              <th className="px-2 py-2">確定数</th>
-              <th className="px-2 py-2" />
-              {isAdmin && <th className="px-2 py-2 text-right">1ケース</th>}
+              <th className="px-1.5 py-2">ハウス</th>
+              <th className="px-1.5 py-2">使い方</th>
+              <th className="px-1.5 py-2">収穫者</th>
+              <th className="px-1.5 py-2">入った</th>
+              <th className="px-1.5 py-2">終わった</th>
+              <th className="px-1.5 py-2">確定数</th>
+              <th className="px-1.5 py-2" />
+              {isAdmin && <th className="px-1.5 py-2 text-right">1ケース</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((h) => (
               <tr key={h} data-drop={h} className={`border-t ${isOff(h) ? "bg-gray-50" : ""}`}>
-                <td className="px-2 py-1.5 text-base font-bold whitespace-nowrap">
+                <td className="px-1.5 py-1.5 text-base font-bold whitespace-nowrap">
                   No.{h}
                   <span className="ml-1 align-middle">{noHelpMark(h)}</span>
                   <span className="ml-1 align-middle">{stopMark(h)}</span>
                 </td>
-                <td className="px-2 py-1.5">{usageSelect(h)}</td>
+                <td className="px-1.5 py-1.5">{usageSelect(h)}</td>
                 {isOff(h) ? (
-                  <td colSpan={isAdmin ? 6 : 5} className="px-2 py-1.5 text-gray-500">
+                  <td colSpan={isAdmin ? 6 : 5} className="px-1.5 py-1.5 text-gray-500">
                     {offNote(h)}
                   </td>
                 ) : (
                   <>
-                    <td className="px-2 py-1.5">{membersOf(h)}</td>
-                    <td className="px-2 py-1.5">{startCell(h)}</td>
-                    <td className="px-2 py-1.5">{endCell(h)}</td>
-                    <td className="px-2 py-1.5">{casesCell(h)}</td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">
-                      {!locked(h) && (
-                        <>
-                          {minus(h, "mr-1")}
-                          {plus(h, "mr-1 px-5 py-2 text-lg")}
-                          {plusTenth(h, "mr-1 px-3 py-2")}
-                        </>
-                      )}
-                      {lockButton(h, "py-2")}
+                    <td className="px-1.5 py-1.5">{membersOf(h)}</td>
+                    <td className="px-1.5 py-1.5">{startCell(h)}</td>
+                    <td className="px-1.5 py-1.5">{endCell(h)}</td>
+                    <td className="px-1.5 py-1.5">{casesCell(h)}</td>
+                    <td className="px-1.5 py-1.5 whitespace-nowrap">
+                      {/* 確定ボタンは ＋1 などの下に（表の横幅を広げない） */}
+                      <div className="flex flex-col items-start gap-1">
+                        {!locked(h) && (
+                          <div>
+                            {minus(h, "mr-1")}
+                            {plus(h, "mr-1 px-5 py-2 text-lg")}
+                            {plusTenth(h, "px-3 py-2")}
+                          </div>
+                        )}
+                        {lockButton(h, "py-1 text-sm")}
+                      </div>
                     </td>
-                    {isAdmin && <td className="px-2 py-1.5 text-right text-sky-800">{rateOf(h)}</td>}
+                    {isAdmin && <td className="px-1.5 py-1.5 text-right whitespace-nowrap text-sky-800">{rateOf(h)}</td>}
                   </>
                 )}
               </tr>
@@ -1174,11 +1177,12 @@ function Members({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {ids.map((id) => (
-        <span key={id} className="inline-flex items-center">
+        <span key={id} className="inline-flex shrink-0 items-center whitespace-nowrap">
+          {/* 名前と × は1行に（せまい欄でも折り返さない） */}
           <button
             onPointerDown={(e) => onPick(id, e)}
             title="押すと外せます。引っぱって別のハウスに落とすと、そのハウスにも入ります"
-            className={`touch-none select-none rounded-full border px-2 py-1 ${
+            className={`touch-none select-none whitespace-nowrap rounded-full border px-2 py-1 ${
               here(id) && tapped(id)
                 ? "border-sky-600 bg-sky-300 font-bold text-sky-950"
                 : here(id)
