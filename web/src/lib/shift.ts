@@ -6,6 +6,7 @@ import {
   deleteField,
   doc,
   documentId,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -338,9 +339,12 @@ export const codeColor = (cfg: ShiftConfig, code: string | undefined) => CODE_CO
 
 /** 今日の出勤・退勤（打刻タブレットでかざした人）：勤務管理表の従業員 id → "in"（出勤）・"out"（退勤）。時刻は持たない。読めない人は空 */
 export type Attendance = Record<string, "in" | "out">;
-export function useShiftAttendance(enabled = true): { date: string; members: Attendance } {
+/** 「全員そろった」の色を付ける人（勤務管理表の名前がこれで始まる人。サーバーの OWNER_NAME と同じ） */
+export const OWNER_NAME = "平山";
+export type AttendanceDay = { date: string; members: Attendance; allIn: boolean };
+export function useShiftAttendance(enabled = true): AttendanceDay {
   const [date, setDate] = useState(() => todayJST());
-  const [state, setState] = useState<{ date: string; members: Attendance }>({ date: "", members: {} });
+  const [state, setState] = useState<AttendanceDay>({ date: "", members: {}, allIn: false });
   // 日付が変わったら（置きっぱなしの投影画面など）、その日のものに読みかえる
   useEffect(() => {
     const t = setInterval(() => setDate(todayJST()), 60_000);
@@ -350,18 +354,26 @@ export function useShiftAttendance(enabled = true): { date: string; members: Att
     if (!enabled) return;
     let unsub = () => {};
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const pick = (s: { get(k: string): unknown }) => setState({ date, members: (s.get("members") ?? {}) as Attendance, allIn: !!s.get("allInAt") });
     getFirebase().then(({ db }) => {
       if (cancelled) return;
-      unsub = onSnapshot(
-        doc(db, "shiftAttendance", date),
-        (s) => setState({ date, members: (s.get("members") ?? {}) as Attendance }),
-        () => setState({ date, members: {} }),
+      const ref = doc(db, "shiftAttendance", date);
+      unsub = onSnapshot(ref, pick, () => setState({ date, members: {}, allIn: false }));
+      // 念のため1分ごとにも読み直す（置きっぱなしの画面で、知らせが届かなくなったときのため）
+      timer = setInterval(
+        () =>
+          void getDoc(ref)
+            .then(pick)
+            .catch(() => {}),
+        60_000,
       );
     });
     return () => {
       cancelled = true;
       unsub();
+      if (timer) clearInterval(timer);
     };
   }, [date, enabled]);
-  return { date, members: state.date === date ? state.members : {} };
+  return state.date === date ? state : { date, members: {}, allIn: false };
 }

@@ -93,6 +93,10 @@ function Guard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const isLoginPage = pathname === LOGIN_PATH || pathname === "/staff/login";
   const outdated = useNewVersion();
+  // 投影の画面は、だれも触らないので、新しい版が出たら自分で読み込み直す
+  useEffect(() => {
+    if (outdated && pathname?.startsWith(DISPLAY_PATH)) window.location.reload();
+  }, [outdated, pathname]);
 
   useEffect(() => {
     if (!loading && !user && !isLoginPage) router.replace(LOGIN_PATH);

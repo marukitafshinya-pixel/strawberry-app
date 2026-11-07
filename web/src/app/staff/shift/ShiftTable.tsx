@@ -3,7 +3,7 @@
 // 勤務管理表の表（横に日付、縦に従業員）。管理者は記号を入れられ、ほかの人は見るだけ
 import { useEffect, useRef, useState } from "react";
 import { addDays, todayJST } from "@/lib/date";
-import { isWorking, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
+import { isWorking, OWNER_NAME, type ShiftConfig, type ShiftDay, type ShiftMember, type ShiftRequest } from "@/lib/shift";
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 /** 日付の列の幅（px）。文字の大きさを決める幅（FONT_COL_PX）より2割ほど広くして、左右に余白をとる */
@@ -77,8 +77,8 @@ export function ShiftTable({
   bare?: boolean;
   /** 従業員の携帯の画面：マスも文字も小さくして、全体を見渡しやすくする */
   compact?: boolean;
-  /** 今日の出勤・退勤（打刻タブレット）。出勤した人は緑、退勤した人は灰色で、今日のマスに色を付ける */
-  attendance?: { date: string; members: Record<string, "in" | "out"> };
+  /** 今日の出勤・退勤（打刻タブレット）。出勤した人は緑、退勤した人は灰色で、今日のマスに色を付ける。allIn＝出勤の人が全員そろった（平山さんのマスに色） */
+  attendance?: { date: string; members: Record<string, "in" | "out">; allIn?: boolean };
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 表の文字の大きさ：マスの幅（枠）はそのままで、文字ができるだけ大きくなるようにする。
@@ -122,10 +122,12 @@ export function ShiftTable({
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
   const headBase = `sticky left-0 z-10 whitespace-nowrap border-r text-left ${compact ? "px-1" : "px-2"}`;
   const head = `${headBase} bg-white`;
-  /** 打刻タブレットでかざした人の今日のマス：出勤＝緑、退勤＝濃い灰色（行の縞の色と見分けられるように） */
-  const attTone = (d: string, id: string) => {
-    const a = attendance && attendance.date === d ? attendance.members[id] : undefined;
-    return a === "in" ? "bg-emerald-400! text-emerald-950" : a === "out" ? "bg-gray-400! text-white" : "";
+  /** 打刻タブレットでかざした人の今日のマス：出勤＝やさしい緑、退勤＝濃い灰色（行の縞の色と見分けられるように）。全員そろったら平山さんのマスを金色に */
+  const attTone = (d: string, m: ShiftMember) => {
+    if (!attendance || attendance.date !== d) return "";
+    if (attendance.allIn && m.name.startsWith(OWNER_NAME)) return "bg-amber-300! text-amber-950";
+    const a = attendance.members[m.id];
+    return a === "in" ? "bg-emerald-200! text-emerald-950" : a === "out" ? "bg-gray-400! text-white" : "";
   };
   /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
   const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-800!" : "");
@@ -269,7 +271,7 @@ export function ShiftTable({
                       );
                       return (
                         // 記号ごとの色は付けない（行の色だけ）
-                        <td key={d} className={`whitespace-nowrap border-l px-0 py-0 text-center ${wk(d)} ${attTone(d, m.id)}`}>
+                        <td key={d} className={`whitespace-nowrap border-l px-0 py-0 text-center ${wk(d)} ${attTone(d, m)}`}>
                           {r && onRequest ? (
                             <button
                               onClick={() => onRequest(r)}

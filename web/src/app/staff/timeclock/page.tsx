@@ -27,7 +27,7 @@ declare global {
 
 type Tone = "in" | "out" | "info" | "error";
 /** say＝声で言うこと（出勤・退勤のあいさつ） */
-type Result = { tone: Tone; title: string; sub?: string; say?: string };
+type Result = { tone: Tone; title: string; sub?: string; say?: string; extra?: string };
 /** ふつう＝打刻、pick＝休憩の長さを選んでいる、break＝選んだ長さで、タグを待っている */
 type Mode = { kind: "punch" } | { kind: "pick" } | { kind: "break"; minutes: number | null; until: number };
 /** 預かった打刻（tries＝送ろうとした回数） */
@@ -219,11 +219,14 @@ function Kiosk({ admin }: { admin: boolean }) {
         if (r.unknown) return show({ tone: "error", title: "登録されていないタグです", sub: "管理者に登録してもらってください" });
         if (r.kind === "dup") return show({ tone: "info", title: `${r.name}さん`, sub: "もう打刻しました" });
         const greet = r.kind === "in" ? "おはようございます" : "おつかれさまでした";
+        // この人で、今日の出勤の人が全員そろったら、続けて知らせる
+        const all = r.allIn ? "本日の出勤者が全員そろいました" : "";
         show({
           tone: r.kind === "in" ? "in" : "out",
           title: `${r.name}さん`,
           // 読み方が登録してあれば読み方で（漢字の読みまちがいを防ぐ）
-          say: `${r.yomi || r.name}さん、${greet}`,
+          say: `${r.yomi || r.name}さん、${greet}${all ? `。${all}` : ""}`,
+          ...(all ? { extra: `🎉 ${all}` } : {}),
           sub: r.kind === "in" ? `出勤 ${hm(r.min)}　おはようございます` : `退勤 ${hm(r.min)}　おつかれさまでした`,
         });
       } catch (e) {
@@ -384,6 +387,7 @@ function Kiosk({ admin }: { admin: boolean }) {
         <div className={`fixed inset-0 z-20 flex flex-col items-center justify-center p-6 text-center ${toneCls[result.tone]}`} onClick={() => setResult(null)}>
           <p className="text-6xl font-bold">{result.title}</p>
           {result.sub && <p className="mt-6 text-4xl">{result.sub}</p>}
+          {result.extra && <p className="mt-8 rounded-2xl bg-white/20 px-6 py-3 text-4xl font-bold">{result.extra}</p>}
         </div>
       )}
     </div>

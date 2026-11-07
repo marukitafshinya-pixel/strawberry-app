@@ -58,7 +58,8 @@ export const saveTimeclockLogin = (password: string, loginId?: string) =>
 /** タブレットのログインを止める */
 export const stopTimeclockLogin = () => callFunction("setTimeclockLogin", { stop: true });
 
-export type PunchResult = { unknown?: boolean; name?: string; yomi?: string | null; kind?: "in" | "out" | "dup"; min?: number };
+/** allIn＝この打刻で、今日の出勤の人が全員そろった */
+export type PunchResult = { unknown?: boolean; name?: string; yomi?: string | null; kind?: "in" | "out" | "dup"; min?: number; allIn?: boolean };
 /** かざした（at＝通信が切れていてあとから送るときの、かざした時刻） */
 export const punch = (serial: string, at?: number) => callFunction<unknown, PunchResult>("timeclockPunch", { serial, ...(at ? { at } : {}) }, 20_000);
 /** 休憩時間を修正（null＝いつもどおりに戻す） */

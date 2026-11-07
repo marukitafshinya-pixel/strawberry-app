@@ -82,14 +82,52 @@ function writeDay(tx: Transaction, ref: DocumentReference, exists: boolean, card
   else tx.set(ref, { cards: { [card]: { [dd]: day } }, updatedAt: FieldValue.serverTimestamp() });
 }
 
+/** 「全員そろった」の色を付ける人（勤務管理表の名前がこれで始まる人）。この人はかざさなくてもよい */
+const OWNER_NAME = "平山";
+/** 勤務管理表の記号のリストがまだないときの、休みの記号（勤務管理表の初めの設定と同じ） */
+const DEFAULT_OFF_CODES = ["希休", "指休"];
+
 /**
  * 勤務管理表に出す「出勤した・退勤した」（shiftAttendance/{日付}.members[勤務管理表の従業員id] = "in" | "out"）。
- * 時刻は入れない（色を付けるだけ）。給与の従業員の memberId（勤務の画面のログイン）で、勤務管理表の従業員とつなぐ
+ * 時刻は入れない（色を付けるだけ）。給与の従業員の memberId（勤務の画面のログイン）で、勤務管理表の従業員とつなぐ。
+ * その日の勤務管理表で出勤の人（タイムカードとつながっている人。平山さんはのぞく）が全員かざしたら、allInAt を入れて true を返す（その1回だけ）
  */
-async function markAttendance(employeeId: string, date: string, kind: "in" | "out") {
+async function markAttendance(employeeId: string, date: string, kind: "in" | "out"): Promise<boolean> {
   const memberId = (await db.doc(`employees/${employeeId}`).get()).get("memberId");
-  if (typeof memberId !== "string" || !memberId) return;
-  await db.doc(`shiftAttendance/${date}`).set({ members: { [memberId]: kind }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  if (typeof memberId !== "string" || !memberId) return false;
+  const ref = db.doc(`shiftAttendance/${date}`);
+  await ref.set({ members: { [memberId]: kind }, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  if (kind !== "in") return false;
+  const [att, day, cfg, emps, mems] = await Promise.all([
+    ref.get(),
+    db.doc(`shiftDays/${date}`).get(),
+    db.doc("config/shift").get(),
+    db.collection("employees").get(),
+    db.collection("shiftMembers").get(),
+  ]);
+  if (att.get("allInAt")) return false;
+  const codes = cfg.get("codes") as { code: string; off: boolean }[] | undefined;
+  const working = (code: unknown) =>
+    typeof code === "string" && code !== "" && (Array.isArray(codes) ? codes.some((c) => c.code === code && !c.off) : !DEFAULT_OFF_CODES.includes(code));
+  const linked = new Set(
+    emps.docs
+      .filter((e) => e.get("active") !== false)
+      .map((e) => e.get("memberId") as unknown)
+      .filter((x): x is string => typeof x === "string"),
+  );
+  const owners = new Set(mems.docs.filter((m) => String(m.get("name") ?? "").startsWith(OWNER_NAME)).map((m) => m.id));
+  const active = new Set(mems.docs.filter((m) => m.get("active") !== false).map((m) => m.id));
+  const cells = (day.get("cells") ?? {}) as Record<string, unknown>;
+  const required = Object.keys(cells).filter((id) => working(cells[id]) && linked.has(id) && active.has(id) && !owners.has(id));
+  const present = (att.get("members") ?? {}) as Record<string, unknown>;
+  if (required.length === 0 || !required.every((id) => present[id] === "in" || present[id] === "out")) return false;
+  // 同時にかざした2台目が二度言わないよう、まだ入っていないときだけ入れる
+  return db.runTransaction(async (tx) => {
+    const cur = await tx.get(ref);
+    if (cur.get("allInAt")) return false;
+    tx.update(ref, { allInAt: FieldValue.serverTimestamp() });
+    return true;
+  });
 }
 
 /**
@@ -117,9 +155,10 @@ export const timeclockPunch = onCall(async (req) => {
     writeDay(tx, ref, snap.exists, tag.card, dd, r.next as Day);
     return r.kind;
   });
-  // 勤務管理表のその日のマスに色を付ける（出勤・退勤）。勤務管理表とつながっていない人は付けない。失敗しても打刻はそのまま
-  if (kind !== "dup") await markAttendance(tag.employeeId, date, kind).catch((e) => console.error("markAttendance", e));
-  return { name: tag.name, yomi: tag.yomi ?? null, kind, min, date };
+  // 勤務管理表のその日のマスに色を付ける（出勤・退勤）。勤務管理表とつながっていない人は付けない。失敗しても打刻はそのまま。
+  // 出勤の人が全員そろったら allIn（タブレットが「本日の出勤者が全員そろいました」と言う）
+  const allIn = kind === "dup" ? false : await markAttendance(tag.employeeId, date, kind).catch((e) => (console.error("markAttendance", e), false));
+  return { name: tag.name, yomi: tag.yomi ?? null, kind, min, date, ...(allIn ? { allIn: true } : {}) };
 });
 
 /** 休憩時間を修正：その人のその日の休憩（分）。null＝いつもどおり（自動）に戻す */
