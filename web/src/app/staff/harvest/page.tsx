@@ -909,9 +909,10 @@ function Sheet({
           setArmed(null);
           run(save(h, { casesLocked: true }));
         }}
-        className={`rounded-lg bg-emerald-600 px-3 font-bold text-white active:scale-95 ${cls}`}
+        className={`rounded-lg bg-emerald-600 px-3 leading-tight font-bold text-white active:scale-95 ${cls}`}
       >
-        もう一度押すと {fmtCases(n)} で確定
+        <span className="block text-xs font-normal">もう一度押すと</span>
+        {fmtCases(n)} で確定
       </button>
     ) : (
       <button
@@ -1036,6 +1037,8 @@ function Sheet({
                   {startCell(h, true)}
                   <span className="text-xs text-gray-500">終</span>
                   {endCell(h, true)}
+                  {/* 確定ボタンは ＋0.1 の上（行を増やさず、スクロールを減らす） */}
+                  {!locked(h) && <span className="ml-auto">{lockButton(h, "py-1.5")}</span>}
                 </div>
                 {locked(h) ? (
                   <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2">
@@ -1049,7 +1052,6 @@ function Sheet({
                       {plus(h, "py-3 text-xl")}
                       {plusTenth(h, "py-3 text-lg")}
                     </div>
-                    {(rec[h]?.cases ?? 0) > 0 && <div className="mt-1.5 flex justify-end">{lockButton(h, "py-2")}</div>}
                   </>
                 )}
               </div>
