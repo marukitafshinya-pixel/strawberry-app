@@ -222,7 +222,7 @@ describe("給与（管理者のみ）", () => {
 });
 
 describe("勤務管理表の出勤・退勤の色（shiftAttendance）", () => {
-  it("勤務管理表を使える人（管理者・スタッフ）だけが読め、だれも書けない（サーバーだけが入れる）", async () => {
+  it("勤務管理表を使える人（管理者・スタッフ）だけが読め、書けるのは管理者の出勤・退勤（members）だけ", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), "shiftAttendance/2026-11-07"), { members: { m1: "in", m2: "out" } });
     });
@@ -230,8 +230,14 @@ describe("勤務管理表の出勤・退勤の色（shiftAttendance）", () => {
     await assertSucceeds(getDoc(doc(staff(), "shiftAttendance/2026-11-07")));
     for (const db of [guest(), noRole(), disabled(), env.authenticatedContext("w1", { role: "worker" }).firestore()])
       await assertFails(getDoc(doc(db, "shiftAttendance/2026-11-07")));
-    for (const db of [admin(), staff(), env.authenticatedContext("w1", { role: "worker" }).firestore()])
-      await assertFails(setDoc(doc(db, "shiftAttendance/2026-11-07"), { members: { m1: "in" } }));
+    for (const db of [staff(), env.authenticatedContext("w1", { role: "worker" }).firestore()])
+      await assertFails(setDoc(doc(db, "shiftAttendance/2026-11-07"), { members: { m1: "in" } }, { merge: true }));
+    // 管理者：出勤・退勤は直せる。全員そろった印（allInAt）は入れられない・消せない
+    await assertSucceeds(setDoc(doc(admin(), "shiftAttendance/2026-11-07"), { members: { m2: "in" } }, { merge: true }));
+    await assertFails(setDoc(doc(admin(), "shiftAttendance/2026-11-08"), { members: { m1: "in" }, allInAt: 1 }));
+    await assertSucceeds(setDoc(doc(admin(), "shiftAttendance/2026-11-08"), { members: { m1: "in" } }));
+    await assertFails(setDoc(doc(admin(), "shiftAttendance/2026-11-08"), { allInAt: 1 }, { merge: true }));
+    await assertFails(setDoc(doc(admin(), "shiftAttendance/2026-11-08"), { members: { m1: "in" }, secret: 1 }, { merge: true }));
   });
 });
 

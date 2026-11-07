@@ -456,6 +456,12 @@ service cloud.firestore {
     // 勤務管理表の出勤・退勤の色（打刻タブレットでかざすとサーバーが入れる。時刻は入れない）。勤務管理表を使える人（管理者・スタッフ）だけ見られる
     match /shiftAttendance/{date} {
       allow read: if can(['shift']);
+      // 管理者がタイムカードの画面で今日の時刻を直したとき、出勤・退勤（members）だけ合わせられる（全員そろった印 allInAt はサーバーだけ）
+      allow write: if isAdmin()
+        && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['members', 'updatedAt', 'allInAt'])
+        && request.resource.data.members is map && request.resource.data.members.size() <= 200
+        && (resource == null ? !('allInAt' in request.resource.data) : request.resource.data.get('allInAt', null) == resource.data.get('allInAt', null));
     }
     match /shiftDays/{date} {
       allow read: if can(['shift', 'harvest', 'tempWatch']) || isWorker();

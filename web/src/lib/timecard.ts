@@ -4,11 +4,25 @@
 // - 取り込んだ打刻は、暦の月ごとに timecards/{YYYY-MM} に入れる（カード番号 → 日 → 出勤・退勤）
 // - 画面で直した時刻は、元の打刻とは別に e に入れる（取り込み直しても消えない）
 // - 丸め・休憩・締め日・カード番号と従業員のひも付けは config/timecard
-import { deleteDoc, deleteField, doc, FieldPath, onSnapshot, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  FieldPath,
+  getDocs,
+  onSnapshot,
+  query,
+  setDoc,
+  serverTimestamp,
+  updateDoc,
+  getDoc,
+  where,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { parseCsv } from "./csv";
 import { getFirebase } from "./firebase";
-import { shiftMonth } from "./date";
+import { shiftMonth, todayJST } from "./date";
 
 /**
  * 1日の打刻。時刻は0時からの分（USBのデータのまま。例 347 → 5:47、1041 → 17:21）。
@@ -455,6 +469,27 @@ export async function importTimecard(parsed: ParsedTimecard, fileName: string) {
 /** 1日分を直す。e＝時刻（null＝元の打刻に戻す）、bk＝休憩（null＝自動に戻す） */
 export async function saveTimecardEdit(date: string, card: string, e: { i: number | null; o: number | null } | null) {
   await saveDayField(date, card, "e", e);
+  // 今日の分を直したら、勤務管理表の出勤・退勤の色も合わせる（失敗しても、直した時刻はそのまま）
+  if (date === todayJST()) await syncAttendance(date, card).catch(() => {});
+}
+
+/**
+ * 勤務管理表の今日の色（shiftAttendance）を、タイムカードのその日の時刻（直した時刻があればそちら）に合わせる。
+ * 退勤があれば「退勤」、出勤だけなら「出勤」、どちらもなければ色を消す
+ */
+async function syncAttendance(date: string, card: string) {
+  const { db } = await getFirebase();
+  const [month, cfg] = await Promise.all([getDoc(doc(db, `timecards/${date.slice(0, 7)}`)), getDoc(doc(db, "config/timecard"))]);
+  const day = (month.data() as TimecardMonth | undefined)?.cards?.[card]?.[date.slice(8)];
+  const t = day?.e ?? day;
+  const status = t?.o != null ? "out" : t?.i != null ? "in" : null;
+  // カード → 従業員（カードのひも付け。なければ社員番号がカード番号と同じ人）→ 勤務管理表の従業員
+  let empId = ((cfg.get("cards") ?? {}) as Record<string, string>)[card];
+  if (!empId) empId = (await getDocs(query(collection(db, "employees"), where("code", "==", card)))).docs[0]?.id;
+  if (!empId) return;
+  const memberId = (await getDoc(doc(db, "employees", empId))).get("memberId");
+  if (typeof memberId !== "string" || !memberId) return;
+  await setDoc(doc(db, "shiftAttendance", date), { members: { [memberId]: status ?? deleteField() }, updatedAt: serverTimestamp() }, { merge: true });
 }
 export async function saveTimecardBreak(date: string, card: string, minutes: number | null) {
   await saveDayField(date, card, "bk", minutes);
