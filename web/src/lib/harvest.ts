@@ -19,6 +19,8 @@ export type HouseHarvest = {
   start?: number | null;
   end?: number | null;
   cases?: number;
+  /** 確定数を「確定」した（二段階で押す）。確定したハウスは、＋1・−1・直接の入力ができない（解除するまで） */
+  casesLocked?: boolean;
   left?: string[];
   helpers?: string[];
   /** 「入った」が、収穫の開始時刻を画面が自動で入れたものか（まだ本当に入ったかわからない）。本人が携帯で押したか、手で入れたら外す */

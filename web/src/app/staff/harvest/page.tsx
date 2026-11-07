@@ -575,6 +575,13 @@ function Sheet({
   const [error, setError] = useState("");
   /** ドラッグ中の名前と指の位置 */
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** 確定・解除の1回目を押したハウス（もう一度押すと決まる。5秒で元に戻る） */
+  const [armed, setArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 5000);
+    return () => clearTimeout(t);
+  }, [armed]);
   const start = useRef<{ id: string; from: string; x: number; y: number; moved: boolean } | null>(null);
   const names = new Map(members.map((m) => [m.id, m.name]));
   const usageOf = (h: string) => use.houses[h] ?? "harvest";
@@ -872,17 +879,69 @@ function Sheet({
       )}
     </span>
   );
-  const casesCell = (h: string) => (
-    <TextCell
-      key={`c${rec[h]?.cases}`}
-      value={rec[h]?.cases ? round1(rec[h].cases!).toFixed(1) : ""}
-      placeholder="0.0"
-      decimal
-      big
-      parse={parseCases}
-      onCommit={(v) => run(save(h, { cases: v ?? 0 }))}
-    />
-  );
+  const locked = (h: string) => rec[h]?.casesLocked === true;
+  /** 確定・解除のボタン（二段階：1回目で「もう一度押すと…」、5秒以内にもう一度押すと決まる） */
+  const lockButton = (h: string, cls = "") => {
+    const n = rec[h]?.cases ?? 0;
+    if (locked(h)) {
+      const key = `${h}:unlock`;
+      return armed === key ? (
+        <button
+          onClick={() => {
+            setArmed(null);
+            run(save(h, { casesLocked: false }));
+          }}
+          className={`rounded-lg border-2 border-red-500 bg-red-50 px-3 font-bold text-red-700 ${cls}`}
+        >
+          もう一度押すと解除
+        </button>
+      ) : (
+        <button onClick={() => setArmed(key)} className={`rounded-lg border px-3 text-sm text-gray-600 ${cls}`} aria-label={`No.${h} の確定を解除`}>
+          解除
+        </button>
+      );
+    }
+    if (n <= 0) return null;
+    const key = `${h}:lock`;
+    return armed === key ? (
+      <button
+        onClick={() => {
+          setArmed(null);
+          run(save(h, { casesLocked: true }));
+        }}
+        className={`rounded-lg bg-emerald-600 px-3 font-bold text-white active:scale-95 ${cls}`}
+      >
+        もう一度押すと {fmtCases(n)} で確定
+      </button>
+    ) : (
+      <button
+        onClick={() => setArmed(key)}
+        className={`rounded-lg border-2 border-emerald-600 bg-white px-3 font-bold text-emerald-700 ${cls}`}
+        aria-label={`No.${h} の確定数を確定`}
+      >
+        確定
+      </button>
+    );
+  };
+  const casesCell = (h: string) =>
+    locked(h) ? (
+      <span
+        className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-lg font-bold text-emerald-800"
+        title="確定しています（変えるときは「解除」）"
+      >
+        🔒 {round1(rec[h]?.cases ?? 0).toFixed(1)}
+      </span>
+    ) : (
+      <TextCell
+        key={`c${rec[h]?.cases}`}
+        value={rec[h]?.cases ? round1(rec[h].cases!).toFixed(1) : ""}
+        placeholder="0.0"
+        decimal
+        big
+        parse={parseCases}
+        onCommit={(v) => run(save(h, { cases: v ?? 0 }))}
+      />
+    );
   const minus = (h: string, cls = "") => (
     <button
       onClick={() => run(add(h, -1))}
@@ -978,11 +1037,21 @@ function Sheet({
                   <span className="text-xs text-gray-500">終</span>
                   {endCell(h, true)}
                 </div>
-                <div className="mt-2 grid grid-cols-[1fr_2fr_1.3fr] gap-1.5">
-                  {minus(h, "py-3")}
-                  {plus(h, "py-3 text-xl")}
-                  {plusTenth(h, "py-3 text-lg")}
-                </div>
+                {locked(h) ? (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2">
+                    <span className="font-bold text-emerald-800">🔒 確定しました（{fmtCases(rec[h]?.cases ?? 0)}）</span>
+                    <span className="ml-auto">{lockButton(h, "py-2")}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-2 grid grid-cols-[1fr_2fr_1.3fr] gap-1.5">
+                      {minus(h, "py-3")}
+                      {plus(h, "py-3 text-xl")}
+                      {plusTenth(h, "py-3 text-lg")}
+                    </div>
+                    {(rec[h]?.cases ?? 0) > 0 && <div className="mt-1.5 flex justify-end">{lockButton(h, "py-2")}</div>}
+                  </>
+                )}
               </div>
             ),
           )}
@@ -1028,9 +1097,14 @@ function Sheet({
                     <td className="px-2 py-1.5">{endCell(h)}</td>
                     <td className="px-2 py-1.5">{casesCell(h)}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
-                      {minus(h, "mr-1")}
-                      {plus(h, "mr-1 px-5 py-2 text-lg")}
-                      {plusTenth(h, "px-3 py-2")}
+                      {!locked(h) && (
+                        <>
+                          {minus(h, "mr-1")}
+                          {plus(h, "mr-1 px-5 py-2 text-lg")}
+                          {plusTenth(h, "mr-1 px-3 py-2")}
+                        </>
+                      )}
+                      {lockButton(h, "py-2")}
                     </td>
                     {isAdmin && <td className="px-2 py-1.5 text-right text-sky-800">{rateOf(h)}</td>}
                   </>
