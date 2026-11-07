@@ -689,6 +689,8 @@ function SpeedTable({ speeds, names }: { speeds: HarvestSpeeds; names: Map<strin
   );
 }
 
+/** 1つのプランターに植わっている株数 */
+const PER_PLANTER = 8;
 /** ハウスの株数（ハウスの大きさ。予測に使う） */
 /** 温度の動き：1画面の長さ・まとめる間隔・読む日数・目盛りの間隔 */
 const TREND = {
@@ -1008,6 +1010,11 @@ function PlantsSetting({ plants, houses }: { plants: Record<string, number>; hou
   const [edit, setEdit] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const total = houses.reduce((n, h) => n + (plants[h] ?? 0), 0);
+  /** プランターの数（1つのプランターに8株）。割り切れないときは小数1けた */
+  const planters = (n: number) => {
+    const v = n / PER_PLANTER;
+    return Number.isInteger(v) ? v.toLocaleString("ja-JP") : v.toLocaleString("ja-JP", { maximumFractionDigits: 1 });
+  };
   async function save() {
     const next: Record<string, number> = {};
     for (const h of houses) {
@@ -1032,24 +1039,31 @@ function PlantsSetting({ plants, houses }: { plants: Record<string, number>; hou
         }}
         className="font-bold text-gray-700"
       >
-        {open ? "▼" : "▶"} ハウスの株数（合計 {total.toLocaleString("ja-JP")}株）
+        {open ? "▼" : "▶"} ハウスの株数（合計 {total.toLocaleString("ja-JP")}株・プランター {planters(total)}個）
       </button>
       {msg && <span className="ml-3">{msg}</span>}
       {open && (
         <div className="mt-2">
           <p className="text-gray-600">収穫終了の予測で、ハウスの大きさとして使います。いちご狩り前・後ろの日は、半分の株数で計算します。</p>
-          <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {houses.map((h) => (
-              <label key={h} className="flex items-center gap-1">
-                <span className="w-12 font-bold">No.{h}</span>
-                <input
-                  value={edit[h] ?? String(plants[h] ?? "")}
-                  inputMode="numeric"
-                  onChange={(e) => setEdit({ ...edit, [h]: e.target.value })}
-                  className="w-20 rounded border px-2 py-1 text-right tabular-nums"
-                />
-              </label>
-            ))}
+          <p className="text-gray-600">
+            株数の右は、プランターの数（1つのプランターに{PER_PLANTER}株：株数÷{PER_PLANTER}）です。
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {houses.map((h) => {
+              const n = Number((edit[h] ?? String(plants[h] ?? "")).replace(/[^0-9]/g, ""));
+              return (
+                <label key={h} className="flex items-center gap-1">
+                  <span className="w-12 font-bold">No.{h}</span>
+                  <input
+                    value={edit[h] ?? String(plants[h] ?? "")}
+                    inputMode="numeric"
+                    onChange={(e) => setEdit({ ...edit, [h]: e.target.value })}
+                    className="w-20 rounded border px-2 py-1 text-right tabular-nums"
+                  />
+                  <span className="whitespace-nowrap text-xs text-gray-600 tabular-nums">{n > 0 ? `${planters(n)}個` : ""}</span>
+                </label>
+              );
+            })}
           </div>
           <button onClick={() => void save()} className="mt-2 rounded-lg bg-berry px-4 py-2 font-bold text-white">
             保存する
