@@ -122,12 +122,12 @@ export function ShiftTable({
   const colTone = (d: string) => (d === today ? "bg-amber-50" : wdOf(d) === 0 ? "bg-red-50/60" : wdOf(d) === 6 ? "bg-sky-50/60" : "");
   const headBase = `sticky left-0 z-10 whitespace-nowrap border-r text-left ${compact ? "px-1" : "px-2"}`;
   const head = `${headBase} bg-white`;
-  /** 打刻タブレットでかざした人の今日のマス：出勤＝やさしい緑、退勤＝濃い灰色（行の縞の色と見分けられるように）。全員そろったら平山さんのマスを金色に */
+  /** 打刻タブレットでかざした人の今日のマス：出勤＝作業配置表のハウス番号の色（収穫の黄色）、退勤＝濃い灰色（行の縞の色と見分けられるように）。全員そろったら平山さんのマスを金色に */
   const attTone = (d: string, m: ShiftMember) => {
     if (!attendance || attendance.date !== d) return "";
     if (attendance.allIn && m.name.startsWith(OWNER_NAME)) return "bg-amber-300! text-amber-950";
     const a = attendance.members[m.id];
-    return a === "in" ? "bg-emerald-200! text-emerald-950" : a === "out" ? "bg-gray-400! text-white" : "";
+    return a === "in" ? "bg-[#fef3c7]! text-amber-950" : a === "out" ? "bg-gray-400! text-white" : "";
   };
   /** 月曜〜日曜を1週間として、月曜の左に太い縦線を引く */
   const wk = (d: string) => (wdOf(d) === 1 ? "border-l-2 border-l-gray-800!" : "");
